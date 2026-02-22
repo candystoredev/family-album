@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { timingSafeEqual } from "crypto";
 import { db } from "./db";
 import bcrypt from "bcryptjs";
 
@@ -61,7 +62,12 @@ export async function verifyViewerPassword(password: string): Promise<boolean> {
 }
 
 export async function verifyAdminPassword(password: string): Promise<boolean> {
-  return password === process.env.ADMIN_PASSWORD;
+  const expected = process.env.ADMIN_PASSWORD;
+  if (!expected) return false;
+  if (password.length !== expected.length) return false;
+  const a = Buffer.from(password);
+  const b = Buffer.from(expected);
+  return timingSafeEqual(a, b);
 }
 
 export function verifyApiToken(request: Request): boolean {

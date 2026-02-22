@@ -15,9 +15,6 @@ const PUBLIC_PATHS = [
 // Admin paths that require admin role
 const ADMIN_PATHS = ["/admin", "/api/admin"];
 
-// API paths that accept bearer token auth
-const API_PATHS = ["/api/"];
-
 function isPublicPath(pathname: string): boolean {
   // Individual post pages are public (for OG previews)
   if (pathname.startsWith("/posts/")) return true;
@@ -45,6 +42,10 @@ export async function middleware(request: NextRequest) {
   // Check session cookie
   const token = request.cookies.get(COOKIE_NAME)?.value;
   if (!token) {
+    // API routes get 401 JSON, browser routes get redirected to login
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

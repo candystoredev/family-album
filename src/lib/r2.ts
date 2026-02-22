@@ -21,7 +21,7 @@ export function getR2(): S3Client {
 }
 
 export const BUCKET = () => process.env.R2_BUCKET_NAME!;
-export const PUBLIC_URL = () => process.env.R2_PUBLIC_URL!;
+export const PUBLIC_URL = () => process.env.R2_PUBLIC_URL!.replace(/\/+$/, "");
 
 /** Upload a buffer to R2 and return the public URL */
 export async function uploadToR2(
