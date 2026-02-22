@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import LogoutButton from "@/components/LogoutButton";
 import PhotoGrid from "@/components/PhotoGrid";
+import SeedButton from "@/components/SeedButton";
 
 export const dynamic = "force-dynamic";
 
@@ -104,9 +105,12 @@ export default async function Home() {
 
       <div className="max-w-3xl mx-auto px-4 py-8">
         {posts.length === 0 ? (
-          <p className="text-[#666] text-center py-12">
-            No posts yet. The feed will appear here.
-          </p>
+          <div className="text-center py-12 space-y-6">
+            <p className="text-[#666]">
+              No posts yet. The feed will appear here.
+            </p>
+            {session.role === "admin" && <SeedButton />}
+          </div>
         ) : (
           <div className="space-y-12">
             {posts.map((post) => (

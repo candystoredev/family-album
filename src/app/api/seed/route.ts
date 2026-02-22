@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
 import { uploadToR2, PUBLIC_URL } from "@/lib/r2";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
@@ -43,8 +44,13 @@ async function generateTestImage(
 }
 
 export async function POST(request: Request) {
+  // Accept bearer token OR admin session cookie
   const auth = request.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.ADMIN_API_TOKEN}`) {
+  const hasBearerToken = auth === `Bearer ${process.env.ADMIN_API_TOKEN}`;
+  const session = await getSession();
+  const isAdmin = session?.role === "admin";
+
+  if (!hasBearerToken && !isAdmin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
