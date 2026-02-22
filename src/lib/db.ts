@@ -13,9 +13,14 @@ export function getDb(): Client {
 }
 
 // Convenience alias — lazy so it doesn't crash at import time during build
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const db = new Proxy({} as Client, {
   get(_, prop) {
-    return (getDb() as unknown as Record<string | symbol, unknown>)[prop];
+    const target = getDb();
+    const value = (target as unknown as Record<string | symbol, unknown>)[prop];
+    // Bind methods so they retain the correct `this` (needed for private fields)
+    if (typeof value === "function") {
+      return value.bind(target);
+    }
+    return value;
   },
 });
