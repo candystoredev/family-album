@@ -48,7 +48,9 @@ const TUMBLR_API_KEY = env("TUMBLR_API_KEY");
 const BLOG_ID = "www.thehoecks.com";
 const BATCH_SIZE = 20;
 const THUMB_WIDTH = 400;
-const DL_TIMEOUT = 60_000;
+const DL_TIMEOUT_IMG = 60_000;
+const DL_TIMEOUT_VID = 180_000; // videos can be large
+const DL_RETRIES = 3;
 
 /**
  * Tags matching these names (lowercase) are routed to post_people
@@ -158,16 +160,36 @@ function deriveLayout(blocks: Block[], layouts: LayoutBlock[]): string | null {
   return "1".repeat(n);
 }
 
-async function dl(url: string): Promise<Buffer> {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), DL_TIMEOUT);
-  try {
-    const r = await fetch(url, { signal: ac.signal });
-    if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
-    return Buffer.from(await r.arrayBuffer());
-  } finally {
-    clearTimeout(t);
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function dl(url: string, isVideo = false): Promise<Buffer> {
+  const timeout = isVideo ? DL_TIMEOUT_VID : DL_TIMEOUT_IMG;
+  let lastErr: Error | undefined;
+  for (let attempt = 1; attempt <= DL_RETRIES; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeout);
+    try {
+      const r = await fetch(url, { signal: ac.signal });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+      return Buffer.from(await r.arrayBuffer());
+    } catch (e) {
+      lastErr = e as Error;
+      if (attempt < DL_RETRIES) {
+        const wait = 1000 * 2 ** (attempt - 1); // 1s, 2s, 4s
+        console.log(`    retry ${attempt}/${DL_RETRIES} in ${wait}ms: ${lastErr.message}`);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    } finally {
+      clearTimeout(t);
+    }
   }
+  throw lastErr!;
 }
 
 async function mkThumb(buf: Buffer, mime: string): Promise<Buffer> {
@@ -232,8 +254,8 @@ async function ensurePerson(name: string): Promise<string> {
   return id;
 }
 
-// ─── Fetch all posts from Tumblr ────────────────────────────
-async function fetchAll(): Promise<TumblrPost[]> {
+// ─── Fetch posts from Tumblr ────────────────────────────────
+async function fetchAll(maxCount = Infinity): Promise<TumblrPost[]> {
   const all: TumblrPost[] = [];
   let cursor: string | undefined;
   let page = 0;
@@ -260,6 +282,9 @@ async function fetchAll(): Promise<TumblrPost[]> {
     const total = json.response.total_posts;
     process.stdout.write(`\r  ${all.length} / ${total} fetched`);
 
+    // Stop early if we have enough for offset + limit
+    if (all.length >= maxCount) break;
+
     const next = json.response._links?.next;
     if (!next) break;
     cursor = next.query_params.page_number;
@@ -278,7 +303,7 @@ async function migrate(
   idx: number,
   total: number,
 ): Promise<"ok" | "skip" | "fail"> {
-  // Resolve slug (ensure non-empty and unique)
+  // Resolve slug (ensure non-empty, use Tumblr ID as last resort)
   let slug = post.slug || slugify(post.summary || "");
   if (!slug) slug = `post-${post.id_string}`;
 
@@ -303,7 +328,8 @@ async function migrate(
   let body: string | null = null;
   if (texts.length) {
     const raw = texts.map((b) => b.text!).join("\n");
-    if (raw !== title) body = texts.map((b) => `<p>${b.text}</p>`).join("");
+    if (raw !== title)
+      body = texts.map((b) => `<p>${escapeHtml(b.text!)}</p>`).join("");
   }
 
   const mediaBlocks = post.content.filter(
@@ -368,7 +394,7 @@ async function migrate(
         const rk = `media/${mid}/original.mp4`;
         const tk = `media/${mid}/thumb.jpg`;
 
-        const buf = await dl(vm.url);
+        const buf = await dl(vm.url, true);
 
         // Thumbnail from Tumblr poster frame
         let tb: Buffer;
@@ -457,9 +483,10 @@ async function main() {
   if (offset) console.log(`  Offset: ${offset}`);
   console.log();
 
-  // Fetch all posts
+  // Fetch posts (stop early if limit is set)
+  const needed = offset + limit;
   console.log("Fetching posts from Tumblr...");
-  let posts = await fetchAll();
+  let posts = await fetchAll(needed);
   console.log(`Fetched ${posts.length} posts\n`);
 
   // Apply offset + limit
