@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate": "tsx scripts/migrate.ts",
+    "migrate:dry": "tsx scripts/migrate.ts --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
@@ -28,6 +30,7 @@
     "@types/react-dom": "^19",
     "@types/sharp": "^0.31.1",
     "tailwindcss": "^4",
+    "tsx": "^4",
     "typescript": "^5"
   }
 }
