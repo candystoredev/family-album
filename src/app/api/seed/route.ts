@@ -300,8 +300,19 @@ export async function POST(request: Request) {
     ];
 
     const results = [];
+    let skipped = 0;
 
     for (const post of testPosts) {
+      // Skip if a post with this title already exists
+      const existing = await db.execute({
+        sql: `SELECT id FROM posts WHERE title = ? LIMIT 1`,
+        args: [post.title],
+      });
+      if (existing.rows.length > 0) {
+        skipped++;
+        continue;
+      }
+
       const postId = nanoid();
       const slug = `${post.slug}-${nanoid(6)}`;
 
@@ -364,13 +375,61 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      message: `Seeded ${results.length} test posts with media in R2`,
+      message: `Seeded ${results.length} test posts with media in R2${skipped > 0 ? ` (skipped ${skipped} existing)` : ""}`,
       posts: results,
     });
   } catch (error) {
     console.error("Seed error:", error);
     return NextResponse.json(
       { error: "Seed failed", details: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+/** DELETE /api/seed — Remove duplicate posts (keeps newest per title, deletes older dupes) */
+export async function DELETE(request: Request) {
+  const auth = request.headers.get("authorization");
+  const hasBearerToken = auth === `Bearer ${process.env.ADMIN_API_TOKEN}`;
+  const session = await getSession();
+  const isAdmin = session?.role === "admin";
+
+  if (!hasBearerToken && !isAdmin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    // Find titles that appear more than once
+    const dupes = await db.execute(
+      `SELECT title, COUNT(*) as cnt FROM posts WHERE title IS NOT NULL GROUP BY title HAVING cnt > 1`
+    );
+
+    let deleted = 0;
+    for (const row of dupes.rows) {
+      const title = row.title as string;
+      // Keep the post with the latest created_at (or highest rowid), delete the rest
+      const posts = await db.execute({
+        sql: `SELECT id FROM posts WHERE title = ? ORDER BY created_at DESC, id DESC`,
+        args: [title],
+      });
+      // Skip the first (newest), delete the rest
+      const idsToDelete = posts.rows.slice(1).map((r) => r.id as string);
+      for (const id of idsToDelete) {
+        // Media cascade-deletes via FK, but R2 media remains (cleanup separately if needed)
+        await db.execute({ sql: `DELETE FROM posts WHERE id = ?`, args: [id] });
+        deleted++;
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: `Removed ${deleted} duplicate posts`,
+      duplicateTitles: dupes.rows.map((r) => r.title),
+    });
+  } catch (error) {
+    console.error("Dedup error:", error);
+    return NextResponse.json(
+      { error: "Dedup failed", details: String(error) },
       { status: 500 }
     );
   }

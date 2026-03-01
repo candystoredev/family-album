@@ -1,33 +1,35 @@
 # State
 
 ## Current Status
-Phases 1-3 complete. Phase 4a (polished feed + cursor-based infinite scroll) implemented and deployed. Feed uses cursor-based pagination with `(date, id)` tiebreaker, IntersectionObserver-based infinite scroll, sticky header, edge-to-edge images on mobile, and polished dark theme styling. 25-post seed script for testing pagination.
+Phases 1-3 complete. Phase 4a verified. Phase 4b (post pages + OG tags + iMessage button) implemented. Individual post pages at `/posts/{slug}` with full OG metadata for iMessage/social previews, iMessage "Text us about this" button (mobile) with desktop fallback, `X-Robots-Tag` header, and `noindex` meta. Feed posts now link to individual post pages.
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4a complete — verifying infinite scroll with expanded seed data, then Phase 4b
+Phase 4b deployed — needs verification (paste URL in iMessage, check OG preview, test iMessage button)
 
 ## Blockers
 - Tumblr blog handle not yet confirmed by Tom (migration script has `www.thehoecks.com` hardcoded)
 
 ## Known Issues
-- No individual post pages
-- No OG tags for iMessage previews
 - Seed test posts must be deleted before running real migration
 - PEOPLE set in migration script is empty (needs family names from Tom)
 - FTS5 tags field always inserts empty string (trigger doesn't join tag names)
 
 ## Next Action
-Verify Phase 4a (scroll loads next page seamlessly, no dupes/skips, works on phone), then begin Phase 4b (post pages + OG tags)
+Verify Phase 4b (paste post URL in iMessage → preview card, tap iMessage button on phone → opens text), then clean up 3 duplicate posts via `DELETE /api/seed`, then begin Phase 4c (lightbox + photoset grids)
 
 ## Recent Changes
+- Phase 4b: Post detail pages at `/posts/[slug]` with OG tags
+- Phase 4b: iMessage "Text us about this" button (mobile) + desktop fallback
+- Phase 4b: Feed posts link to individual post pages (title, image, date all clickable)
+- Phase 4b: `X-Robots-Tag: noindex, nofollow` header + `<meta robots>` on post pages
+- Seed endpoint: skip posts by title if already exists (dedup)
+- Seed endpoint: DELETE handler to clean up duplicate posts
 - Expanded seed script from 3 to 25 posts spanning 2023-2025 with varied layouts
 - Edge-to-edge images on mobile (negative margins), rounded corners on desktop only
 - PAGE_SIZE restored to 20 for proper pagination testing
-- Consolidated project docs under `apps/thehoecks/docs/`
-- Created CLAUDE.md for AI agent orientation
 
 ## Relevant Files
 - `apps/thehoecks/src/app/page.tsx` — home feed (SSR first page)
@@ -40,7 +42,9 @@ Verify Phase 4a (scroll loads next page seamlessly, no dupes/skips, works on pho
 - `apps/thehoecks/src/lib/db.ts` — Turso client
 - `apps/thehoecks/src/lib/r2.ts` — R2 upload/delete
 - `apps/thehoecks/src/lib/schema.ts` — all table definitions + FTS5
+- `apps/thehoecks/src/app/posts/[slug]/page.tsx` — individual post page with OG tags
 - `apps/thehoecks/src/components/PhotoGrid.tsx` — multi-photo grid + layout parser
+- `apps/thehoecks/src/components/IMessageButton.tsx` — iMessage share button
 - `apps/thehoecks/src/components/LogoutButton.tsx` — logout UI
 - `apps/thehoecks/src/components/SeedButton.tsx` — seed test data UI
 - `apps/thehoecks/src/app/api/init/route.ts` — schema init + settings seed

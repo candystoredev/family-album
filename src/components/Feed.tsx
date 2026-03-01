@@ -81,19 +81,21 @@ export default function Feed({ initialPosts, initialCursor }: FeedProps) {
       <div className="space-y-16">
         {posts.map((post) => (
           <article key={post.id}>
-            {/* Media — bleed to screen edge on mobile */}
+            {/* Media — bleed to screen edge on mobile, links to post page */}
             {post.media.length > 0 && (
-              <div className="-mx-4 sm:mx-0">
+              <a href={`/posts/${post.slug}`} className="-mx-4 sm:mx-0 block">
                 <PhotoGrid media={post.media} layout={post.photoset_layout} />
-              </div>
+              </a>
             )}
 
             {/* Post info */}
             <div className="mt-4 px-1">
               {post.title && (
-                <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
-                  {post.title}
-                </h2>
+                <a href={`/posts/${post.slug}`} className="block group">
+                  <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5 group-hover:text-[#427ea3] transition-colors">
+                    {post.title}
+                  </h2>
+                </a>
               )}
               {post.body && (
                 <div
@@ -101,9 +103,12 @@ export default function Feed({ initialPosts, initialCursor }: FeedProps) {
                   dangerouslySetInnerHTML={{ __html: post.body }}
                 />
               )}
-              <time className="text-[#555] text-xs tracking-wide uppercase">
+              <a
+                href={`/posts/${post.slug}`}
+                className="text-[#555] text-xs tracking-wide uppercase hover:text-[#777] transition-colors"
+              >
                 {formatDate(post.date)}
-              </time>
+              </a>
             </div>
           </article>
         ))}
