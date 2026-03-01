@@ -4,3 +4,26 @@ body {
   background-color: #1d1c1c;
   color: #d3d3d3;
 }
+
+/* Migrated post bodies contain HTML — style inline elements */
+.post-body a {
+  color: #427ea3;
+  text-decoration: underline;
+  text-decoration-color: #427ea3/40;
+  text-underline-offset: 2px;
+}
+
+.post-body a:hover {
+  color: #5a9ec4;
+}
+
+.post-body p + p {
+  margin-top: 0.5em;
+}
+
+.post-body blockquote {
+  border-left: 2px solid #333;
+  padding-left: 1em;
+  color: #888;
+  margin: 0.5em 0;
+}
