@@ -121,7 +121,14 @@ export default async function Home() {
             {session.role === "admin" && <SeedButton />}
           </div>
         ) : (
-          <Feed initialPosts={posts} initialCursor={nextCursor} />
+          <>
+            <Feed initialPosts={posts} initialCursor={nextCursor} />
+            {session.role === "admin" && (
+              <div className="flex justify-center pt-8">
+                <SeedButton />
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>
