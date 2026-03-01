@@ -21,7 +21,7 @@ export default function PhotoGrid({ media, layout }: PhotoGridProps) {
   if (media.length === 1) {
     const item = media[0];
     return (
-      <div className="rounded-lg overflow-hidden">
+      <div className="sm:rounded-lg overflow-hidden">
         {item.type === "video" ? (
           <video
             src={item.url}
@@ -47,7 +47,7 @@ export default function PhotoGrid({ media, layout }: PhotoGridProps) {
   let mediaIndex = 0;
 
   return (
-    <div className="flex flex-col gap-1 rounded-lg overflow-hidden">
+    <div className="flex flex-col gap-1 sm:rounded-lg overflow-hidden">
       {rows.map((count, rowIdx) => {
         const rowMedia = media.slice(mediaIndex, mediaIndex + count);
         mediaIndex += count;

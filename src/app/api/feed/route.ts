@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-const PAGE_SIZE = 1; // TODO: revert to 20 after verifying infinite scroll
+const PAGE_SIZE = 20;
 
 interface PostRow {
   id: string;

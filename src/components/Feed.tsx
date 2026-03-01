@@ -81,9 +81,11 @@ export default function Feed({ initialPosts, initialCursor }: FeedProps) {
       <div className="space-y-16">
         {posts.map((post) => (
           <article key={post.id}>
-            {/* Media */}
+            {/* Media — bleed to screen edge on mobile */}
             {post.media.length > 0 && (
-              <PhotoGrid media={post.media} layout={post.photoset_layout} />
+              <div className="-mx-4 sm:mx-0">
+                <PhotoGrid media={post.media} layout={post.photoset_layout} />
+              </div>
             )}
 
             {/* Post info */}
