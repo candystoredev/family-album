@@ -1,13 +1,13 @@
 # State
 
 ## Current Status
-Phases 1-3 complete. Phase 4a verified. Phase 4b (post pages + OG tags + iMessage button) implemented. Individual post pages at `/posts/{slug}` with full OG metadata for iMessage/social previews, iMessage "Text us about this" button (mobile) with desktop fallback, `X-Robots-Tag` header, and `noindex` meta. Feed posts now link to individual post pages.
+Phases 1-3 complete. Phase 4a verified. Phase 4b+4c merged: post detail pages at `/posts/{slug}` for OG/permalink only (users don't navigate there). Feed has fullscreen lightbox (tap image → fullscreen, swipe through photoset, keyboard arrows on desktop). Blue chat bubble iMessage button on every post in the feed. `X-Robots-Tag` + `noindex` on post pages.
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4b deployed — needs verification (paste URL in iMessage, check OG preview, test iMessage button)
+Phase 4b+4c deployed — needs verification (lightbox, iMessage bubble, OG preview via shared link)
 
 ## Blockers
 - Tumblr blog handle not yet confirmed by Tom (migration script has `www.thehoecks.com` hardcoded)
@@ -18,18 +18,17 @@ Phase 4b deployed — needs verification (paste URL in iMessage, check OG previe
 - FTS5 tags field always inserts empty string (trigger doesn't join tag names)
 
 ## Next Action
-Verify Phase 4b (paste post URL in iMessage → preview card, tap iMessage button on phone → opens text), then clean up 3 duplicate posts via `DELETE /api/seed`, then begin Phase 4c (lightbox + photoset grids)
+Verify lightbox (tap image → fullscreen, swipe photoset, landscape rotation), iMessage bubble (tap → opens SMS), OG preview (paste post URL in iMessage). Then begin Phase 4d (tag/people/album filtered pages).
 
 ## Recent Changes
+- Fullscreen lightbox: tap any image → fullscreen view, swipe left/right for photosets, dot indicators, keyboard arrows on desktop, body scroll lock
+- iMessage chat bubble: blue icon next to each post's caption, opens pre-filled SMS with post URL
+- Post detail page simplified to permalink-only (OG tags for link previews, no iMessage button)
+- Feed images no longer link to post pages — tap opens lightbox instead
 - Phase 4b: Post detail pages at `/posts/[slug]` with OG tags
-- Phase 4b: iMessage "Text us about this" button (mobile) + desktop fallback
-- Phase 4b: Feed posts link to individual post pages (title, image, date all clickable)
 - Phase 4b: `X-Robots-Tag: noindex, nofollow` header + `<meta robots>` on post pages
 - Seed endpoint: skip posts by title if already exists (dedup)
 - Seed endpoint: DELETE handler to clean up duplicate posts
-- Expanded seed script from 3 to 25 posts spanning 2023-2025 with varied layouts
-- Edge-to-edge images on mobile (negative margins), rounded corners on desktop only
-- PAGE_SIZE restored to 20 for proper pagination testing
 
 ## Relevant Files
 - `apps/thehoecks/src/app/page.tsx` — home feed (SSR first page)
@@ -44,7 +43,7 @@ Verify Phase 4b (paste post URL in iMessage → preview card, tap iMessage butto
 - `apps/thehoecks/src/lib/schema.ts` — all table definitions + FTS5
 - `apps/thehoecks/src/app/posts/[slug]/page.tsx` — individual post page with OG tags
 - `apps/thehoecks/src/components/PhotoGrid.tsx` — multi-photo grid + layout parser
-- `apps/thehoecks/src/components/IMessageButton.tsx` — iMessage share button
+- `apps/thehoecks/src/components/Lightbox.tsx` — fullscreen image viewer with swipe
 - `apps/thehoecks/src/components/LogoutButton.tsx` — logout UI
 - `apps/thehoecks/src/components/SeedButton.tsx` — seed test data UI
 - `apps/thehoecks/src/app/api/init/route.ts` — schema init + settings seed

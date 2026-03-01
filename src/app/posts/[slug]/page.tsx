@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import PhotoGrid from "@/components/PhotoGrid";
-import IMessageButton from "@/components/IMessageButton";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -61,14 +60,6 @@ async function getPost(slug: string) {
   };
 }
 
-async function getImessageRecipients(): Promise<string> {
-  const result = await db.execute({
-    sql: `SELECT value FROM site_settings WHERE key = ?`,
-    args: ["imessage_recipients"],
-  });
-  return result.rows.length > 0 ? (result.rows[0].value as string) : "";
-}
-
 export async function generateMetadata({
   params,
 }: {
@@ -117,10 +108,6 @@ export default async function PostPage({
   const post = await getPost(slug);
   if (!post) notFound();
 
-  const recipients = await getImessageRecipients();
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
-  const postUrl = `${siteUrl}/posts/${post.slug}`;
-
   return (
     <main className="min-h-screen bg-[#1d1c1c]">
       <header className="sticky top-0 z-10 bg-[#1d1c1c]/95 backdrop-blur-sm border-b border-[#2a2929]">
@@ -159,17 +146,6 @@ export default async function PostPage({
             {formatDate(post.date)}
           </time>
         </div>
-
-        {/* iMessage button */}
-        {recipients && (
-          <div className="mt-8 px-1">
-            <IMessageButton
-              recipients={recipients}
-              postUrl={postUrl}
-              postTitle={post.title}
-            />
-          </div>
-        )}
       </article>
     </main>
   );

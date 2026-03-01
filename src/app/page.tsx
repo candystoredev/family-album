@@ -88,11 +88,23 @@ async function getInitialFeed() {
   return { posts: postsWithMedia, nextCursor };
 }
 
+async function getImessageRecipients(): Promise<string> {
+  const result = await db.execute({
+    sql: `SELECT value FROM site_settings WHERE key = ?`,
+    args: ["imessage_recipients"],
+  });
+  return result.rows.length > 0 ? (result.rows[0].value as string) : "";
+}
+
 export default async function Home() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const { posts, nextCursor } = await getInitialFeed();
+  const [{ posts, nextCursor }, imessageRecipients] = await Promise.all([
+    getInitialFeed(),
+    getImessageRecipients(),
+  ]);
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
 
   return (
     <main className="min-h-screen bg-[#1d1c1c]">
@@ -122,7 +134,12 @@ export default async function Home() {
           </div>
         ) : (
           <>
-            <Feed initialPosts={posts} initialCursor={nextCursor} />
+            <Feed
+              initialPosts={posts}
+              initialCursor={nextCursor}
+              siteUrl={siteUrl}
+              imessageRecipients={imessageRecipients}
+            />
             {session.role === "admin" && (
               <div className="flex justify-center pt-8">
                 <SeedButton />

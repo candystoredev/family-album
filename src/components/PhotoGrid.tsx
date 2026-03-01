@@ -12,9 +12,10 @@ interface MediaItem {
 interface PhotoGridProps {
   media: MediaItem[];
   layout: string | null;
+  onImageClick?: (index: number) => void;
 }
 
-export default function PhotoGrid({ media, layout }: PhotoGridProps) {
+export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProps) {
   if (media.length === 0) return null;
 
   // Single photo — full width
@@ -35,7 +36,8 @@ export default function PhotoGrid({ media, layout }: PhotoGridProps) {
             src={item.thumbnailUrl}
             alt=""
             loading="lazy"
-            className="w-full h-auto"
+            className="w-full h-auto cursor-pointer"
+            onClick={() => onImageClick?.(0)}
           />
         )}
       </div>
@@ -49,11 +51,12 @@ export default function PhotoGrid({ media, layout }: PhotoGridProps) {
   return (
     <div className="flex flex-col gap-1 sm:rounded-lg overflow-hidden">
       {rows.map((count, rowIdx) => {
+        const startIdx = mediaIndex;
         const rowMedia = media.slice(mediaIndex, mediaIndex + count);
         mediaIndex += count;
         return (
           <div key={rowIdx} className="flex gap-1">
-            {rowMedia.map((item) => (
+            {rowMedia.map((item, itemIdx) => (
               <div
                 key={item.id}
                 className="flex-1 min-w-0"
@@ -72,8 +75,9 @@ export default function PhotoGrid({ media, layout }: PhotoGridProps) {
                     src={item.thumbnailUrl}
                     alt=""
                     loading="lazy"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover cursor-pointer"
                     style={{ aspectRatio: count > 1 ? "4/3" : undefined }}
+                    onClick={() => onImageClick?.(startIdx + itemIdx)}
                   />
                 )}
               </div>
