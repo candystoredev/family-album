@@ -134,12 +134,10 @@ export default function Feed({
                 </div>
 
                 {/* iMessage button */}
-                {recipients.length > 0 && (
-                  <IMessageBubble
-                    recipients={recipients}
-                    postUrl={`${siteUrl}/posts/${post.slug}`}
-                  />
-                )}
+                <IMessageBubble
+                  recipients={recipients}
+                  postUrl={`${siteUrl}/posts/${post.slug}`}
+                />
               </div>
             </div>
           </article>
@@ -182,7 +180,8 @@ function IMessageBubble({
   postUrl: string;
 }) {
   const body = `${postUrl}\n\nMy reaction:\n`;
-  const smsUrl = `sms:${recipients.join(",")}&body=${encodeURIComponent(body)}`;
+  const recipientPart = recipients.length > 0 ? recipients.join(",") : "";
+  const smsUrl = `sms:${recipientPart}&body=${encodeURIComponent(body)}`;
 
   return (
     <a

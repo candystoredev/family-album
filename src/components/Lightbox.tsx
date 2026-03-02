@@ -17,17 +17,30 @@ interface LightboxProps {
   onClose: () => void;
 }
 
+/** Preload an image and return a promise that resolves when loaded */
+function preloadImage(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve(); // resolve anyway so we don't block
+    img.src = url;
+  });
+}
+
 export default function Lightbox({
   media,
   initialIndex,
   onClose,
 }: LightboxProps) {
   const [index, setIndex] = useState(initialIndex);
+  const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const touchDeltaX = useRef(0);
+  const touchMoved = useRef(false);
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
+  const imageRef = useRef<HTMLImageElement>(null);
 
   const count = media.length;
   const current = media[index];
@@ -39,6 +52,39 @@ export default function Lightbox({
   const goPrev = useCallback(() => {
     if (index > 0) setIndex((i) => i - 1);
   }, [index]);
+
+  // Preload current image + adjacent images
+  useEffect(() => {
+    const toPreload = [index - 1, index, index + 1]
+      .filter((i) => i >= 0 && i < count)
+      .map((i) => media[i])
+      .filter((m) => m.type !== "video" && !loaded.has(m.id));
+
+    for (const m of toPreload) {
+      preloadImage(m.url).then(() => {
+        setLoaded((prev) => new Set(prev).add(m.id));
+      });
+    }
+  }, [index, count, media, loaded]);
+
+  // Preload ALL images on mount (start with current, then fan out)
+  useEffect(() => {
+    const ordered = [initialIndex];
+    for (let offset = 1; offset < count; offset++) {
+      if (initialIndex + offset < count) ordered.push(initialIndex + offset);
+      if (initialIndex - offset >= 0) ordered.push(initialIndex - offset);
+    }
+    for (const i of ordered) {
+      const m = media[i];
+      if (m.type !== "video") {
+        preloadImage(m.url).then(() => {
+          setLoaded((prev) => new Set(prev).add(m.id));
+        });
+      }
+    }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
@@ -64,6 +110,7 @@ export default function Lightbox({
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchDeltaX.current = 0;
+    touchMoved.current = false;
     setSwiping(true);
   }
 
@@ -71,6 +118,10 @@ export default function Lightbox({
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = e.touches[0].clientY - touchStartY.current;
     touchDeltaX.current = dx;
+
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      touchMoved.current = true;
+    }
 
     // Only track horizontal swipe if it's more horizontal than vertical
     if (Math.abs(dx) > Math.abs(dy)) {
@@ -89,6 +140,24 @@ export default function Lightbox({
     setOffsetX(0);
   }
 
+  // Close when clicking backdrop (not on the image itself)
+  function onBackdropClick(e: React.MouseEvent) {
+    // Only close if click was directly on the backdrop, not on the image/video
+    const target = e.target as HTMLElement;
+    if (
+      target.tagName !== "IMG" &&
+      target.tagName !== "VIDEO" &&
+      !target.closest("button")
+    ) {
+      // On touch devices, don't close if the user was swiping
+      if (!touchMoved.current) {
+        onClose();
+      }
+    }
+  }
+
+  const isCurrentLoaded = current.type === "video" || loaded.has(current.id);
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black flex flex-col"
@@ -96,8 +165,8 @@ export default function Lightbox({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-3 shrink-0">
+      {/* Top bar — overlays image */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3">
         {count > 1 && (
           <span className="text-white/60 text-sm">
             {index + 1} / {count}
@@ -115,8 +184,11 @@ export default function Lightbox({
         </button>
       </div>
 
-      {/* Image area */}
-      <div className="flex-1 flex items-center justify-center min-h-0 relative overflow-hidden">
+      {/* Image area — full screen, no padding */}
+      <div
+        className="flex-1 flex items-center justify-center min-h-0 relative overflow-hidden"
+        onClick={onBackdropClick}
+      >
         {/* Previous arrow — desktop only */}
         {index > 0 && (
           <button
@@ -131,7 +203,7 @@ export default function Lightbox({
         )}
 
         <div
-          className="w-full h-full flex items-center justify-center px-2 sm:px-16"
+          className="w-full h-full flex items-center justify-center"
           style={{
             transform: swiping ? `translateX(${offsetX}px)` : undefined,
             transition: swiping ? "none" : "transform 0.2s ease-out",
@@ -147,13 +219,27 @@ export default function Lightbox({
               className="max-w-full max-h-full object-contain"
             />
           ) : (
-            <img
-              key={current.id}
-              src={current.url}
-              alt=""
-              className="max-w-full max-h-full object-contain"
-              draggable={false}
-            />
+            <>
+              {/* Show thumbnail as placeholder while full-res loads */}
+              {!isCurrentLoaded && (
+                <img
+                  src={current.thumbnailUrl}
+                  alt=""
+                  className="max-w-full max-h-full object-contain"
+                  draggable={false}
+                />
+              )}
+              {isCurrentLoaded && (
+                <img
+                  ref={imageRef}
+                  key={current.id}
+                  src={current.url}
+                  alt=""
+                  className="max-w-full max-h-full object-contain"
+                  draggable={false}
+                />
+              )}
+            </>
           )}
         </div>
 
@@ -173,7 +259,7 @@ export default function Lightbox({
 
       {/* Bottom dot indicators for multi-photo */}
       {count > 1 && (
-        <div className="flex justify-center gap-1.5 py-4 shrink-0">
+        <div className="absolute bottom-0 left-0 right-0 z-20 flex justify-center gap-1.5 py-4">
           {media.map((_, i) => (
             <button
               key={i}
