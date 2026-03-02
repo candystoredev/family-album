@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
 
@@ -22,6 +23,8 @@ interface Post {
   type: string;
   photoset_layout: string | null;
   media: MediaItem[];
+  tags?: { name: string; slug: string }[];
+  people?: { name: string; slug: string }[];
 }
 
 interface FeedProps {
@@ -29,6 +32,7 @@ interface FeedProps {
   initialCursor: string | null;
   siteUrl: string;
   imessageRecipients: string;
+  filterParams?: string;
 }
 
 function formatDate(dateStr: string): string {
@@ -45,6 +49,7 @@ export default function Feed({
   initialCursor,
   siteUrl,
   imessageRecipients,
+  filterParams,
 }: FeedProps) {
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
@@ -61,7 +66,13 @@ export default function Feed({
     if (!cursor || loading) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/feed?cursor=${encodeURIComponent(cursor)}`);
+      const params = new URLSearchParams();
+      params.set("cursor", cursor);
+      if (filterParams) {
+        const extra = new URLSearchParams(filterParams);
+        extra.forEach((v, k) => params.set(k, v));
+      }
+      const res = await fetch(`/api/feed?${params.toString()}`);
       if (!res.ok) return;
       const data = await res.json();
       setPosts((prev) => [...prev, ...data.posts]);
@@ -69,7 +80,7 @@ export default function Feed({
     } finally {
       setLoading(false);
     }
-  }, [cursor, loading]);
+  }, [cursor, loading, filterParams]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -131,6 +142,9 @@ export default function Feed({
                   <time className="text-[#555] text-xs tracking-wide uppercase">
                     {formatDate(post.date)}
                   </time>
+
+                  {/* Tags and People */}
+                  <PostMeta tags={post.tags} people={post.people} />
                 </div>
 
                 {/* iMessage button */}
@@ -168,6 +182,44 @@ export default function Feed({
         />
       )}
     </>
+  );
+}
+
+/** Tags and people links below the date */
+function PostMeta({
+  tags,
+  people,
+}: {
+  tags?: { name: string; slug: string }[];
+  people?: { name: string; slug: string }[];
+}) {
+  const hasTags = tags && tags.length > 0;
+  const hasPeople = people && people.length > 0;
+  if (!hasTags && !hasPeople) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-1.5 gap-y-1 text-xs">
+      {hasPeople &&
+        people.map((p) => (
+          <Link
+            key={p.slug}
+            href={`/people/${p.slug}`}
+            className="text-[#427ea3] hover:text-[#5aadde] transition-colors"
+          >
+            @{p.name}
+          </Link>
+        ))}
+      {hasTags &&
+        tags.map((t) => (
+          <Link
+            key={t.slug}
+            href={`/tags/${t.slug}`}
+            className="text-[#555] hover:text-[#777] transition-colors"
+          >
+            #{t.name}
+          </Link>
+        ))}
+    </div>
   );
 }
 

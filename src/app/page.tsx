@@ -1,100 +1,11 @@
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { getInitialFeed, getImessageRecipients } from "@/lib/feed";
 import LogoutButton from "@/components/LogoutButton";
 import SeedButton from "@/components/SeedButton";
 import Feed from "@/components/Feed";
 
 export const dynamic = "force-dynamic";
-
-const PAGE_SIZE = 20;
-
-interface PostRow {
-  id: string;
-  slug: string;
-  title: string | null;
-  body: string | null;
-  date: string;
-  type: string;
-  photoset_layout: string | null;
-}
-
-interface MediaRow {
-  id: string;
-  post_id: string;
-  r2_key: string;
-  thumbnail_r2_key: string | null;
-  type: string;
-  width: number | null;
-  height: number | null;
-  display_order: number;
-}
-
-function encodeCursor(date: string, id: string): string {
-  return Buffer.from(`${date}|${id}`).toString("base64url");
-}
-
-async function getInitialFeed() {
-  const r2PublicUrl = process.env.R2_PUBLIC_URL!;
-
-  const result = await db.execute({
-    sql: `SELECT id, slug, title, body, date, type, photoset_layout
-          FROM posts ORDER BY date DESC, id DESC LIMIT ?`,
-    args: [PAGE_SIZE + 1],
-  });
-
-  let posts = result.rows as unknown as PostRow[];
-
-  let nextCursor: string | null = null;
-  if (posts.length > PAGE_SIZE) {
-    posts = posts.slice(0, PAGE_SIZE);
-    const last = posts[posts.length - 1];
-    nextCursor = encodeCursor(last.date, last.id);
-  }
-
-  if (posts.length === 0) return { posts: [], nextCursor: null };
-
-  // Fetch all media for these posts in one query
-  const postIds = posts.map((p) => p.id);
-  const placeholders = postIds.map(() => "?").join(",");
-  const mediaResult = await db.execute({
-    sql: `SELECT id, post_id, r2_key, thumbnail_r2_key, type, width, height, display_order
-          FROM media WHERE post_id IN (${placeholders}) ORDER BY display_order`,
-    args: postIds,
-  });
-  const mediaRows = mediaResult.rows as unknown as MediaRow[];
-
-  const mediaByPost = new Map<string, MediaRow[]>();
-  for (const m of mediaRows) {
-    const arr = mediaByPost.get(m.post_id) || [];
-    arr.push(m);
-    mediaByPost.set(m.post_id, arr);
-  }
-
-  const postsWithMedia = posts.map((post) => ({
-    ...post,
-    media: (mediaByPost.get(post.id) || []).map((m) => ({
-      id: m.id,
-      type: m.type,
-      url: `${r2PublicUrl}/${m.r2_key}`,
-      thumbnailUrl: m.thumbnail_r2_key
-        ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
-        : `${r2PublicUrl}/${m.r2_key}`,
-      width: m.width,
-      height: m.height,
-    })),
-  }));
-
-  return { posts: postsWithMedia, nextCursor };
-}
-
-async function getImessageRecipients(): Promise<string> {
-  const result = await db.execute({
-    sql: `SELECT value FROM site_settings WHERE key = ?`,
-    args: ["imessage_recipients"],
-  });
-  return result.rows.length > 0 ? (result.rows[0].value as string) : "";
-}
 
 export default async function Home() {
   const session = await getSession();

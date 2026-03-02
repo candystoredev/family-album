@@ -47,12 +47,20 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
   - SSR first page, client-side subsequent pages via `/api/feed`
   - Edge-to-edge images on mobile, rounded corners on desktop
   - 25-post seed script for testing pagination
-- **4b**: Post page at `/posts/{slug}` + OG tags + iMessage button + desktop fallback
-  - Verify: Paste URL in iMessage → preview card with photo + title. Tap iMessage button on phone → opens pre-filled text
-  - Test: `curl` post page → verify OG tags in HTML
-- **4c**: Multi-photo grid/mosaic with `photoset_layout` + full-screen lightbox + swipe navigation
-  - Verify: Tap photo → swipe through set → close lightbox. Grids match Tumblr layout. Keyboard arrows on desktop
-- **4d**: Tag, People, Album filtered pages at `/tags/{slug}`, `/people/{slug}`, `/albums/{slug}`
+- **4b** ~~Post page + OG tags + iMessage button~~ — **DONE**
+  - Post page at `/posts/{slug}` with OG tags for link previews
+  - iMessage button on every post in feed (pre-filled SMS with post URL)
+  - `X-Robots-Tag` + `noindex` on post pages
+- **4c** ~~Multi-photo grid/mosaic + lightbox~~ — **DONE**
+  - `photoset_layout` grid rendering matching Tumblr layouts
+  - Full-screen lightbox with swipe, keyboard arrows, dot indicators
+  - Image preloading, backdrop close, body scroll lock
+- **4d** ~~Tag, People, Album filtered pages~~ — **DONE**
+  - `/tags/{slug}`, `/people/{slug}`, `/albums/{slug}` with cursor-based infinite scroll
+  - Feed API extended with `tag`, `person`, `album` filter params
+  - Feed shows clickable `@person` and `#tag` links per post
+  - Album cover image display
+  - Shared `lib/feed.ts` for server-side feed fetching
   - Verify: Click tag → filtered posts only. People page correct. Album cover displays. Pagination works within filters
 - **4e**: Year/month timeline navigation + month pages (oldest-first)
   - Verify: Navigate to month → oldest-first order. Pagination walks forward. No empty months shown
