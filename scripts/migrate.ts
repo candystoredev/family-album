@@ -44,7 +44,7 @@ function env(key: string): string {
   return v;
 }
 
-const TUMBLR_API_KEY = env("TUMBLR_API_KEY");
+const TUMBLR_API_KEY = env("TUMBLR_OAUTH_CONSUMER_KEY");
 const BLOG_ID = "thehoecks.tumblr.com";
 const BATCH_SIZE = 20;
 const THUMB_WIDTH = 400;
