@@ -45,7 +45,7 @@ function env(key: string): string {
 }
 
 const TUMBLR_API_KEY = env("TUMBLR_API_KEY");
-const BLOG_ID = "www.thehoecks.com";
+const BLOG_ID = "thehoecks.tumblr.com";
 const BATCH_SIZE = 20;
 const THUMB_WIDTH = 400;
 const DL_TIMEOUT_IMG = 60_000;
@@ -57,7 +57,8 @@ const DL_RETRIES = 3;
  * instead of post_tags. Add family member first names here.
  */
 const PEOPLE: Set<string> = new Set([
-  // "tom", "sarah", "oliver", "emma"
+  "anna", "margot", "rosie", "tom", "victoria",
+  "nani", "papaw", "mamie annie", "mawmaw",
 ]);
 
 // ─── Clients (lazy — not created until first use) ───────────

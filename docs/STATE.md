@@ -10,11 +10,10 @@ claude/family-photo-album-plan-rEoOE
 Phase 4d deployed — needs verification (tag/people/album pages, clickable links in feed, pagination within filters)
 
 ## Blockers
-- Tumblr blog handle not yet confirmed by Tom (migration script has `www.thehoecks.com` hardcoded)
+None
 
 ## Known Issues
 - Seed test posts must be deleted before running real migration
-- PEOPLE set in migration script is empty (needs family names from Tom)
 - FTS5 tags field always inserts empty string (trigger doesn't join tag names)
 - Seed posts don't have tags/people/albums, so tag/people links won't appear in seeded feed
 
