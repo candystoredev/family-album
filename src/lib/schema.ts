@@ -10,6 +10,7 @@ const statements = [
     date TEXT NOT NULL,
     type TEXT NOT NULL CHECK(type IN ('photo', 'video', 'mixed', 'text')),
     photoset_layout TEXT,
+    tumblr_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
@@ -100,6 +101,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_post_tags_tag_id ON post_tags(tag_id)`,
   `CREATE INDEX IF NOT EXISTS idx_post_people_person_id ON post_people(person_id)`,
   `CREATE INDEX IF NOT EXISTS idx_post_albums_album_id ON post_albums(album_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tumblr_id ON posts(tumblr_id) WHERE tumblr_id IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_invite_links_token ON invite_links(token)`,
 
   // FTS5 virtual table (external content mode backed by posts rowid)
@@ -130,8 +132,21 @@ const statements = [
   END`,
 ];
 
+// Migrations for existing databases (safe to re-run)
+const migrations = [
+  // Add tumblr_id column if missing (for migration dedup)
+  `ALTER TABLE posts ADD COLUMN tumblr_id TEXT`,
+];
+
 export async function initializeSchema() {
   for (const sql of statements) {
     await db.execute(sql);
+  }
+  for (const sql of migrations) {
+    try {
+      await db.execute(sql);
+    } catch {
+      // Column/index already exists — safe to ignore
+    }
   }
 }

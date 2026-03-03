@@ -168,6 +168,7 @@ posts
 ├── date (from EXIF, Tumblr metadata, or manual override)
 ├── type (photo | video | mixed | text)
 ├── photoset_layout (e.g., "212" = 2-1-2 grid rows)
+├── tumblr_id (original Tumblr post ID, used for migration dedup)
 ├── created_at
 ├── updated_at
 

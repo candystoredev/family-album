@@ -10,6 +10,7 @@
  *
  * Options:
  *   --dry-run        List posts without writing anything
+ *   --clean-seed     Delete seed/test posts before migrating
  *   --limit=N        Process only the first N posts
  *   --offset=N       Skip the first N fetched posts
  */
@@ -299,25 +300,39 @@ async function fetchAll(maxCount = Infinity): Promise<TumblrPost[]> {
 }
 
 // ─── Migrate one post ───────────────────────────────────────
+async function uniqueSlug(base: string): Promise<string> {
+  let slug = base;
+  let suffix = 1;
+  while (true) {
+    const row = await getDb().execute({
+      sql: "SELECT id FROM posts WHERE slug=?",
+      args: [slug],
+    });
+    if (!row.rows.length) return slug;
+    suffix++;
+    slug = `${base}-${suffix}`;
+  }
+}
+
 async function migrate(
   post: TumblrPost,
   idx: number,
   total: number,
 ): Promise<"ok" | "skip" | "fail"> {
   // Resolve slug (ensure non-empty, use Tumblr ID as last resort)
-  let slug = post.slug || slugify(post.summary || "");
-  if (!slug) slug = `post-${post.id_string}`;
+  const baseSlug = post.slug || slugify(post.summary || "") || `post-${post.id_string}`;
 
-  // Skip if already migrated
+  // Skip if this exact Tumblr post was already migrated (check by tumblr_id)
   const dup = await getDb().execute({
-    sql: "SELECT id FROM posts WHERE slug=?",
-    args: [slug],
+    sql: "SELECT id FROM posts WHERE tumblr_id=?",
+    args: [post.id_string],
   });
   if (dup.rows.length) {
-    console.log(`  [${idx}/${total}] skip  ${slug}`);
+    console.log(`  [${idx}/${total}] skip  ${baseSlug} (already migrated)`);
     return "skip";
   }
 
+  const slug = await uniqueSlug(baseSlug);
   const postId = nanoid();
   const title = post.summary?.trim() || null;
   const type = detectType(post.content);
@@ -340,13 +355,16 @@ async function migrate(
     `  [${idx}/${total}] ${slug} (${type}, ${mediaBlocks.length} media)`,
   );
 
-  // 1. Insert post first (media FK references posts)
-  await getDb().execute({
-    sql: "INSERT INTO posts(id,slug,title,body,date,type,photoset_layout) VALUES(?,?,?,?,?,?,?)",
-    args: [postId, slug, title, body, date, type, layout],
+  // ── Begin transaction: collect all DB statements, execute as batch ──
+  const stmts: { sql: string; args: (string | number | null)[] }[] = [];
+
+  // 1. Insert post
+  stmts.push({
+    sql: "INSERT INTO posts(id,slug,title,body,date,type,photoset_layout,tumblr_id) VALUES(?,?,?,?,?,?,?,?)",
+    args: [postId, slug, title, body, date, type, layout, post.id_string],
   });
 
-  // 2. Process media blocks
+  // 2. Download media, upload to R2, collect DB insert statements
   let order = 0;
   for (const block of mediaBlocks) {
     const mid = nanoid();
@@ -365,20 +383,9 @@ async function migrate(
         await r2Put(rk, buf, orig.type);
         await r2Put(tk, tb, "image/jpeg");
 
-        await getDb().execute({
+        stmts.push({
           sql: "INSERT INTO media(id,post_id,r2_key,thumbnail_r2_key,type,width,height,file_size,display_order,mime_type) VALUES(?,?,?,?,?,?,?,?,?,?)",
-          args: [
-            mid,
-            postId,
-            rk,
-            tk,
-            "photo",
-            orig.width,
-            orig.height,
-            buf.length,
-            order++,
-            orig.type,
-          ],
+          args: [mid, postId, rk, tk, "photo", orig.width, orig.height, buf.length, order++, orig.type],
         });
       } else if (block.type === "video") {
         // Skip external embeds (YouTube, Vimeo, etc.)
@@ -422,20 +429,9 @@ async function migrate(
         await r2Put(rk, buf, "video/mp4");
         await r2Put(tk, tb, "image/jpeg");
 
-        await getDb().execute({
+        stmts.push({
           sql: "INSERT INTO media(id,post_id,r2_key,thumbnail_r2_key,type,width,height,file_size,display_order,mime_type) VALUES(?,?,?,?,?,?,?,?,?,?)",
-          args: [
-            mid,
-            postId,
-            rk,
-            tk,
-            "video",
-            vm.width,
-            vm.height,
-            buf.length,
-            order++,
-            "video/mp4",
-          ],
+          args: [mid, postId, rk, tk, "video", vm.width, vm.height, buf.length, order++, "video/mp4"],
         });
       }
     } catch (e) {
@@ -443,7 +439,7 @@ async function migrate(
     }
   }
 
-  // 3. Tags → post_tags or post_people
+  // 3. Resolve tags/people (creates if needed), collect junction statements
   for (const raw of post.tags) {
     const tag = raw.trim();
     if (!tag) continue;
@@ -451,26 +447,54 @@ async function migrate(
 
     if (PEOPLE.has(lower)) {
       const pid = await ensurePerson(tag);
-      await getDb().execute({
+      stmts.push({
         sql: "INSERT OR IGNORE INTO post_people(post_id,person_id) VALUES(?,?)",
         args: [postId, pid],
       });
     } else {
       const tid = await ensureTag(tag);
-      await getDb().execute({
+      stmts.push({
         sql: "INSERT OR IGNORE INTO post_tags(post_id,tag_id) VALUES(?,?)",
         args: [postId, tid],
       });
     }
   }
 
+  // 4. Execute all DB writes as a transaction
+  await getDb().batch(stmts, "write");
+
   return "ok";
+}
+
+// ─── Clean seed data ─────────────────────────────────────────
+async function cleanSeedData() {
+  console.log("Cleaning seed data...");
+  // Delete all posts without a tumblr_id (seed posts don't have one)
+  const seeded = await getDb().execute(
+    "SELECT COUNT(*) as n FROM posts WHERE tumblr_id IS NULL",
+  );
+  const count = seeded.rows[0].n as number;
+  if (count === 0) {
+    console.log("  No seed data found.\n");
+    return;
+  }
+  // CASCADE deletes will clean up media, post_tags, post_people
+  await getDb().execute("DELETE FROM posts WHERE tumblr_id IS NULL");
+  // Clean up orphaned tags and people with no remaining post references
+  await getDb().execute(
+    "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM post_tags)",
+  );
+  await getDb().execute(
+    "DELETE FROM people WHERE id NOT IN (SELECT DISTINCT person_id FROM post_people)",
+  );
+  console.log(`  Deleted ${count} seed posts and cleaned up tags/people.\n`);
 }
 
 // ─── CLI ────────────────────────────────────────────────────
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
+  const cleanSeed = args.includes("--clean-seed");
   const limitArg = args.find((a) => a.startsWith("--limit="));
   const limit = limitArg ? parseInt(limitArg.split("=")[1]) : Infinity;
   const offsetArg = args.find((a) => a.startsWith("--offset="));
@@ -479,10 +503,16 @@ async function main() {
   console.log("┌─────────────────────────────────────────────┐");
   console.log("│  Tumblr → The Hoecks Migration              │");
   console.log("└─────────────────────────────────────────────┘");
+  if (cleanSeed) console.log("  Mode: CLEAN SEED DATA");
   if (dryRun) console.log("  Mode: DRY RUN");
   if (limit < Infinity) console.log(`  Limit: ${limit}`);
   if (offset) console.log(`  Offset: ${offset}`);
   console.log();
+
+  // Clean seed data if requested
+  if (cleanSeed) {
+    await cleanSeedData();
+  }
 
   // Fetch posts (stop early if limit is set)
   const needed = offset + limit;
