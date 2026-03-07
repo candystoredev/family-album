@@ -13,7 +13,7 @@ Phase 4d deployed — needs verification (tag/people/album pages, clickable link
 None
 
 ## Known Issues
-- Seed test posts must be deleted before running real migration (use `--clean-seed` flag)
+- Seed test posts must be deleted before running real migration (`DELETE /api/seed?clean=all`)
 - FTS5 tags field always inserts empty string (trigger doesn't join tag names)
 - Seed posts don't have tags/people/albums, so tag/people links won't appear in seeded feed
 

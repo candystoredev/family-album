@@ -1,9 +1,37 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { uploadToR2, PUBLIC_URL } from "@/lib/r2";
+import { uploadToR2, deleteFromR2, PUBLIC_URL } from "@/lib/r2";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
+
+const SEED_TITLES = [
+  "New Year's Day Hike",
+  "Christmas Morning",
+  "Happy Steaksgiving",
+  "Fall Colors",
+  "Halloween Costumes",
+  "First Day of School",
+  "Summer Vacation",
+  "Beach Day",
+  "Fourth of July",
+  "Father's Day Breakfast",
+  "End of the School Year",
+  "Mother's Day",
+  "Spring Garden",
+  "Easter Egg Hunt",
+  "Snow Day",
+  "Valentine's Day Dinner",
+  "Super Bowl Sunday",
+  "New Year's Eve",
+  "Christmas Cookie Decorating",
+  "Thanksgiving Table",
+  "Pumpkin Patch",
+  "Back to School 2023",
+  "Summer BBQ",
+  "Family Road Trip",
+  "Birthday Party",
+];
 
 export const maxDuration = 60;
 
@@ -387,7 +415,10 @@ export async function POST(request: Request) {
   }
 }
 
-/** DELETE /api/seed — Remove duplicate posts (keeps newest per title, deletes older dupes) */
+/** DELETE /api/seed — Remove seed data.
+ *  ?clean=all  → delete ALL seed posts (by known title) + their R2 media
+ *  (default)   → remove duplicate posts only (keeps newest per title)
+ */
 export async function DELETE(request: Request) {
   const auth = request.headers.get("authorization");
   const hasBearerToken = auth === `Bearer ${process.env.ADMIN_API_TOKEN}`;
@@ -398,8 +429,79 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const url = new URL(request.url);
+  const cleanAll = url.searchParams.get("clean") === "all";
+
+  if (cleanAll) {
+    return cleanAllSeedData();
+  }
+
+  return deduplicatePosts();
+}
+
+async function cleanAllSeedData() {
   try {
-    // Find titles that appear more than once
+    let deletedPosts = 0;
+    let deletedMedia = 0;
+    let deletedR2 = 0;
+
+    for (const title of SEED_TITLES) {
+      const posts = await db.execute({
+        sql: `SELECT id FROM posts WHERE title = ?`,
+        args: [title],
+      });
+
+      for (const post of posts.rows) {
+        const postId = post.id as string;
+
+        // Get media R2 keys before deleting from DB
+        const media = await db.execute({
+          sql: `SELECT r2_key, thumbnail_r2_key FROM media WHERE post_id = ?`,
+          args: [postId],
+        });
+
+        // Delete R2 objects
+        for (const m of media.rows) {
+          const r2Key = m.r2_key as string;
+          const thumbKey = m.thumbnail_r2_key as string | null;
+          try {
+            await deleteFromR2(r2Key);
+            deletedR2++;
+            if (thumbKey) {
+              await deleteFromR2(thumbKey);
+              deletedR2++;
+            }
+          } catch (e) {
+            console.warn(`R2 delete failed for ${r2Key}:`, e);
+          }
+        }
+
+        deletedMedia += media.rows.length;
+
+        // Delete post (media cascade-deletes via FK)
+        await db.execute({ sql: `DELETE FROM posts WHERE id = ?`, args: [postId] });
+        deletedPosts++;
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: `Cleaned ${deletedPosts} seed posts, ${deletedMedia} media records, ${deletedR2} R2 objects`,
+      deletedPosts,
+      deletedMedia,
+      deletedR2,
+    });
+  } catch (error) {
+    console.error("Clean seed error:", error);
+    return NextResponse.json(
+      { error: "Clean failed", details: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+async function deduplicatePosts() {
+  try {
     const dupes = await db.execute(
       `SELECT title, COUNT(*) as cnt FROM posts WHERE title IS NOT NULL GROUP BY title HAVING cnt > 1`
     );
@@ -407,15 +509,12 @@ export async function DELETE(request: Request) {
     let deleted = 0;
     for (const row of dupes.rows) {
       const title = row.title as string;
-      // Keep the post with the latest created_at (or highest rowid), delete the rest
       const posts = await db.execute({
         sql: `SELECT id FROM posts WHERE title = ? ORDER BY created_at DESC, id DESC`,
         args: [title],
       });
-      // Skip the first (newest), delete the rest
       const idsToDelete = posts.rows.slice(1).map((r) => r.id as string);
       for (const id of idsToDelete) {
-        // Media cascade-deletes via FK, but R2 media remains (cleanup separately if needed)
         await db.execute({ sql: `DELETE FROM posts WHERE id = ?`, args: [id] });
         deleted++;
       }
