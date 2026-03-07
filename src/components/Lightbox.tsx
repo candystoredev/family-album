@@ -42,6 +42,7 @@ export default function Lightbox({
   const [swiping, setSwiping] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
+  const skipTransition = useRef(false);
 
   const count = media.length;
   const current = media[index];
@@ -59,9 +60,11 @@ export default function Lightbox({
       setTransitioning(true);
       setOffsetX(-window.innerWidth);
       setTimeout(() => {
+        skipTransition.current = true;
         setIndex((i) => i + 1);
         setOffsetX(0);
         setTransitioning(false);
+        requestAnimationFrame(() => { skipTransition.current = false; });
       }, 300);
     }
   }, [index, count, transitioning]);
@@ -71,9 +74,11 @@ export default function Lightbox({
       setTransitioning(true);
       setOffsetX(window.innerWidth);
       setTimeout(() => {
+        skipTransition.current = true;
         setIndex((i) => i - 1);
         setOffsetX(0);
         setTransitioning(false);
+        requestAnimationFrame(() => { skipTransition.current = false; });
       }, 300);
     }
   }, [index, transitioning]);
@@ -258,7 +263,7 @@ export default function Lightbox({
             className="absolute inset-0 flex items-center justify-center z-10"
             style={{
               transform: `translateX(${offsetX < 0 ? offsetX + window.innerWidth : offsetX - window.innerWidth}px)`,
-              transition: swiping
+              transition: swiping || skipTransition.current
                 ? "none"
                 : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
             }}
@@ -289,7 +294,7 @@ export default function Lightbox({
             transform: offsetX !== 0
               ? `translateX(${offsetX}px)`
               : undefined,
-            transition: swiping
+            transition: swiping || skipTransition.current
               ? "none"
               : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
           }}
