@@ -86,7 +86,7 @@ export default function OnThisDay() {
           expanded ? "max-h-[400px] opacity-100 mt-3" : "max-h-0 opacity-0"
         }`}
       >
-        <div className="flex gap-3 px-4 sm:px-0 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="flex gap-3 px-4 sm:px-0 overflow-x-auto pb-2 scrollbar-hide touch-pan-x">
           {posts.map((post) => {
             const d = new Date(post.date);
             const yearsAgo = new Date().getFullYear() - d.getFullYear();
@@ -96,23 +96,23 @@ export default function OnThisDay() {
               <Link
                 key={post.slug}
                 href={`/posts/${post.slug}`}
-                className="shrink-0 group/card"
+                className="shrink-0 group/card active:scale-95 transition-transform"
               >
-                <div className="w-28 rounded-lg overflow-hidden bg-[#252424] border border-[#333] group-hover/card:border-[#555] transition-colors">
+                <div className="w-36 rounded-lg overflow-hidden bg-[#252424] border border-[#333] group-hover/card:border-[#555] transition-colors">
                   {post.thumbnailUrl ? (
                     <img
                       src={post.thumbnailUrl}
                       alt=""
-                      className="w-28 h-20 object-cover"
+                      className="w-36 h-24 object-cover"
                     />
                   ) : (
-                    <div className="w-28 h-20 bg-[#333]" />
+                    <div className="w-36 h-24 bg-[#333]" />
                   )}
-                  <div className="px-2 py-1.5">
-                    <p className="text-[#d3d3d3] text-[11px] leading-tight truncate group-hover/card:text-white transition-colors">
+                  <div className="px-2.5 py-2">
+                    <p className="text-[#d3d3d3] text-xs leading-tight truncate group-hover/card:text-white transition-colors">
                       {post.title || timeLabel}
                     </p>
-                    <p className="text-[#555] text-[10px]">{timeLabel}</p>
+                    <p className="text-[#555] text-[11px] mt-0.5">{timeLabel}</p>
                   </div>
                 </div>
               </Link>

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import PhotoGrid from "@/components/PhotoGrid";
+import PostContent from "@/components/PostContent";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -111,30 +111,13 @@ export default async function PostPage({
   return (
     <main className="min-h-screen bg-[#1d1c1c]">
       <article className="max-w-[900px] mx-auto px-4 py-8">
-        {/* Media — bleed to screen edge on mobile */}
-        {post.media.length > 0 && (
-          <div className="-mx-4 sm:mx-0">
-            <PhotoGrid media={post.media} layout={post.photoset_layout} />
-          </div>
-        )}
-
-        {/* Post info */}
-        <div className="mt-4 px-1">
-          {post.title && (
-            <h1 className="text-[#e0e0e0] text-2xl font-medium leading-snug mb-2">
-              {post.title}
-            </h1>
-          )}
-          {post.body && (
-            <div
-              className="text-[#a0a0a0] text-sm leading-relaxed mb-3 post-body"
-              dangerouslySetInnerHTML={{ __html: post.body }}
-            />
-          )}
-          <time className="text-[#555] text-xs tracking-wide uppercase">
-            {formatDate(post.date)}
-          </time>
-        </div>
+        <PostContent
+          media={post.media}
+          layout={post.photoset_layout}
+          title={post.title}
+          body={post.body}
+          dateFormatted={formatDate(post.date)}
+        />
       </article>
     </main>
   );
