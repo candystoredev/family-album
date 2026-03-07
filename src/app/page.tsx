@@ -1,7 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getInitialFeed, getImessageRecipients } from "@/lib/feed";
-import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import SeedButton from "@/components/SeedButton";
 import Feed from "@/components/Feed";
@@ -26,12 +25,6 @@ export default async function Home() {
             The Hoecks
           </h1>
           <div className="flex items-center gap-4">
-            <Link
-              href="/archive"
-              className="text-[#555] hover:text-[#888] text-sm transition-colors"
-            >
-              Archive
-            </Link>
             {session.role === "admin" && (
               <span className="text-[10px] text-[#427ea3] border border-[#427ea3]/40 px-2 py-0.5 rounded uppercase tracking-wider">
                 Admin

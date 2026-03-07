@@ -7,19 +7,30 @@ interface MonthRow {
   count: number;
 }
 
-export async function GET() {
-  const result = await db.execute({
-    sql: `SELECT
-            CAST(strftime('%Y', date) AS INTEGER) AS year,
-            CAST(strftime('%m', date) AS INTEGER) AS month,
-            COUNT(*) AS count
-          FROM posts
-          GROUP BY year, month
-          ORDER BY year DESC, month DESC`,
-    args: [],
-  });
+interface AlbumRow {
+  slug: string;
+  title: string;
+}
 
-  const rows = result.rows as unknown as MonthRow[];
+export async function GET() {
+  const [monthsResult, albumsResult] = await Promise.all([
+    db.execute({
+      sql: `SELECT
+              CAST(strftime('%Y', date) AS INTEGER) AS year,
+              CAST(strftime('%m', date) AS INTEGER) AS month,
+              COUNT(*) AS count
+            FROM posts
+            GROUP BY year, month
+            ORDER BY year DESC, month DESC`,
+      args: [],
+    }),
+    db.execute({
+      sql: `SELECT slug, title FROM albums ORDER BY title`,
+      args: [],
+    }),
+  ]);
+
+  const rows = monthsResult.rows as unknown as MonthRow[];
 
   // Group by year
   const years: { year: number; months: { month: number; count: number }[] }[] = [];
@@ -33,5 +44,7 @@ export async function GET() {
     currentYear.months.push({ month: row.month, count: row.count });
   }
 
-  return NextResponse.json({ years });
+  const albums = albumsResult.rows as unknown as AlbumRow[];
+
+  return NextResponse.json({ years, albums });
 }
