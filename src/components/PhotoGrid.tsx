@@ -33,7 +33,7 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
           />
         ) : (
           <img
-            src={item.thumbnailUrl}
+            src={item.url}
             alt=""
             loading="lazy"
             className="w-full h-auto cursor-pointer"
@@ -72,7 +72,7 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
                   />
                 ) : (
                   <img
-                    src={item.thumbnailUrl}
+                    src={item.url}
                     alt=""
                     loading="lazy"
                     className="w-full h-full object-cover cursor-pointer"

@@ -23,7 +23,6 @@ export default async function SearchPage({
         initialQuery={q || ""}
         siteUrl={siteUrl}
         imessageRecipients={imessageRecipients}
-        isAdmin={session.role === "admin"}
       />
     </main>
   );

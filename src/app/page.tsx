@@ -1,39 +1,43 @@
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getInitialFeed, getImessageRecipients } from "@/lib/feed";
-import LogoutButton from "@/components/LogoutButton";
+import { db } from "@/lib/db";
 import SeedButton from "@/components/SeedButton";
 import Feed from "@/components/Feed";
+import BannerMessage from "@/components/BannerMessage";
 
 export const dynamic = "force-dynamic";
+
+async function getBannerMessage(): Promise<string | null> {
+  try {
+    const result = await db.execute({
+      sql: "SELECT value FROM site_settings WHERE key = 'banner_message'",
+      args: [],
+    });
+    if (result.rows.length > 0) {
+      const val = result.rows[0].value as string;
+      return val.trim() || null;
+    }
+  } catch {
+    // Setting doesn't exist yet
+  }
+  return null;
+}
 
 export default async function Home() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [{ posts, nextCursor }, imessageRecipients] = await Promise.all([
+  const [{ posts, nextCursor }, imessageRecipients, bannerMessage] = await Promise.all([
     getInitialFeed(),
     getImessageRecipients(),
+    getBannerMessage(),
   ]);
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
 
   return (
     <main className="min-h-screen bg-[#1d1c1c]">
-      <header className="sticky top-0 z-10 bg-[#1d1c1c]/95 backdrop-blur-sm border-b border-[#2a2929]">
-        <div className="max-w-[900px] mx-auto px-4 py-5 flex items-center justify-between">
-          <h1 className="text-[#d3d3d3] text-xl font-light tracking-wide">
-            The Hoecks
-          </h1>
-          <div className="flex items-center gap-4">
-            {session.role === "admin" && (
-              <span className="text-[10px] text-[#427ea3] border border-[#427ea3]/40 px-2 py-0.5 rounded uppercase tracking-wider">
-                Admin
-              </span>
-            )}
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
+      {bannerMessage && <BannerMessage message={bannerMessage} />}
 
       <div className="max-w-[900px] mx-auto px-4 py-8">
         {posts.length === 0 ? (

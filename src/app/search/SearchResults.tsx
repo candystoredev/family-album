@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Feed from "@/components/Feed";
-import LogoutButton from "@/components/LogoutButton";
 
 interface Post {
   id: string;
@@ -30,14 +29,12 @@ interface SearchResultsProps {
   initialQuery: string;
   siteUrl: string;
   imessageRecipients: string;
-  isAdmin: boolean;
 }
 
 export default function SearchResults({
   initialQuery,
   siteUrl,
   imessageRecipients,
-  isAdmin,
 }: SearchResultsProps) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
@@ -101,72 +98,58 @@ export default function SearchResults({
 
   return (
     <>
-      <header className="sticky top-0 z-10 bg-[#1d1c1c]/95 backdrop-blur-sm border-b border-[#2a2929]">
-        <div className="max-w-[900px] mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="shrink-0 text-[#555] hover:text-[#888] transition-colors"
-              aria-label="Back to feed"
+      <div className="max-w-[900px] mx-auto px-4 py-8">
+        <div className="flex items-center gap-3 mb-6">
+          <Link
+            href="/"
+            className="shrink-0 text-[#555] hover:text-[#888] transition-colors"
+            aria-label="Back to feed"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="w-5 h-5"
             >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </Link>
+
+          <form onSubmit={handleSubmit} className="flex-1">
+            <div className="relative">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
-                className="w-5 h-5"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]"
               >
-                <path d="M15 18l-6-6 6-6" />
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
               </svg>
-            </Link>
-
-            <form onSubmit={handleSubmit} className="flex-1 flex gap-2">
-              <div className="relative flex-1">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="M21 21l-4.35-4.35" />
-                </svg>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search posts..."
-                  className="w-full bg-[#252424] text-[#d3d3d3] text-sm rounded-lg pl-10 pr-4 py-2.5 border border-[#333] focus:border-[#427ea3] focus:outline-none transition-colors placeholder:text-[#555]"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
-              </div>
-            </form>
-
-            <div className="shrink-0 flex items-center gap-4">
-              {isAdmin && (
-                <span className="text-[10px] text-[#427ea3] border border-[#427ea3]/40 px-2 py-0.5 rounded uppercase tracking-wider">
-                  Admin
-                </span>
-              )}
-              <LogoutButton />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search posts..."
+                className="w-full bg-[#252424] text-[#d3d3d3] text-sm rounded-lg pl-10 pr-4 py-2.5 border border-[#333] focus:border-[#427ea3] focus:outline-none transition-colors placeholder:text-[#555]"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
             </div>
-          </div>
-
-          {searched && (
-            <p className="text-[#555] text-xs mt-2 pl-8">
-              {total === 0
-                ? "No results found"
-                : `${total} result${total === 1 ? "" : "s"}`}
-            </p>
-          )}
+          </form>
         </div>
-      </header>
 
-      <div className="max-w-[900px] mx-auto px-4 py-8">
+        {searched && (
+          <p className="text-[#555] text-xs mb-6 pl-8">
+            {total === 0
+              ? "No results found"
+              : `${total} result${total === 1 ? "" : "s"}`}
+          </p>
+        )}
         {loading && posts.length === 0 && (
           <div className="flex justify-center py-16">
             <div className="w-6 h-6 border-2 border-[#333] border-t-[#427ea3] rounded-full animate-spin" />

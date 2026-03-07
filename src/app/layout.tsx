@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ArchiveMenu from "@/components/ArchiveMenu";
+import { getSession } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "The Hoecks",
@@ -8,16 +9,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await getSession();
+
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen bg-[#1d1c1c] text-[#d3d3d3] antialiased">
         {children}
-        <ArchiveMenu />
+        <ArchiveMenu isAdmin={session?.role === "admin"} isLoggedIn={!!session} />
       </body>
     </html>
   );

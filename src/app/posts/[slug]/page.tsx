@@ -110,17 +110,6 @@ export default async function PostPage({
 
   return (
     <main className="min-h-screen bg-[#1d1c1c]">
-      <header className="sticky top-0 z-10 bg-[#1d1c1c]/95 backdrop-blur-sm border-b border-[#2a2929]">
-        <div className="max-w-[900px] mx-auto px-4 py-5 flex items-center justify-between">
-          <a
-            href="/"
-            className="text-[#d3d3d3] text-xl font-light tracking-wide hover:text-white transition-colors"
-          >
-            The Hoecks
-          </a>
-        </div>
-      </header>
-
       <article className="max-w-[900px] mx-auto px-4 py-8">
         {/* Media — bleed to screen edge on mobile */}
         {post.media.length > 0 && (

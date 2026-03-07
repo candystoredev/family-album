@@ -2,7 +2,6 @@ import { getSession } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { getInitialFeed, getImessageRecipients } from "@/lib/feed";
 import Link from "next/link";
-import LogoutButton from "@/components/LogoutButton";
 import Feed from "@/components/Feed";
 import { db } from "@/lib/db";
 
@@ -82,39 +81,26 @@ export default async function MonthPage({
 
   return (
     <main className="min-h-screen bg-[#1d1c1c]">
-      <header className="sticky top-0 z-10 bg-[#1d1c1c]/95 backdrop-blur-sm border-b border-[#2a2929]">
-        <div className="max-w-[900px] mx-auto px-4 py-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/archive"
-              className="text-[#555] hover:text-[#888] transition-colors"
-              aria-label="Back to archive"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </Link>
-            <div>
-              <h1 className="text-[#d3d3d3] text-xl font-light tracking-wide">
-                {MONTH_NAMES[month]} {year}
-              </h1>
-              <p className="text-[#555] text-xs mt-0.5">
-                {posts.length}{nextCursor ? "+" : ""} posts &middot; oldest first
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {session.role === "admin" && (
-              <span className="text-[10px] text-[#427ea3] border border-[#427ea3]/40 px-2 py-0.5 rounded uppercase tracking-wider">
-                Admin
-              </span>
-            )}
-            <LogoutButton />
+      <div className="max-w-[900px] mx-auto px-4 py-8">
+        <div className="flex items-center gap-3 mb-8">
+          <Link
+            href="/archive"
+            className="text-[#555] hover:text-[#888] transition-colors"
+            aria-label="Back to archive"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </Link>
+          <div>
+            <h1 className="text-[#d3d3d3] text-xl font-light tracking-wide">
+              {MONTH_NAMES[month]} {year}
+            </h1>
+            <p className="text-[#555] text-xs mt-0.5">
+              {posts.length}{nextCursor ? "+" : ""} posts &middot; oldest first
+            </p>
           </div>
         </div>
-      </header>
-
-      <div className="max-w-[900px] mx-auto px-4 py-8">
         <Feed
           initialPosts={posts}
           initialCursor={nextCursor}
