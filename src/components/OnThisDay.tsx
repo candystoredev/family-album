@@ -237,7 +237,7 @@ export default function OnThisDay() {
           transition: "grid-template-rows 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out, margin 0.3s ease-out",
         }}
       >
-        <div className="overflow-hidden">
+        <div className={isViewing ? "overflow-visible" : "overflow-hidden"}>
         {/* Thumbnail card row — fades out when viewing */}
         <div
           style={{
