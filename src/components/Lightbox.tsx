@@ -304,26 +304,13 @@ export default function Lightbox({
               className="max-w-full max-h-full object-contain"
             />
           ) : (
-            <>
-              {!isCurrentLoaded && (
-                <img
-                  src={current.thumbnailUrl}
-                  alt=""
-                  className="max-w-full max-h-full object-contain"
-                  draggable={false}
-                />
-              )}
-              {isCurrentLoaded && (
-                <img
-                  ref={imageRef}
-                  key={current.id}
-                  src={current.url}
-                  alt=""
-                  className="max-w-full max-h-full object-contain"
-                  draggable={false}
-                />
-              )}
-            </>
+            <img
+              ref={imageRef}
+              src={isCurrentLoaded ? current.url : current.thumbnailUrl}
+              alt=""
+              className="max-w-full max-h-full object-contain"
+              draggable={false}
+            />
           )}
         </div>
 
