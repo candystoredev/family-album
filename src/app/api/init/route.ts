@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { initializeSchema } from "@/lib/schema";
+import { initializeSchema, rebuildFtsIndex } from "@/lib/schema";
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
@@ -42,7 +42,10 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({ ok: true, message: "Schema initialized and settings seeded" });
+    // Rebuild FTS5 search index
+    await rebuildFtsIndex();
+
+    return NextResponse.json({ ok: true, message: "Schema initialized, settings seeded, FTS rebuilt" });
   } catch (error) {
     console.error("Init error:", error);
     return NextResponse.json(

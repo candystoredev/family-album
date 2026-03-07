@@ -13,7 +13,7 @@ Phase 4e complete. Next up: Phase 4f (FTS5 search).
 None
 
 ## Known Issues
-- FTS5 tags field always inserts empty string (trigger doesn't join tag names)
+None
 
 ## Next Action
 Begin Phase 4f: FTS5 search with highlighted results.

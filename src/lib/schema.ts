@@ -103,44 +103,51 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_post_albums_album_id ON post_albums(album_id)`,
   `CREATE INDEX IF NOT EXISTS idx_invite_links_token ON invite_links(token)`,
 
-  // FTS5 virtual table (external content mode backed by posts rowid)
-  `CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
-    title,
-    body,
-    tags,
-    content=posts,
-    content_rowid=rowid
-  )`,
-
-  // FTS5 sync triggers
-  `CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts BEGIN
-    INSERT INTO posts_fts(rowid, title, body, tags)
-    VALUES (new.rowid, new.title, new.body, '');
-  END`,
-
-  `CREATE TRIGGER IF NOT EXISTS posts_ad AFTER DELETE ON posts BEGIN
-    INSERT INTO posts_fts(posts_fts, rowid, title, body, tags)
-    VALUES ('delete', old.rowid, old.title, old.body, '');
-  END`,
-
-  `CREATE TRIGGER IF NOT EXISTS posts_au AFTER UPDATE ON posts BEGIN
-    INSERT INTO posts_fts(posts_fts, rowid, title, body, tags)
-    VALUES ('delete', old.rowid, old.title, old.body, '');
-    INSERT INTO posts_fts(rowid, title, body, tags)
-    VALUES (new.rowid, new.title, new.body, '');
-  END`,
 ];
 
 // Migrations for existing databases (safe to re-run)
 const migrations = [
   // Add tumblr_id column if missing (for migration dedup)
   `ALTER TABLE posts ADD COLUMN tumblr_id TEXT`,
+  // Drop old external-content FTS5 triggers (tags were always empty)
+  `DROP TRIGGER IF EXISTS posts_ai`,
+  `DROP TRIGGER IF EXISTS posts_ad`,
+  `DROP TRIGGER IF EXISTS posts_au`,
+  // Drop old FTS5 table (had wrong schema: external content, no people column)
+  `DROP TABLE IF EXISTS posts_fts`,
 ];
 
-// Indexes that depend on migrated columns (run after migrations)
+// Statements that depend on migrations having run first
 const postMigrationStatements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tumblr_id ON posts(tumblr_id) WHERE tumblr_id IS NOT NULL`,
+  // FTS5 virtual table (standalone — synced at application level, not triggers)
+  `CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
+    post_id UNINDEXED,
+    title,
+    body,
+    tags,
+    people
+  )`,
 ];
+
+/**
+ * Rebuild the FTS5 index from scratch.
+ * Call after migration, bulk inserts, or when tags/people change.
+ */
+export async function rebuildFtsIndex() {
+  await db.execute(`DELETE FROM posts_fts`);
+  await db.execute({
+    sql: `INSERT INTO posts_fts(post_id, title, body, tags, people)
+          SELECT
+            p.id,
+            COALESCE(p.title, ''),
+            COALESCE(p.body, ''),
+            COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id), ''),
+            COALESCE((SELECT GROUP_CONCAT(pe.name, ' ') FROM post_people pp JOIN people pe ON pe.id = pp.person_id WHERE pp.post_id = p.id), '')
+          FROM posts p`,
+    args: [],
+  });
+}
 
 export async function initializeSchema() {
   for (const sql of statements) {
