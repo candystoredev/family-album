@@ -35,6 +35,7 @@
 - Post-migration: `turso db dump` for baseline backup
 - Staged testing: 10 posts → 100 posts → full migration (see ARCHITECTURE.md for details)
 - Verified: Post count matches Tumblr, no orphaned media/records, people/tags split correctly, feed renders all content
+- **2026-03-07**: Full production migration completed, FTS index rebuilt, site live with all content
 
 ## In Progress
 
@@ -80,6 +81,11 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
   - Verify: Search "birthday" → finds birthday posts. Search person name → finds their posts. Empty search handled
 - **4g**: Crawler blocking hardening (`noindex` meta, `X-Robots-Tag` header)
   - Verify: `curl -H "User-Agent: Googlebot"` → response contains `noindex` meta + `X-Robots-Tag` header. OG tags still work
+- **4h**: Post-migration polish (feedback from real-content review)
+  - Feed image quality: serve originals (or high-res resized) instead of 400px thumbnails in feed
+  - Desktop navigation: persistent left sidebar (semi-transparent, full opacity on hover, tucks away on narrow screens) — matching old Tumblr site UX
+  - Header removal: remove sticky header, replace with optional banner message
+  - Verify: Images sharp on desktop feed. Desktop sidebar visible and interactive. Mobile still uses FAB. No header visible, banner message works when set
 
 ### Phase 5 — Admin Panel & Settings
 Responsive web throughout (not PWA). Each sub-slice builds on previous.

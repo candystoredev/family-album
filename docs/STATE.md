@@ -1,24 +1,29 @@
 # State
 
 ## Current Status
-Phases 1-4 complete and verified. Database initialized on production (dev.thehoecks.com), no posts yet — Tumblr migration not yet re-run. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
+Phases 1-4 complete. Tumblr migration completed against production on 2026-03-07. All posts migrated, FTS index rebuilt. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
+
+Phase 4 feedback items identified — addressing before moving to Phase 5.
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4 complete. Ready for Tumblr migration re-run, then Phase 5 (Admin Panel).
+Phase 4 polish — addressing feedback from real-content review before Phase 5.
 
 ## Blockers
 None
 
 ## Known Issues
-None
+1. **Feed image quality** — Feed renders thumbnails (400px wide) instead of originals. At 900px feed width, images are significantly upscaled/blurry. Need to serve higher-quality images in feed while keeping performance reasonable.
+2. **Desktop navigation** — FAB hamburger button works well on mobile but is suboptimal for desktop. Need persistent left sidebar nav on desktop (like the old Tumblr site) that is semi-transparent, full opacity on hover, and tucks away when screen is too narrow.
+3. **Header removal** — Sticky header with title/nav is unnecessary. Replace with optional banner message capability only.
 
 ## Next Action
-Re-run Tumblr migration against production, then rebuild FTS index via `/api/init`. After that, Phase 5a (single photo upload).
+Address Phase 4 feedback items (image quality, desktop nav, header), then Phase 5a (single photo upload).
 
 ## Recent Changes
+- 2026-03-07: Full Tumblr migration completed against production, FTS index rebuilt
 - Phase 4f: FTS5 search — search bar in slide-out panel, `/search?q=` results page
 - Phase 4f: Search API at `/api/search` with FTS5 ranking, offset pagination
 - Phase 4f: FTS5 fixed — standalone table indexing title, body, tags, and people names
