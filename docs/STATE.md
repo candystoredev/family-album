@@ -7,7 +7,7 @@ Phases 1-4e complete and verified. Tumblr migration has been run — real conten
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4e complete. Next up: Phase 4f (FTS5 search).
+Phase 4f deployed — needs verification (search via slide-out panel, results page). Requires `/api/init` call to rebuild FTS index first.
 
 ## Blockers
 None
@@ -16,9 +16,12 @@ None
 None
 
 ## Next Action
-Begin Phase 4f: FTS5 search with highlighted results.
+Call `POST /api/init` on dev to rebuild FTS index, then verify search. After that, Phase 4g (crawler blocking hardening).
 
 ## Recent Changes
+- Phase 4f: FTS5 search — search bar in slide-out panel, `/search?q=` results page
+- Phase 4f: Search API at `/api/search` with FTS5 ranking, offset pagination
+- Phase 4f: FTS5 fixed — standalone table indexing title, body, tags, and people names
 - Phase 4e: Floating archive menu button (FAB) with slide-out panel
 - Phase 4e: Panel includes "The Latest", "Featured" (albums), and year/month timeline
 - Phase 4e: FAB hides on scroll-down, shows on scroll-up with jitter threshold
@@ -51,7 +54,10 @@ Begin Phase 4f: FTS5 search with highlighted results.
 - `apps/thehoecks/src/app/archive/page.tsx` — archive index (year/month grid)
 - `apps/thehoecks/src/app/archive/[year]/[month]/page.tsx` — month page (oldest-first)
 - `apps/thehoecks/src/app/api/archive/route.ts` — archive API (years/months/counts + albums)
-- `apps/thehoecks/src/components/ArchiveMenu.tsx` — floating menu button + slide-out panel
+- `apps/thehoecks/src/components/ArchiveMenu.tsx` — floating menu button + slide-out panel + search
+- `apps/thehoecks/src/app/api/search/route.ts` — FTS5 search API
+- `apps/thehoecks/src/app/search/page.tsx` — search results page (server wrapper)
+- `apps/thehoecks/src/app/search/SearchResults.tsx` — search results client component
 - `apps/thehoecks/tests/cursor-pagination.test.ts` — cursor pagination tests
 - `apps/thehoecks/src/app/login/page.tsx` — login page
 - `apps/thehoecks/src/middleware.ts` — auth middleware

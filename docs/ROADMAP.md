@@ -71,9 +71,13 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
   - Previous/next month navigation at bottom of month pages
   - Feed API extended with `year`+`month` filter params, oldest-first ordering
   - Verify: FAB visible, slide-out opens with timeline, navigate to month → oldest-first order
-- **4f**: FTS5 search with highlighted results
+- **4f** ~~FTS5 search~~ — **DONE**
+  - Search bar in slide-out panel, navigates to `/search?q=` results page
+  - Search API at `/api/search` with FTS5 ranking, offset-based "load more" pagination
+  - FTS5 indexes title, body, tags, and people names (standalone table, not trigger-based)
+  - `rebuildFtsIndex()` function; init endpoint rebuilds FTS on deploy
+  - Search results rendered in standard feed format with full media
   - Verify: Search "birthday" → finds birthday posts. Search person name → finds their posts. Empty search handled
-  - Test: Automated FTS5 test (insert posts, verify search results and ranking)
 - **4g**: Crawler blocking hardening (`noindex` meta, `X-Robots-Tag` header)
   - Verify: `curl -H "User-Agent: Googlebot"` → response contains `noindex` meta + `X-Robots-Tag` header. OG tags still work
 

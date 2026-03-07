@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const MONTH_ABBREVS = [
   "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -33,9 +33,12 @@ export default function ArchiveMenu() {
   const [data, setData] = useState<ArchiveData | null>(null);
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const lastScrollY = useRef(0);
   const accumulatedDelta = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
+  const router = useRouter();
 
   // Hide on login page
   const isLoginPage = pathname === "/login";
@@ -102,6 +105,16 @@ export default function ArchiveMenu() {
     fetchData();
     // Prevent body scroll when panel is open
     document.body.style.overflow = "hidden";
+    // Focus search input after panel animation
+    setTimeout(() => searchInputRef.current?.focus(), 350);
+  }
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+    router.push(`/search?q=${encodeURIComponent(trimmed)}`);
+    setSearchQuery("");
   }
 
   function handleClose() {
@@ -173,6 +186,33 @@ export default function ArchiveMenu() {
         }`}
       >
         <div className="px-6 pt-12 pb-32">
+          {/* Search */}
+          <form onSubmit={handleSearch} className="mb-8">
+            <div className="relative">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search..."
+                className="w-full bg-[#252424] text-[#d3d3d3] text-sm rounded-lg pl-10 pr-4 py-2.5 border border-[#333] focus:border-[#427ea3] focus:outline-none transition-colors placeholder:text-[#555]"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </div>
+          </form>
+
           {/* The Latest */}
           <Link
             href="/"
