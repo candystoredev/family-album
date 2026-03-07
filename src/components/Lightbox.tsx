@@ -229,9 +229,17 @@ export default function Lightbox({
           </button>
         )}
 
-        {/* Incoming image — sits behind current, revealed as current slides away */}
+        {/* Incoming image — slides in from the edge, following the current image like a conveyor belt */}
         {incoming && (offsetX !== 0 || transitioning) && (
-          <div className="absolute inset-0 flex items-center justify-center z-0">
+          <div
+            className="absolute inset-0 flex items-center justify-center z-10"
+            style={{
+              transform: `translateX(${offsetX < 0 ? offsetX + window.innerWidth : offsetX - window.innerWidth}px)`,
+              transition: swiping
+                ? "none"
+                : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
+            }}
+          >
             {incoming.type === "video" ? (
               <video
                 key={incoming.id}
@@ -251,7 +259,7 @@ export default function Lightbox({
           </div>
         )}
 
-        {/* Current image — slides away on swipe, revealing incoming behind it */}
+        {/* Current image — slides out on swipe, incoming follows right behind */}
         <div
           className="w-full h-full flex items-center justify-center relative z-10"
           style={{
