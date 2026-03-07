@@ -39,9 +39,7 @@ export default function OnThisDay() {
   const touchDeltaX = useRef(0);
   const touchMoved = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Measured height of the expanded post for smooth height animation
   const postContentRef = useRef<HTMLDivElement>(null);
-  const [postHeight, setPostHeight] = useState(0);
 
   useEffect(() => {
     const today = new Date();
@@ -54,18 +52,6 @@ export default function OnThisDay() {
       .catch(() => {});
   }, []);
 
-  // Measure the post content height whenever activeIndex changes
-  useEffect(() => {
-    if (activeIndex >= 0 && postContentRef.current) {
-      // Use rAF to measure after render
-      requestAnimationFrame(() => {
-        if (postContentRef.current) {
-          setPostHeight(postContentRef.current.scrollHeight);
-        }
-      });
-    }
-  }, [activeIndex]);
-
   function openMemory(i: number) {
     setActiveIndex(i);
   }
@@ -74,7 +60,6 @@ export default function OnThisDay() {
     setActiveIndex(-1);
     setExpanded(false);
     setSwipeOffsetX(0);
-    setPostHeight(0);
   }
 
   const goNextMemory = useCallback(() => {
@@ -246,16 +231,13 @@ export default function OnThisDay() {
           isOpen ? "mt-3" : "mt-0"
         }`}
         style={{
-          height: !isOpen
-            ? 0
-            : isViewing
-            ? (postHeight > 0 ? postHeight + 40 : "auto") // +40 for dots/padding
-            : "auto",
+          display: "grid",
+          gridTemplateRows: isOpen ? "1fr" : "0fr",
           opacity: isOpen ? 1 : 0,
-          overflow: "hidden",
-          transition: "height 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out, margin 0.3s ease-out",
+          transition: "grid-template-rows 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out, margin 0.3s ease-out",
         }}
       >
+        <div className="overflow-hidden">
         {/* Thumbnail card row — fades out when viewing */}
         <div
           style={{
@@ -392,6 +374,7 @@ export default function OnThisDay() {
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Image lightbox */}
