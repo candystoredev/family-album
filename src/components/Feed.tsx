@@ -252,7 +252,6 @@ function PostCard({
   onLightbox: (index: number) => void;
 }) {
   const [showBubble, setShowBubble] = useState(false);
-  const isMulti = post.media.length > 1;
 
   return (
     <article>
@@ -267,7 +266,7 @@ function PostCard({
           <PhotoGrid
             media={post.media}
             layout={post.photoset_layout}
-            onImageClick={isMulti ? (index) => onLightbox(index) : undefined}
+            onImageClick={(index) => onLightbox(index)}
           />
         </div>
       )}

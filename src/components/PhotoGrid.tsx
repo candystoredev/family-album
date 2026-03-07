@@ -64,12 +64,12 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
         ) : (
           <DoubleTapHeart
             mediaId={item.id}
-            onClick={onImageClick ? () => onImageClick(0) : undefined}
+            onClick={() => onImageClick?.(0)}
           >
             <FadeImage
               src={item.url}
               alt=""
-              className={`w-full h-auto ${onImageClick ? "cursor-pointer" : ""}`}
+              className="w-full h-auto cursor-pointer"
             />
           </DoubleTapHeart>
         )}
