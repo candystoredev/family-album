@@ -191,12 +191,12 @@ export default function Feed({
       {/* On this day — only show on main feed (no filters) */}
       {!filterParams && <OnThisDay />}
 
-      <div className="space-y-12">
+      <div className="space-y-6">
         {posts.map((post, postIndex) => (
           <article key={post.id}>
             {postIndex > 0 && (
-              <div className="flex justify-center mb-12">
-                <div className="w-8 h-px bg-[#333]" />
+              <div className="flex justify-center my-2">
+                <div className="w-1 h-1 rounded-full bg-[#333]" />
               </div>
             )}
             {/* Media — bleed to screen edge on mobile */}
@@ -212,9 +212,9 @@ export default function Feed({
               </div>
             )}
 
-            {/* Post info — caption area with iMessage bubble in lower-right */}
-            <div className="mt-4 px-4 sm:px-8 relative">
-              <div className="text-center pr-8 lg:pr-0">
+            {/* Post info — caption area with iMessage bubble vertically centered right */}
+            <div className="mt-4 px-4 sm:px-8 relative flex items-center">
+              <div className="text-center flex-1 pr-8 lg:pr-0">
                 {post.title && (
                   <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
                     {post.title}
@@ -234,8 +234,8 @@ export default function Feed({
                 </div>
               </div>
 
-              {/* iMessage button — mobile only, positioned lower-right */}
-              <div className="absolute bottom-0 right-4 sm:right-8 lg:hidden">
+              {/* iMessage button — mobile only, vertically centered */}
+              <div className="absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 lg:hidden">
                 <IMessageBubble
                   recipients={recipients}
                   postUrl={`${siteUrl}/posts/${post.slug}`}
@@ -312,7 +312,7 @@ function PostMeta({
   );
 }
 
-/** Small blue chat bubble icon for iMessage */
+/** iMessage-style blue chat bubble icon */
 function IMessageBubble({
   recipients,
   postUrl,
@@ -327,15 +327,16 @@ function IMessageBubble({
   return (
     <a
       href={smsUrl}
-      className="shrink-0 text-[#427ea3] hover:text-[#5aadde] transition-colors"
+      className="shrink-0 block hover:scale-110 active:scale-95 transition-transform"
       aria-label="Text us about this"
       title="Text us about this"
     >
-      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-        <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm0 15.17L18.83 16H4V4h16v13.17z" />
-        <circle cx="8" cy="10" r="1" />
-        <circle cx="12" cy="10" r="1" />
-        <circle cx="16" cy="10" r="1" />
+      {/* iPhone Messages app bubble shape with tail */}
+      <svg viewBox="0 0 32 28" fill="none" className="w-6 h-5">
+        <path
+          d="M16 1C7.72 1 1 6.37 1 12.9c0 3.77 2.28 7.12 5.82 9.28-.3 1.64-1.12 3.1-1.16 3.16a.5.5 0 00.43.76c.06 0 3.6-.24 6.2-2.02.94.16 1.93.26 2.96.26h.75c8.28 0 15-5.37 15-11.9v-.54C31 6.37 24.28 1 16 1z"
+          fill="#427ea3"
+        />
       </svg>
     </a>
   );

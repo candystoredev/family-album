@@ -25,6 +25,7 @@ export default function OnThisDay() {
       .catch(() => {});
   }, []);
 
+  // Nothing happened on this day in any previous year — hide completely
   if (posts.length === 0) return null;
 
   const count = posts.length;

@@ -3,13 +3,13 @@
 ## Current Status
 Phases 1-4 complete. Tumblr migration completed against production on 2026-03-07. All posts migrated, FTS index rebuilt. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
 
-Phase 4h (post-migration polish) implemented. Ready for review and Phase 5.
+Phase 4i (delight & polish) in progress. Addressing Tom's feedback on feed layout, lightbox animation, On This Day, and iMessage bubble.
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4h deployed. Awaiting Tom's review on desktop sidebar, image quality, and header removal. Then Phase 5a.
+Phase 4i polish: On This Day shows 3 posts from 2+ years, bubble centered + iMessage-shaped, post spacing tightened, dot divider, lightbox swipe animation improved. Review queue feature added to Phase 5 roadmap.
 
 ## Blockers
 None
@@ -18,9 +18,14 @@ None
 None
 
 ## Next Action
-Tom reviews Phase 4h changes on dev.thehoecks.com, then Phase 5a (single photo upload).
+Tom reviews Phase 4i changes, then Phase 5a (single photo upload).
 
 ## Recent Changes
+- Phase 4i: On This Day returns 3 posts from at least 2 different years
+- Phase 4i: iMessage bubble vertically centered in caption area, redesigned to match iPhone Messages shape
+- Phase 4i: Post divider changed from line to subtle dot, spacing between posts reduced
+- Phase 4i: Lightbox swipe animation improved with slide+fade transition and smoother easing
+- Phase 4i: Post flagging & review queue added to Phase 5 roadmap (5d-flag)
 - Phase 4h: Feed images now serve originals instead of 400px thumbnails
 - Phase 4h: Desktop sidebar — persistent left nav at 35% opacity, full on hover (lg+ breakpoint)
 - Phase 4h: Mobile keeps FAB + slide-out panel unchanged

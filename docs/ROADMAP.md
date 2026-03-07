@@ -108,6 +108,13 @@ Responsive web throughout (not PWA). Each sub-slice builds on previous.
   - Verify: 4-photo post with tags/people → grid + tag/people links. Video → poster frame + playback. Drag-reorder works
 - **5c**: Edit + delete posts (with R2 cleanup)
   - Verify: Edit title → updated in feed + post page. Add photo → grid updates. Delete post → gone from feed + R2 cleaned
+- **5d-flag**: Post flagging & review queue
+  - `post_flags` table: `id`, `post_id`, `note`, `created_at`, `resolved_at`
+  - In feed: admin sees flag icon (replaces iMessage bubble position) → tap opens inline note input → creates flag
+  - `/admin/review` page: lists unresolved flagged posts with notes, sorted by flag date
+  - Edit view from review queue: edit title/body/date, add/remove/reorder photos, tag/untag people, mark resolved
+  - Reuses edit form from 5c
+  - Verify: Flag post in feed → appears in review queue with note. Edit from queue → changes reflected. Mark resolved → removed from queue
 - **5d**: Settings page (change viewer password, manage invite links, update iMessage numbers, edit site metadata)
   - Verify: Change password → old fails, new works. Create invite → incognito auto-auth. Revoke → rejected. Update iMessage → reflected
   - Test: Automated auth middleware tests (viewer JWT blocked from admin, expired/revoked invites rejected, valid invite sets cookie)

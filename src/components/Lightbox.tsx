@@ -40,18 +40,36 @@ export default function Lightbox({
   const touchMoved = useRef(false);
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
+  const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
   const count = media.length;
   const current = media[index];
 
   const goNext = useCallback(() => {
-    if (index < count - 1) setIndex((i) => i + 1);
-  }, [index, count]);
+    if (index < count - 1 && !transitioning) {
+      setSlideDir("left");
+      setTransitioning(true);
+      setTimeout(() => {
+        setIndex((i) => i + 1);
+        setSlideDir(null);
+        setTransitioning(false);
+      }, 250);
+    }
+  }, [index, count, transitioning]);
 
   const goPrev = useCallback(() => {
-    if (index > 0) setIndex((i) => i - 1);
-  }, [index]);
+    if (index > 0 && !transitioning) {
+      setSlideDir("right");
+      setTransitioning(true);
+      setTimeout(() => {
+        setIndex((i) => i - 1);
+        setSlideDir(null);
+        setTransitioning(false);
+      }, 250);
+    }
+  }, [index, transitioning]);
 
   // Preload current image + adjacent images
   useEffect(() => {
@@ -132,12 +150,28 @@ export default function Lightbox({
   function onTouchEnd() {
     setSwiping(false);
     const threshold = 60;
-    if (touchDeltaX.current < -threshold) {
-      goNext();
-    } else if (touchDeltaX.current > threshold) {
-      goPrev();
+    const dx = touchDeltaX.current;
+    if (dx < -threshold && index < count - 1 && !transitioning) {
+      // Swipe left → next: animate out, then switch
+      setTransitioning(true);
+      setOffsetX(-window.innerWidth);
+      setTimeout(() => {
+        setIndex((i) => i + 1);
+        setOffsetX(0);
+        setTransitioning(false);
+      }, 280);
+    } else if (dx > threshold && index > 0 && !transitioning) {
+      // Swipe right → prev: animate out, then switch
+      setTransitioning(true);
+      setOffsetX(window.innerWidth);
+      setTimeout(() => {
+        setIndex((i) => i - 1);
+        setOffsetX(0);
+        setTransitioning(false);
+      }, 280);
+    } else {
+      setOffsetX(0);
     }
-    setOffsetX(0);
   }
 
   // Close when clicking backdrop (not on the image itself)
@@ -205,8 +239,13 @@ export default function Lightbox({
         <div
           className="w-full h-full flex items-center justify-center"
           style={{
-            transform: swiping ? `translateX(${offsetX}px)` : undefined,
-            transition: swiping ? "none" : "transform 0.2s ease-out",
+            transform: offsetX !== 0 || slideDir
+              ? `translateX(${slideDir === "left" ? -80 : slideDir === "right" ? 80 : offsetX}px)`
+              : undefined,
+            opacity: slideDir ? 0 : offsetX !== 0 && !swiping ? 0 : 1,
+            transition: swiping
+              ? "none"
+              : "transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.22s ease",
           }}
         >
           {current.type === "video" ? (
