@@ -28,8 +28,6 @@ export default function OnThisDay() {
   const [expanded, setExpanded] = useState(false);
   // Index of selected memory (-1 = thumbnail row, 0+ = viewing that post)
   const [activeIndex, setActiveIndex] = useState(-1);
-  // Drives the grow animation: false → thumbnails size, true → full size
-  const [grown, setGrown] = useState(false);
   const [lightbox, setLightbox] = useState<{ media: MediaItem[]; index: number } | null>(null);
   // Swipe state for navigating between memories
   const [swipeOffsetX, setSwipeOffsetX] = useState(0);
@@ -41,6 +39,9 @@ export default function OnThisDay() {
   const touchDeltaX = useRef(0);
   const touchMoved = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Measured height of the expanded post for smooth height animation
+  const postContentRef = useRef<HTMLDivElement>(null);
+  const [postHeight, setPostHeight] = useState(0);
 
   useEffect(() => {
     const today = new Date();
@@ -53,22 +54,27 @@ export default function OnThisDay() {
       .catch(() => {});
   }, []);
 
-  // When a thumbnail is tapped, set activeIndex then trigger grow on next frame
+  // Measure the post content height whenever activeIndex changes
+  useEffect(() => {
+    if (activeIndex >= 0 && postContentRef.current) {
+      // Use rAF to measure after render
+      requestAnimationFrame(() => {
+        if (postContentRef.current) {
+          setPostHeight(postContentRef.current.scrollHeight);
+        }
+      });
+    }
+  }, [activeIndex]);
+
   function openMemory(i: number) {
     setActiveIndex(i);
-    // Let the component render at thumbnail size first, then grow
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setGrown(true);
-      });
-    });
   }
 
   function closeEverything() {
-    setGrown(false);
     setActiveIndex(-1);
     setExpanded(false);
     setSwipeOffsetX(0);
+    setPostHeight(0);
   }
 
   const goNextMemory = useCallback(() => {
@@ -140,7 +146,6 @@ export default function OnThisDay() {
 
   function onWheel(e: React.WheelEvent) {
     if (activeIndex < 0 || posts.length <= 1) return;
-    // Only respond to horizontal scroll (trackpad two-finger swipe)
     if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
     wheelAccum.current += e.deltaX;
     if (wheelTimer.current) clearTimeout(wheelTimer.current);
@@ -235,109 +240,31 @@ export default function OnThisDay() {
         )}
       </button>
 
-      {/* Expandable area — thumbnail cards that grow into full posts */}
+      {/* Expandable area */}
       <div
-        className={`overflow-hidden transition-all duration-300 ease-out ${
-          isOpen ? "opacity-100 mt-3" : "max-h-0 opacity-0"
+        className={`transition-all duration-300 ease-out ${
+          isOpen ? "mt-3" : "mt-0"
         }`}
-        style={isOpen ? { maxHeight: isViewing && grown ? "80vh" : "400px" } : undefined}
+        style={{
+          height: !isOpen
+            ? 0
+            : isViewing
+            ? (postHeight > 0 ? postHeight + 40 : "auto") // +40 for dots/padding
+            : "auto",
+          opacity: isOpen ? 1 : 0,
+          overflow: "hidden",
+          transition: "height 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out, margin 0.3s ease-out",
+        }}
       >
-        {/* When viewing, show the expanded post carousel */}
-        {isViewing ? (
-          <div
-            ref={containerRef}
-            className="relative overflow-hidden"
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
-            onWheel={onWheel}
-            style={{
-              // Grow animation: scale from thumbnail-ish size to full
-              transform: grown ? "scale(1)" : "scale(0.35)",
-              opacity: grown ? 1 : 0.7,
-              transformOrigin: "top center",
-              transition: "transform 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out",
-            }}
-          >
-            {/* Incoming memory (swipe transition) */}
-            {incomingIdx !== null && (swipeOffsetX !== 0 || isTransitioning) && (
-              <div
-                className="absolute inset-0"
-                style={{
-                  transform: `translateX(${swipeOffsetX < 0 ? swipeOffsetX + (containerRef.current?.clientWidth || window.innerWidth) : swipeOffsetX - (containerRef.current?.clientWidth || window.innerWidth)}px)`,
-                  transition: isSwiping || skipTransition.current
-                    ? "none"
-                    : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
-                }}
-              >
-                <MemoryCard post={posts[incomingIdx]} onImageClick={() => {}} />
-              </div>
-            )}
-
-            {/* Current memory */}
-            <div
-              style={{
-                transform: swipeOffsetX !== 0 ? `translateX(${swipeOffsetX}px)` : undefined,
-                transition: isSwiping || skipTransition.current
-                  ? "none"
-                  : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
-              }}
-            >
-              <MemoryCard
-                post={posts[activeIndex]}
-                onImageClick={(idx) => setLightbox({ media: posts[activeIndex].media, index: idx })}
-              />
-            </div>
-
-            {/* Desktop nav arrows — circular buttons like the FAB */}
-            {posts.length > 1 && (
-              <>
-                {activeIndex > 0 && (
-                  <button
-                    onClick={goPrevMemory}
-                    className="hidden sm:flex absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-[#252424]/80 border border-[#333] shadow-lg shadow-black/30 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors"
-                    aria-label="Previous memory"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
-                      <path d="M15 18l-6-6 6-6" />
-                    </svg>
-                  </button>
-                )}
-                {activeIndex < posts.length - 1 && (
-                  <button
-                    onClick={goNextMemory}
-                    className="hidden sm:flex absolute right-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-[#252424]/80 border border-[#333] shadow-lg shadow-black/30 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors"
-                    aria-label="Next memory"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
-                      <path d="M9 18l6-6-6-6" />
-                    </svg>
-                  </button>
-                )}
-              </>
-            )}
-
-            {/* Dot indicators */}
-            {posts.length > 1 && (
-              <div className="flex justify-center gap-1.5 mt-4 pb-1">
-                {posts.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      setSwipeOffsetX(0);
-                      setActiveIndex(i);
-                    }}
-                    className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                      i === activeIndex ? "bg-white" : "bg-white/20"
-                    }`}
-                    aria-label={`Memory ${i + 1}`}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          /* Thumbnail card row */
+        {/* Thumbnail card row — fades out when viewing */}
+        <div
+          style={{
+            height: isViewing ? 0 : "auto",
+            opacity: isViewing ? 0 : 1,
+            overflow: "hidden",
+            transition: "height 0.35s ease-out, opacity 0.25s ease-out",
+          }}
+        >
           <div className="flex gap-3 px-4 sm:px-0 overflow-x-auto pb-2 scrollbar-hide touch-pan-x">
             {posts.map((post, i) => {
               const d = new Date(post.date);
@@ -370,6 +297,99 @@ export default function OnThisDay() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Expanded memory view — swipeable between posts */}
+        {isViewing && (
+          <div className="relative">
+            {/* Swipe container — clips content horizontally */}
+            <div
+              ref={containerRef}
+              className="overflow-hidden"
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              onWheel={onWheel}
+            >
+              {/* Incoming memory (swipe transition) */}
+              {incomingIdx !== null && (swipeOffsetX !== 0 || isTransitioning) && (
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    transform: `translateX(${swipeOffsetX < 0 ? swipeOffsetX + (containerRef.current?.clientWidth || window.innerWidth) : swipeOffsetX - (containerRef.current?.clientWidth || window.innerWidth)}px)`,
+                    transition: isSwiping || skipTransition.current
+                      ? "none"
+                      : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
+                  }}
+                >
+                  <MemoryCard post={posts[incomingIdx]} onImageClick={() => {}} />
+                </div>
+              )}
+
+              {/* Current memory */}
+              <div
+                ref={postContentRef}
+                style={{
+                  transform: swipeOffsetX !== 0 ? `translateX(${swipeOffsetX}px)` : undefined,
+                  transition: isSwiping || skipTransition.current
+                    ? "none"
+                    : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
+                }}
+              >
+                <MemoryCard
+                  post={posts[activeIndex]}
+                  onImageClick={(idx) => setLightbox({ media: posts[activeIndex].media, index: idx })}
+                />
+              </div>
+            </div>
+
+            {/* Desktop nav arrows — straddle the post edge (half on photo, half off) */}
+            {posts.length > 1 && (
+              <>
+                {activeIndex > 0 && (
+                  <button
+                    onClick={goPrevMemory}
+                    className="hidden sm:flex absolute -left-5 top-1/3 z-10 w-10 h-10 rounded-full bg-[#252424]/90 border border-[#333] shadow-lg shadow-black/40 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors backdrop-blur-sm"
+                    aria-label="Previous memory"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+                      <path d="M15 18l-6-6 6-6" />
+                    </svg>
+                  </button>
+                )}
+                {activeIndex < posts.length - 1 && (
+                  <button
+                    onClick={goNextMemory}
+                    className="hidden sm:flex absolute -right-5 top-1/3 z-10 w-10 h-10 rounded-full bg-[#252424]/90 border border-[#333] shadow-lg shadow-black/40 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors backdrop-blur-sm"
+                    aria-label="Next memory"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* Dot indicators */}
+            {posts.length > 1 && (
+              <div className="flex justify-center gap-1.5 mt-4 pb-1">
+                {posts.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setSwipeOffsetX(0);
+                      setActiveIndex(i);
+                    }}
+                    className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                      i === activeIndex ? "bg-white" : "bg-white/20"
+                    }`}
+                    aria-label={`Memory ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
