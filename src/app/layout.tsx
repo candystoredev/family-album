@@ -5,6 +5,7 @@ import ArchiveMenu from "@/components/ArchiveMenu";
 export const metadata: Metadata = {
   title: "The Hoecks",
   description: "Family Photo Album",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({
