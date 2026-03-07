@@ -30,6 +30,9 @@ const SCROLL_THRESHOLD = 30;
 /** Desktop breakpoint — matches Tailwind's lg */
 const LG_BREAKPOINT = 1024;
 
+/** At this width, the 280px sidebar fits beside the 900px feed without overlap */
+const SIDEBAR_FITS_BREAKPOINT = 1460;
+
 interface ArchiveMenuProps {
   isAdmin: boolean;
   isLoggedIn: boolean;
@@ -43,6 +46,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDesktop, setIsDesktop] = useState(false);
+  const [sidebarFits, setSidebarFits] = useState(false);
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const lastScrollY = useRef(0);
   const accumulatedDelta = useRef(0);
@@ -59,6 +63,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
 
     function check() {
       setIsDesktop(window.innerWidth >= LG_BREAKPOINT);
+      setSidebarFits(window.innerWidth >= SIDEBAR_FITS_BREAKPOINT);
     }
     check();
     window.addEventListener("resize", check);
@@ -319,10 +324,20 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
 
   // ─── Desktop: persistent left sidebar ───
   if (isDesktop) {
+    // When sidebar fits beside feed: always visible, fade on hover
+    // When it doesn't fit: tucked with 24px hint, slides in on hover
+    const tucked = !sidebarFits;
+    const showFull = sidebarHovered;
+
     return (
       <nav
-        className="fixed top-0 left-0 z-30 h-full w-[280px] overflow-y-auto overscroll-contain transition-opacity duration-300"
-        style={{ opacity: sidebarHovered ? 1 : 0.35 }}
+        className="fixed top-0 left-0 z-30 h-full w-[280px] bg-[#1d1c1c] overflow-y-auto overscroll-contain transition-all duration-300"
+        style={{
+          opacity: tucked
+            ? (showFull ? 1 : 0)
+            : (showFull ? 1 : 0.35),
+          transform: tucked && !showFull ? "translateX(-256px)" : "translateX(0)",
+        }}
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
       >

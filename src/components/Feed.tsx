@@ -125,29 +125,27 @@ export default function Feed({
             )}
 
             {/* Post info */}
-            <div className="mt-4 px-1">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  {post.title && (
-                    <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
-                      {post.title}
-                    </h2>
-                  )}
-                  {post.body && (
-                    <div
-                      className="text-[#a0a0a0] text-sm leading-relaxed mb-2 post-body"
-                      dangerouslySetInnerHTML={{ __html: post.body }}
-                    />
-                  )}
-                  <time className="text-[#555] text-xs tracking-wide uppercase">
-                    {formatDate(post.date)}
-                  </time>
+            <div className="mt-4 px-4 sm:px-8 text-center">
+              {post.title && (
+                <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
+                  {post.title}
+                </h2>
+              )}
+              {post.body && (
+                <div
+                  className="text-[#a0a0a0] text-sm leading-relaxed mb-2 post-body"
+                  dangerouslySetInnerHTML={{ __html: post.body }}
+                />
+              )}
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <time className="text-[#555] text-xs tracking-wide uppercase">
+                  {formatDate(post.date)}
+                </time>
+                <PostMeta tags={post.tags} people={post.people} />
+              </div>
 
-                  {/* Tags and People */}
-                  <PostMeta tags={post.tags} people={post.people} />
-                </div>
-
-                {/* iMessage button */}
+              {/* iMessage button — mobile only */}
+              <div className="mt-3 lg:hidden">
                 <IMessageBubble
                   recipients={recipients}
                   postUrl={`${siteUrl}/posts/${post.slug}`}
@@ -198,13 +196,13 @@ function PostMeta({
   if (!hasTags && !hasPeople) return null;
 
   return (
-    <div className="mt-2 flex flex-wrap gap-x-1.5 gap-y-1 text-xs">
+    <span className="inline-flex flex-wrap gap-x-1.5 text-xs">
       {hasPeople &&
         people.map((p) => (
           <Link
             key={p.slug}
             href={`/people/${p.slug}`}
-            className="text-[#427ea3] hover:text-[#5aadde] transition-colors"
+            className="text-[#4a4a4a] hover:text-[#777] transition-colors"
           >
             @{p.name}
           </Link>
@@ -214,12 +212,12 @@ function PostMeta({
           <Link
             key={t.slug}
             href={`/tags/${t.slug}`}
-            className="text-[#555] hover:text-[#777] transition-colors"
+            className="text-[#4a4a4a] hover:text-[#777] transition-colors"
           >
             #{t.name}
           </Link>
         ))}
-    </div>
+    </span>
   );
 }
 
