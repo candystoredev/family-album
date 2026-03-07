@@ -39,7 +39,7 @@ function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleDateString("en-US", {
     year: "numeric",
-    month: "long",
+    month: "short",
     day: "numeric",
   });
 }
@@ -108,9 +108,14 @@ export default function Feed({
 
   return (
     <>
-      <div className="space-y-16">
-        {posts.map((post) => (
+      <div className="space-y-12">
+        {posts.map((post, postIndex) => (
           <article key={post.id}>
+            {postIndex > 0 && (
+              <div className="flex justify-center mb-12">
+                <div className="w-8 h-px bg-[#333]" />
+              </div>
+            )}
             {/* Media — bleed to screen edge on mobile */}
             {post.media.length > 0 && (
               <div className="-mx-4 sm:mx-0">
@@ -133,7 +138,7 @@ export default function Feed({
               )}
               {post.body && (
                 <div
-                  className="text-[#a0a0a0] text-sm leading-relaxed mb-2 post-body"
+                  className="text-[#a0a0a0] text-sm leading-relaxed mb-2 text-left post-body"
                   dangerouslySetInnerHTML={{ __html: post.body }}
                 />
               )}

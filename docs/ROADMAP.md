@@ -81,11 +81,23 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
   - Verify: Search "birthday" → finds birthday posts. Search person name → finds their posts. Empty search handled
 - **4g**: Crawler blocking hardening (`noindex` meta, `X-Robots-Tag` header)
   - Verify: `curl -H "User-Agent: Googlebot"` → response contains `noindex` meta + `X-Robots-Tag` header. OG tags still work
-- **4h**: Post-migration polish (feedback from real-content review)
-  - Feed image quality: serve originals (or high-res resized) instead of 400px thumbnails in feed
-  - Desktop navigation: persistent left sidebar (semi-transparent, full opacity on hover, tucks away on narrow screens) — matching old Tumblr site UX
+- **4h**: Post-migration polish (feedback from real-content review) — **DONE**
+  - Feed image quality: serve originals instead of 400px thumbnails in feed
+  - Desktop navigation: persistent left sidebar (semi-transparent, full opacity on hover, tucks away on narrow screens)
   - Header removal: remove sticky header, replace with optional banner message
-  - Verify: Images sharp on desktop feed. Desktop sidebar visible and interactive. Mobile still uses FAB. No header visible, banner message works when set
+  - Sidebar tuck behavior: tucks left when overlapping feed, slides in on hover with background
+  - iMessage bubble: mobile only (hidden on desktop)
+  - Center-aligned post text with padding, tags inline with date
+  - Subtle post dividers, shorter date format (Nov 27, 2025), left-aligned body text
+- **4i**: Delight & performance polish
+  - Double-tap to "heart" photos in feed (floating heart animation, hearts stored in localStorage)
+  - Image fade-in on load (prevent layout shift, smooth reveal)
+  - "On this day" nudge — when today matches a past post's date, show a subtle callout
+  - Randomized end-of-feed messages (playful family-themed messages instead of static text)
+  - Skeleton loading shimmer for infinite scroll (instead of plain spinner)
+  - Smooth scroll-to-top when tapping "The Latest" in sidebar
+  - Prefetch next page of feed for instant infinite scroll
+  - Verify: Double-tap heart works on mobile + desktop. Images fade in smoothly. Skeleton shimmers appear during load. End-of-feed messages rotate
 
 ### Phase 5 — Admin Panel & Settings
 Responsive web throughout (not PWA). Each sub-slice builds on previous.
