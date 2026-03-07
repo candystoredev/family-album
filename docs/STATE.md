@@ -1,13 +1,13 @@
 # State
 
 ## Current Status
-Phases 1-4d complete and verified. Tumblr migration has been run — real content is live on dev.thehoecks.com. Seed test data cleaned. Feed shows tag/people links on every post. Filtered pages at `/tags/{slug}`, `/people/{slug}`, `/albums/{slug}` with cursor-based infinite scroll.
+Phases 1-4e complete and verified. Tumblr migration has been run — real content is live on dev.thehoecks.com. Seed test data cleaned. Feed shows tag/people links on every post. Filtered pages at `/tags/{slug}`, `/people/{slug}`, `/albums/{slug}` with cursor-based infinite scroll. Archive timeline via floating menu button with slide-out panel (years/months/albums).
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4e deployed — needs verification (archive index, month pages oldest-first, prev/next navigation)
+Phase 4e complete. Next up: Phase 4f (FTS5 search).
 
 ## Blockers
 None
@@ -16,14 +16,16 @@ None
 - FTS5 tags field always inserts empty string (trigger doesn't join tag names)
 
 ## Next Action
-Verify Phase 4e on dev.thehoecks.com. Then begin Phase 4f (FTS5 search).
+Begin Phase 4f: FTS5 search with highlighted results.
 
 ## Recent Changes
+- Phase 4e: Floating archive menu button (FAB) with slide-out panel
+- Phase 4e: Panel includes "The Latest", "Featured" (albums), and year/month timeline
+- Phase 4e: FAB hides on scroll-down, shows on scroll-up with jitter threshold
 - Phase 4e: Archive index page at `/archive` — year/month grid with post counts
 - Phase 4e: Month pages at `/archive/{year}/{month}` — oldest-first feed with infinite scroll
 - Phase 4e: Previous/next month navigation on month pages
 - Phase 4e: Feed API extended with `year`+`month` params, oldest-first ordering
-- Phase 4e: "Archive" link in home page header
 - Seed data cleaned from dev site (`DELETE /api/seed?clean=all`) — only real migrated content remains
 - Clean-all seed endpoint added to remove seed posts, media, tags, people, and albums
 - Schema init hardened: tumblr_id index created after migration to avoid conflicts
@@ -48,7 +50,8 @@ Verify Phase 4e on dev.thehoecks.com. Then begin Phase 4f (FTS5 search).
 - `apps/thehoecks/src/app/albums/[slug]/page.tsx` — album filtered page
 - `apps/thehoecks/src/app/archive/page.tsx` — archive index (year/month grid)
 - `apps/thehoecks/src/app/archive/[year]/[month]/page.tsx` — month page (oldest-first)
-- `apps/thehoecks/src/app/api/archive/route.ts` — archive API (years/months/counts)
+- `apps/thehoecks/src/app/api/archive/route.ts` — archive API (years/months/counts + albums)
+- `apps/thehoecks/src/components/ArchiveMenu.tsx` — floating menu button + slide-out panel
 - `apps/thehoecks/tests/cursor-pagination.test.ts` — cursor pagination tests
 - `apps/thehoecks/src/app/login/page.tsx` — login page
 - `apps/thehoecks/src/middleware.ts` — auth middleware

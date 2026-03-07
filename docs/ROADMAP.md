@@ -63,12 +63,14 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
   - Shared `lib/feed.ts` for server-side feed fetching
   - Verified: Tag/people/album pages render with real migrated content, pagination works within filters
 - **4e** ~~Year/month timeline navigation + month pages (oldest-first)~~ — **DONE**
-  - Archive index at `/archive` — year/month grid with post counts, only populated months shown
+  - Floating action button (bottom-right) with hamburger/X toggle, hides on scroll-down, shows on scroll-up
+  - Slide-out panel from left: "The Latest", "Featured" (albums), expandable year/month timeline
+  - Archive API returns years/months with post counts + albums list
+  - Archive index at `/archive` — year/month grid (fallback direct URL)
   - Month pages at `/archive/{year}/{month}` — oldest-first infinite scroll
   - Previous/next month navigation at bottom of month pages
   - Feed API extended with `year`+`month` filter params, oldest-first ordering
-  - "Archive" link in home page header
-  - Verify: Navigate to month → oldest-first order. Pagination walks forward. No empty months shown
+  - Verify: FAB visible, slide-out opens with timeline, navigate to month → oldest-first order
 - **4f**: FTS5 search with highlighted results
   - Verify: Search "birthday" → finds birthday posts. Search person name → finds their posts. Empty search handled
   - Test: Automated FTS5 test (insert posts, verify search results and ranking)
