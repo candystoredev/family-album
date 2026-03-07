@@ -7,7 +7,7 @@ Phases 1-4e complete and verified. Tumblr migration has been run — real conten
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4f deployed — needs verification (search via slide-out panel, results page). Requires `/api/init` call to rebuild FTS index first.
+Phase 4f complete — FTS index rebuilt via `/api/init` on production (dev.thehoecks.com). Ready to verify search, then move to Phase 4g.
 
 ## Blockers
 None
@@ -16,7 +16,7 @@ None
 None
 
 ## Next Action
-Call `POST /api/init` on dev to rebuild FTS index, then verify search. After that, Phase 4g (crawler blocking hardening).
+Verify search on dev.thehoecks.com (search "birthday", search person name, empty search). Then Phase 4g (crawler blocking hardening).
 
 ## Recent Changes
 - Phase 4f: FTS5 search — search bar in slide-out panel, `/search?q=` results page
@@ -80,8 +80,8 @@ Call `POST /api/init` on dev to rebuild FTS index, then verify search. After tha
 ## AI Guardrails
 Assumptions:
 - Phases 1-3 are considered complete per ROADMAP.md phase definitions
-- Migration script has not been run against real Tumblr data yet
-- Dev deployment at dev.thehoecks.com is the primary test target
+- Migration has been run — real Tumblr content is live
+- dev.thehoecks.com is the production site (old Tumblr site still on www.thehoecks.com)
 - Tom is the primary admin user
 
 Constraints:
