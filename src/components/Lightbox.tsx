@@ -126,18 +126,29 @@ export default function Lightbox({
   useEffect(() => {
     document.body.style.overflow = "hidden";
 
-    // Request fullscreen to hide browser chrome (iPad Safari, desktop)
-    const el = document.documentElement;
-    const requestFs = el.requestFullscreen ?? (el as any).webkitRequestFullscreen;
-    if (requestFs) {
-      requestFs.call(el).catch(() => {});
+    // Request fullscreen to hide browser chrome (desktop browsers)
+    // iOS Safari doesn't support fullscreen on non-video elements — skip it entirely
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!isIOS) {
+      const el = document.documentElement;
+      try {
+        const result = el.requestFullscreen?.() ?? (el as any).webkitRequestFullscreen?.();
+        result?.catch?.(() => {});
+      } catch {
+        // Fullscreen not supported — that's fine
+      }
     }
 
     return () => {
       document.body.style.overflow = "";
-      const exitFs = document.exitFullscreen ?? (document as any).webkitExitFullscreen;
-      if (exitFs && document.fullscreenElement) {
-        exitFs.call(document).catch(() => {});
+      try {
+        if (document.fullscreenElement) {
+          const result = document.exitFullscreen?.() ?? (document as any).webkitExitFullscreen?.();
+          result?.catch?.(() => {});
+        }
+      } catch {
+        // Ignore fullscreen exit errors
       }
     };
   }, []);
