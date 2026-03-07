@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
+import OnThisDay from "./OnThisDay";
 
 interface MediaItem {
   id: string;
@@ -35,6 +36,17 @@ interface FeedProps {
   filterParams?: string;
 }
 
+const END_MESSAGES = [
+  "You\u2019ve reached the beginning",
+  "That\u2019s every memory so far",
+  "Time to make new ones \u2764\uFE0F",
+  "You scrolled all the way back. Impressive.",
+  "The beginning of us",
+  "That\u2019s where it all started",
+  "No more scrolling \u2014 go make some memories!",
+  "You\u2019ve seen it all. For now.",
+];
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleDateString("en-US", {
@@ -42,6 +54,19 @@ function formatDate(dateStr: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/** Skeleton placeholder for a loading post */
+function PostSkeleton() {
+  return (
+    <div className="animate-pulse">
+      <div className="skeleton-shimmer rounded-lg h-[300px] sm:h-[400px] -mx-4 sm:mx-0 sm:rounded-lg" />
+      <div className="mt-4 px-4 sm:px-8 space-y-2">
+        <div className="skeleton-shimmer h-3 w-32 mx-auto rounded" />
+        <div className="skeleton-shimmer h-2.5 w-20 mx-auto rounded" />
+      </div>
+    </div>
+  );
 }
 
 export default function Feed({
@@ -56,31 +81,86 @@ export default function Feed({
   const [loading, setLoading] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // Prefetch state
+  const prefetchedRef = useRef<{ posts: Post[]; nextCursor: string | null } | null>(null);
+  const prefetchingRef = useRef(false);
+
   // Lightbox state
   const [lightbox, setLightbox] = useState<{
     media: MediaItem[];
     index: number;
   } | null>(null);
 
-  const fetchMore = useCallback(async () => {
-    if (!cursor || loading) return;
-    setLoading(true);
-    try {
+  // Pick a random end message on mount
+  const endMessage = useMemo(
+    () => END_MESSAGES[Math.floor(Math.random() * END_MESSAGES.length)],
+    []
+  );
+
+  const buildUrl = useCallback(
+    (c: string) => {
       const params = new URLSearchParams();
-      params.set("cursor", cursor);
+      params.set("cursor", c);
       if (filterParams) {
         const extra = new URLSearchParams(filterParams);
         extra.forEach((v, k) => params.set(k, v));
       }
-      const res = await fetch(`/api/feed?${params.toString()}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setPosts((prev) => [...prev, ...data.posts]);
-      setCursor(data.nextCursor);
+      return `/api/feed?${params.toString()}`;
+    },
+    [filterParams]
+  );
+
+  // Prefetch the next page ahead of time
+  const prefetchNext = useCallback(
+    async (nextCursor: string | null) => {
+      if (!nextCursor || prefetchingRef.current) return;
+      prefetchingRef.current = true;
+      try {
+        const res = await fetch(buildUrl(nextCursor));
+        if (res.ok) {
+          prefetchedRef.current = await res.json();
+        }
+      } catch {
+        // Silent fail — will fetch normally when needed
+      } finally {
+        prefetchingRef.current = false;
+      }
+    },
+    [buildUrl]
+  );
+
+  const fetchMore = useCallback(async () => {
+    if (!cursor || loading) return;
+    setLoading(true);
+    try {
+      // Use prefetched data if available
+      if (prefetchedRef.current) {
+        const data = prefetchedRef.current;
+        prefetchedRef.current = null;
+        setPosts((prev) => [...prev, ...data.posts]);
+        setCursor(data.nextCursor);
+        // Prefetch next page
+        prefetchNext(data.nextCursor);
+      } else {
+        const res = await fetch(buildUrl(cursor));
+        if (!res.ok) return;
+        const data = await res.json();
+        setPosts((prev) => [...prev, ...data.posts]);
+        setCursor(data.nextCursor);
+        // Prefetch next page
+        prefetchNext(data.nextCursor);
+      }
     } finally {
       setLoading(false);
     }
-  }, [cursor, loading, filterParams]);
+  }, [cursor, loading, buildUrl, prefetchNext]);
+
+  // Start prefetching first next page on mount
+  useEffect(() => {
+    if (initialCursor) {
+      prefetchNext(initialCursor);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -108,6 +188,9 @@ export default function Feed({
 
   return (
     <>
+      {/* On this day — only show on main feed (no filters) */}
+      {!filterParams && <OnThisDay />}
+
       <div className="space-y-12">
         {posts.map((post, postIndex) => (
           <article key={post.id}>
@@ -165,14 +248,15 @@ export default function Feed({
       <div ref={sentinelRef} className="h-px" />
 
       {loading && (
-        <div className="flex justify-center py-12">
-          <div className="w-6 h-6 border-2 border-[#333] border-t-[#427ea3] rounded-full animate-spin" />
+        <div className="space-y-12 py-8">
+          <PostSkeleton />
+          <PostSkeleton />
         </div>
       )}
 
       {!cursor && posts.length > 0 && (
         <p className="text-center text-[#444] text-xs py-12 tracking-wide uppercase">
-          You&rsquo;ve reached the beginning
+          {endMessage}
         </p>
       )}
 

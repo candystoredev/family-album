@@ -27,3 +27,72 @@ body {
   color: #888;
   margin: 0.5em 0;
 }
+
+/* Double-tap heart burst animation */
+@keyframes heart-burst {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  30% {
+    transform: scale(0.95);
+  }
+  45% {
+    transform: scale(1.0);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1.0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+.animate-heart-burst {
+  animation: heart-burst 0.9s ease-out forwards;
+}
+
+/* Image fade-in on load */
+@keyframes img-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.img-loading {
+  opacity: 0;
+}
+
+.img-loaded {
+  animation: img-fade-in 0.4s ease-out forwards;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #252424 0%,
+    #2f2e2e 40%,
+    #252424 80%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}

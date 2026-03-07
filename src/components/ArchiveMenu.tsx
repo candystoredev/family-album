@@ -206,13 +206,19 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
         </div>
       </form>
 
-      {/* The Latest */}
-      <Link
+      {/* The Latest — smooth scroll if already on home */}
+      <a
         href="/"
+        onClick={(e) => {
+          if (pathname === "/") {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        }}
         className="block text-[#d3d3d3] text-2xl font-semibold tracking-wide hover:text-white transition-colors mb-10"
       >
         The Latest
-      </Link>
+      </a>
 
       {loading && !data && (
         <div className="flex justify-center py-8">

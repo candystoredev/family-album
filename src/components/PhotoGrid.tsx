@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import DoubleTapHeart from "./DoubleTapHeart";
+
 interface MediaItem {
   id: string;
   type: string;
@@ -13,6 +16,33 @@ interface PhotoGridProps {
   media: MediaItem[];
   layout: string | null;
   onImageClick?: (index: number) => void;
+}
+
+function FadeImage({
+  src,
+  alt,
+  className,
+  style,
+  onClick,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+  onClick?: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className={`${className} ${loaded ? "img-loaded" : "img-loading"}`}
+      style={style}
+      onClick={onClick}
+      onLoad={() => setLoaded(true)}
+    />
+  );
 }
 
 export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProps) {
@@ -32,13 +62,16 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
             className="w-full"
           />
         ) : (
-          <img
-            src={item.url}
-            alt=""
-            loading="lazy"
-            className="w-full h-auto cursor-pointer"
+          <DoubleTapHeart
+            mediaId={item.id}
             onClick={() => onImageClick?.(0)}
-          />
+          >
+            <FadeImage
+              src={item.url}
+              alt=""
+              className="w-full h-auto cursor-pointer"
+            />
+          </DoubleTapHeart>
         )}
       </div>
     );
@@ -71,14 +104,18 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <img
-                    src={item.url}
-                    alt=""
-                    loading="lazy"
-                    className="w-full h-full object-cover cursor-pointer"
-                    style={{ aspectRatio: count > 1 ? "4/3" : undefined }}
+                  <DoubleTapHeart
+                    mediaId={item.id}
                     onClick={() => onImageClick?.(startIdx + itemIdx)}
-                  />
+                    className="h-full"
+                  >
+                    <FadeImage
+                      src={item.url}
+                      alt=""
+                      className="w-full h-full object-cover cursor-pointer"
+                      style={{ aspectRatio: count > 1 ? "4/3" : undefined }}
+                    />
+                  </DoubleTapHeart>
                 )}
               </div>
             ))}
