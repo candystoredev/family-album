@@ -28,6 +28,8 @@ export default function OnThisDay() {
   const [expanded, setExpanded] = useState(false);
   // Index of selected memory (-1 = thumbnail row, 0+ = viewing that post)
   const [activeIndex, setActiveIndex] = useState(-1);
+  // Drives the grow animation: false → thumbnails size, true → full size
+  const [grown, setGrown] = useState(false);
   const [lightbox, setLightbox] = useState<{ media: MediaItem[]; index: number } | null>(null);
   // Swipe state for navigating between memories
   const [swipeOffsetX, setSwipeOffsetX] = useState(0);
@@ -51,10 +53,28 @@ export default function OnThisDay() {
       .catch(() => {});
   }, []);
 
+  // When a thumbnail is tapped, set activeIndex then trigger grow on next frame
+  function openMemory(i: number) {
+    setActiveIndex(i);
+    // Let the component render at thumbnail size first, then grow
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setGrown(true);
+      });
+    });
+  }
+
+  function closeEverything() {
+    setGrown(false);
+    setActiveIndex(-1);
+    setExpanded(false);
+    setSwipeOffsetX(0);
+  }
+
   const goNextMemory = useCallback(() => {
     if (activeIndex < posts.length - 1 && !isTransitioning) {
       setIsTransitioning(true);
-      setSwipeOffsetX(-containerRef.current!.clientWidth);
+      setSwipeOffsetX(-(containerRef.current?.clientWidth || window.innerWidth));
       setTimeout(() => {
         skipTransition.current = true;
         setActiveIndex((i) => i + 1);
@@ -68,7 +88,7 @@ export default function OnThisDay() {
   const goPrevMemory = useCallback(() => {
     if (activeIndex > 0 && !isTransitioning) {
       setIsTransitioning(true);
-      setSwipeOffsetX(containerRef.current!.clientWidth);
+      setSwipeOffsetX(containerRef.current?.clientWidth || window.innerWidth);
       setTimeout(() => {
         skipTransition.current = true;
         setActiveIndex((i) => i - 1);
@@ -114,9 +134,25 @@ export default function OnThisDay() {
     }
   }
 
-  function closeExpanded() {
-    setActiveIndex(-1);
-    setSwipeOffsetX(0);
+  // Wheel handler for desktop trackpad swipe
+  const wheelAccum = useRef(0);
+  const wheelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function onWheel(e: React.WheelEvent) {
+    if (activeIndex < 0 || posts.length <= 1) return;
+    // Only respond to horizontal scroll (trackpad two-finger swipe)
+    if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
+    wheelAccum.current += e.deltaX;
+    if (wheelTimer.current) clearTimeout(wheelTimer.current);
+    wheelTimer.current = setTimeout(() => { wheelAccum.current = 0; }, 200);
+    const threshold = 80;
+    if (wheelAccum.current > threshold) {
+      wheelAccum.current = 0;
+      goNextMemory();
+    } else if (wheelAccum.current < -threshold) {
+      wheelAccum.current = 0;
+      goPrevMemory();
+    }
   }
 
   if (posts.length === 0) return null;
@@ -124,6 +160,7 @@ export default function OnThisDay() {
   const count = posts.length;
   const label = count === 1 ? "1 memory" : `${count} memories`;
   const isViewing = activeIndex >= 0;
+  const isOpen = expanded || isViewing;
 
   // Incoming memory for swipe transition
   const incomingIdx = swipeOffsetX < 0 && activeIndex < posts.length - 1
@@ -137,11 +174,10 @@ export default function OnThisDay() {
       {/* Compact teaser bar */}
       <button
         onClick={() => {
-          if (isViewing) {
-            closeExpanded();
-            setExpanded(false);
+          if (isOpen) {
+            closeEverything();
           } else {
-            setExpanded(!expanded);
+            setExpanded(true);
           }
         }}
         className="w-full flex items-center gap-3 px-4 sm:px-0 group"
@@ -175,105 +211,58 @@ export default function OnThisDay() {
           {label} from years past
         </span>
 
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          className={`w-4 h-4 text-[#555] ml-auto shrink-0 transition-transform duration-200 ${
-            expanded || isViewing ? "rotate-180" : ""
-          }`}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        {/* Chevron when closed, X when open */}
+        {isOpen ? (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            className="w-4 h-4 text-[#555] ml-auto shrink-0"
+          >
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        ) : (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            className="w-4 h-4 text-[#555] ml-auto shrink-0"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        )}
       </button>
 
-      {/* Expandable area — thumbnail cards OR expanded post */}
+      {/* Expandable area — thumbnail cards that grow into full posts */}
       <div
         className={`overflow-hidden transition-all duration-300 ease-out ${
-          expanded || isViewing
-            ? isViewing
-              ? "max-h-[80vh] opacity-100 mt-3"
-              : "max-h-[400px] opacity-100 mt-3"
-            : "max-h-0 opacity-0"
+          isOpen ? "opacity-100 mt-3" : "max-h-0 opacity-0"
         }`}
+        style={isOpen ? { maxHeight: isViewing && grown ? "80vh" : "400px" } : undefined}
       >
-        {/* Thumbnail card row — visible when not viewing a memory */}
-        <div
-          className={`transition-all duration-300 ease-out ${
-            isViewing
-              ? "max-h-0 opacity-0 overflow-hidden"
-              : "max-h-[200px] opacity-100"
-          }`}
-        >
-          <div className="flex gap-3 px-4 sm:px-0 overflow-x-auto pb-2 scrollbar-hide touch-pan-x">
-            {posts.map((post, i) => {
-              const d = new Date(post.date);
-              const yearsAgo = new Date().getFullYear() - d.getFullYear();
-              const timeLabel =
-                yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
-              return (
-                <button
-                  key={post.slug}
-                  onClick={() => setActiveIndex(i)}
-                  className="shrink-0 group/card active:scale-95 transition-transform text-left"
-                >
-                  <div className="w-36 rounded-lg overflow-hidden bg-[#252424] border border-[#333] group-hover/card:border-[#555] transition-colors">
-                    {post.thumbnailUrl ? (
-                      <img
-                        src={post.thumbnailUrl}
-                        alt=""
-                        className="w-36 h-24 object-cover"
-                      />
-                    ) : (
-                      <div className="w-36 h-24 bg-[#333]" />
-                    )}
-                    <div className="px-2.5 py-2">
-                      <p className="text-[#d3d3d3] text-xs leading-tight truncate group-hover/card:text-white transition-colors">
-                        {post.title || timeLabel}
-                      </p>
-                      <p className="text-[#555] text-[11px] mt-0.5">{timeLabel}</p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Expanded memory view — swipeable between posts */}
-        {isViewing && (
+        {/* When viewing, show the expanded post carousel */}
+        {isViewing ? (
           <div
             ref={containerRef}
             className="relative overflow-hidden"
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
+            onWheel={onWheel}
+            style={{
+              // Grow animation: scale from thumbnail-ish size to full
+              transform: grown ? "scale(1)" : "scale(0.35)",
+              opacity: grown ? 1 : 0.7,
+              transformOrigin: "top center",
+              transition: "transform 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out",
+            }}
           >
-            {/* Close / X button */}
-            <div className="flex items-center justify-between px-4 sm:px-0 mb-3">
-              <div className="flex items-center gap-2">
-                {posts.length > 1 && (
-                  <span className="text-[#555] text-xs">
-                    {activeIndex + 1} / {posts.length}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={closeExpanded}
-                className="text-[#555] hover:text-[#aaa] transition-colors p-1"
-                aria-label="Close"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
             {/* Incoming memory (swipe transition) */}
             {incomingIdx !== null && (swipeOffsetX !== 0 || isTransitioning) && (
               <div
-                className="absolute inset-0 top-10"
+                className="absolute inset-0"
                 style={{
                   transform: `translateX(${swipeOffsetX < 0 ? swipeOffsetX + (containerRef.current?.clientWidth || window.innerWidth) : swipeOffsetX - (containerRef.current?.clientWidth || window.innerWidth)}px)`,
                   transition: isSwiping || skipTransition.current
@@ -300,6 +289,34 @@ export default function OnThisDay() {
               />
             </div>
 
+            {/* Desktop nav arrows — circular buttons like the FAB */}
+            {posts.length > 1 && (
+              <>
+                {activeIndex > 0 && (
+                  <button
+                    onClick={goPrevMemory}
+                    className="hidden sm:flex absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-[#252424]/80 border border-[#333] shadow-lg shadow-black/30 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors"
+                    aria-label="Previous memory"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+                      <path d="M15 18l-6-6 6-6" />
+                    </svg>
+                  </button>
+                )}
+                {activeIndex < posts.length - 1 && (
+                  <button
+                    onClick={goNextMemory}
+                    className="hidden sm:flex absolute right-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-[#252424]/80 border border-[#333] shadow-lg shadow-black/30 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors"
+                    aria-label="Next memory"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </button>
+                )}
+              </>
+            )}
+
             {/* Dot indicators */}
             {posts.length > 1 && (
               <div className="flex justify-center gap-1.5 mt-4 pb-1">
@@ -318,6 +335,41 @@ export default function OnThisDay() {
                 ))}
               </div>
             )}
+          </div>
+        ) : (
+          /* Thumbnail card row */
+          <div className="flex gap-3 px-4 sm:px-0 overflow-x-auto pb-2 scrollbar-hide touch-pan-x">
+            {posts.map((post, i) => {
+              const d = new Date(post.date);
+              const yearsAgo = new Date().getFullYear() - d.getFullYear();
+              const timeLabel =
+                yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
+              return (
+                <button
+                  key={post.slug}
+                  onClick={() => openMemory(i)}
+                  className="shrink-0 group/card active:scale-95 transition-transform text-left"
+                >
+                  <div className="w-36 rounded-lg overflow-hidden bg-[#252424] border border-[#333] group-hover/card:border-[#555] transition-colors">
+                    {post.thumbnailUrl ? (
+                      <img
+                        src={post.thumbnailUrl}
+                        alt=""
+                        className="w-36 h-24 object-cover"
+                      />
+                    ) : (
+                      <div className="w-36 h-24 bg-[#333]" />
+                    )}
+                    <div className="px-2.5 py-2">
+                      <p className="text-[#d3d3d3] text-xs leading-tight truncate group-hover/card:text-white transition-colors">
+                        {post.title || timeLabel}
+                      </p>
+                      <p className="text-[#555] text-[11px] mt-0.5">{timeLabel}</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -352,7 +404,7 @@ function MemoryCard({
   });
 
   return (
-    <div className="px-4 sm:px-0">
+    <div className="px-1 sm:px-0">
       <div className="rounded-lg overflow-hidden bg-[#252424] border border-[#333]">
         {/* Photos */}
         {post.media.length > 0 && (
@@ -365,8 +417,8 @@ function MemoryCard({
           </div>
         )}
 
-        {/* Caption & date */}
-        <div className="px-4 py-3">
+        {/* Caption & date — centered */}
+        <div className="px-4 py-3 text-center">
           <p className="text-[#888] text-xs mb-1">{timeLabel} &middot; {dateFormatted}</p>
           {post.title && (
             <p className="text-[#e0e0e0] text-sm font-medium leading-snug mb-1">
