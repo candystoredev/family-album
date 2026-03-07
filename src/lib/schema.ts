@@ -101,7 +101,6 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_post_tags_tag_id ON post_tags(tag_id)`,
   `CREATE INDEX IF NOT EXISTS idx_post_people_person_id ON post_people(person_id)`,
   `CREATE INDEX IF NOT EXISTS idx_post_albums_album_id ON post_albums(album_id)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tumblr_id ON posts(tumblr_id) WHERE tumblr_id IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_invite_links_token ON invite_links(token)`,
 
   // FTS5 virtual table (external content mode backed by posts rowid)
@@ -138,6 +137,11 @@ const migrations = [
   `ALTER TABLE posts ADD COLUMN tumblr_id TEXT`,
 ];
 
+// Indexes that depend on migrated columns (run after migrations)
+const postMigrationStatements = [
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tumblr_id ON posts(tumblr_id) WHERE tumblr_id IS NOT NULL`,
+];
+
 export async function initializeSchema() {
   for (const sql of statements) {
     await db.execute(sql);
@@ -148,5 +152,8 @@ export async function initializeSchema() {
     } catch {
       // Column/index already exists — safe to ignore
     }
+  }
+  for (const sql of postMigrationStatements) {
+    await db.execute(sql);
   }
 }
