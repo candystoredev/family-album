@@ -212,9 +212,9 @@ export default function Feed({
               </div>
             )}
 
-            {/* Post info — caption area with iMessage bubble vertically centered right */}
-            <div className="mt-4 px-4 sm:px-8 relative flex items-center">
-              <div className="text-center flex-1 pr-8 lg:pr-0">
+            {/* Post info — caption area, iMessage bubble reveals on hover/tap */}
+            <div className="mt-4 px-4 sm:px-8 relative flex items-center group/caption">
+              <div className="text-center flex-1 pr-6 lg:pr-0">
                 {post.title && (
                   <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
                     {post.title}
@@ -234,8 +234,8 @@ export default function Feed({
                 </div>
               </div>
 
-              {/* iMessage button — mobile only, vertically centered */}
-              <div className="absolute right-4 sm:right-8 top-1/2 -translate-y-1/2 lg:hidden">
+              {/* iMessage button — mobile only, ghost until caption area hovered/tapped */}
+              <div className="absolute right-1 sm:right-4 top-1/2 -translate-y-1/2 lg:hidden opacity-15 group-hover/caption:opacity-60 transition-opacity duration-300">
                 <IMessageBubble
                   recipients={recipients}
                   postUrl={`${siteUrl}/posts/${post.slug}`}

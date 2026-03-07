@@ -41,33 +41,40 @@ export default function Lightbox({
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
-  const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
   const count = media.length;
   const current = media[index];
 
+  // Determine which incoming image to show behind the current one during swipe
+  const incomingIndex = offsetX < 0 && index < count - 1
+    ? index + 1
+    : offsetX > 0 && index > 0
+    ? index - 1
+    : null;
+  const incoming = incomingIndex !== null ? media[incomingIndex] : null;
+
   const goNext = useCallback(() => {
     if (index < count - 1 && !transitioning) {
-      setSlideDir("left");
       setTransitioning(true);
+      setOffsetX(-window.innerWidth);
       setTimeout(() => {
         setIndex((i) => i + 1);
-        setSlideDir(null);
+        setOffsetX(0);
         setTransitioning(false);
-      }, 250);
+      }, 300);
     }
   }, [index, count, transitioning]);
 
   const goPrev = useCallback(() => {
     if (index > 0 && !transitioning) {
-      setSlideDir("right");
       setTransitioning(true);
+      setOffsetX(window.innerWidth);
       setTimeout(() => {
         setIndex((i) => i - 1);
-        setSlideDir(null);
+        setOffsetX(0);
         setTransitioning(false);
-      }, 250);
+      }, 300);
     }
   }, [index, transitioning]);
 
@@ -152,23 +159,9 @@ export default function Lightbox({
     const threshold = 60;
     const dx = touchDeltaX.current;
     if (dx < -threshold && index < count - 1 && !transitioning) {
-      // Swipe left → next: animate out, then switch
-      setTransitioning(true);
-      setOffsetX(-window.innerWidth);
-      setTimeout(() => {
-        setIndex((i) => i + 1);
-        setOffsetX(0);
-        setTransitioning(false);
-      }, 280);
+      goNext();
     } else if (dx > threshold && index > 0 && !transitioning) {
-      // Swipe right → prev: animate out, then switch
-      setTransitioning(true);
-      setOffsetX(window.innerWidth);
-      setTimeout(() => {
-        setIndex((i) => i - 1);
-        setOffsetX(0);
-        setTransitioning(false);
-      }, 280);
+      goPrev();
     } else {
       setOffsetX(0);
     }
@@ -236,16 +229,38 @@ export default function Lightbox({
           </button>
         )}
 
+        {/* Incoming image — sits behind current, revealed as current slides away */}
+        {incoming && (offsetX !== 0 || transitioning) && (
+          <div className="absolute inset-0 flex items-center justify-center z-0">
+            {incoming.type === "video" ? (
+              <video
+                key={incoming.id}
+                src={incoming.url}
+                poster={incoming.thumbnailUrl}
+                playsInline
+                className="max-w-full max-h-full object-contain"
+              />
+            ) : (
+              <img
+                src={loaded.has(incoming.id) ? incoming.url : incoming.thumbnailUrl}
+                alt=""
+                className="max-w-full max-h-full object-contain"
+                draggable={false}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Current image — slides away on swipe, revealing incoming behind it */}
         <div
-          className="w-full h-full flex items-center justify-center"
+          className="w-full h-full flex items-center justify-center relative z-10"
           style={{
-            transform: offsetX !== 0 || slideDir
-              ? `translateX(${slideDir === "left" ? -80 : slideDir === "right" ? 80 : offsetX}px)`
+            transform: offsetX !== 0
+              ? `translateX(${offsetX}px)`
               : undefined,
-            opacity: slideDir ? 0 : offsetX !== 0 && !swiping ? 0 : 1,
             transition: swiping
               ? "none"
-              : "transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.22s ease",
+              : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
           }}
         >
           {current.type === "video" ? (
@@ -259,7 +274,6 @@ export default function Lightbox({
             />
           ) : (
             <>
-              {/* Show thumbnail as placeholder while full-res loads */}
               {!isCurrentLoaded && (
                 <img
                   src={current.thumbnailUrl}

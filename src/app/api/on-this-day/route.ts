@@ -32,34 +32,18 @@ export async function GET(req: NextRequest) {
     args: [mm, dd, String(currentYear)],
   });
 
-  // Pick up to 3 posts from at least 2 different years when possible
+  // Pick up to 3 posts, max 2 from any single year
   const allRows = result.rows as unknown as { id: string; slug: string; title: string | null; date: string }[];
   let selected: typeof allRows = [];
   if (allRows.length > 0) {
-    const byYear = new Map<string, typeof allRows>();
+    const yearCount = new Map<string, number>();
     for (const row of allRows) {
       const year = row.date.slice(0, 4);
-      if (!byYear.has(year)) byYear.set(year, []);
-      byYear.get(year)!.push(row);
-    }
-
-    if (byYear.size >= 2) {
-      // Pick 1 from each year round-robin until we have 3
-      const yearEntries = [...byYear.entries()];
-      let idx = 0;
-      const taken = new Map<string, number>();
-      while (selected.length < 3 && selected.length < allRows.length) {
-        const [year, rows] = yearEntries[idx % yearEntries.length];
-        const takenCount = taken.get(year) || 0;
-        if (takenCount < rows.length) {
-          selected.push(rows[takenCount]);
-          taken.set(year, takenCount + 1);
-        }
-        idx++;
+      const count = yearCount.get(year) || 0;
+      if (count < 2 && selected.length < 3) {
+        selected.push(row);
+        yearCount.set(year, count + 1);
       }
-    } else {
-      // Only 1 year available — take up to 3
-      selected = allRows.slice(0, 3);
     }
   }
 
