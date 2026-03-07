@@ -7,7 +7,7 @@ Phases 1-4d complete and verified. Tumblr migration has been run — real conten
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4e: Year/month timeline navigation + month pages (oldest-first)
+Phase 4e deployed — needs verification (archive index, month pages oldest-first, prev/next navigation)
 
 ## Blockers
 None
@@ -16,9 +16,14 @@ None
 - FTS5 tags field always inserts empty string (trigger doesn't join tag names)
 
 ## Next Action
-Build Phase 4e (year/month timeline navigation, oldest-first month pages).
+Verify Phase 4e on dev.thehoecks.com. Then begin Phase 4f (FTS5 search).
 
 ## Recent Changes
+- Phase 4e: Archive index page at `/archive` — year/month grid with post counts
+- Phase 4e: Month pages at `/archive/{year}/{month}` — oldest-first feed with infinite scroll
+- Phase 4e: Previous/next month navigation on month pages
+- Phase 4e: Feed API extended with `year`+`month` params, oldest-first ordering
+- Phase 4e: "Archive" link in home page header
 - Seed data cleaned from dev site (`DELETE /api/seed?clean=all`) — only real migrated content remains
 - Clean-all seed endpoint added to remove seed posts, media, tags, people, and albums
 - Schema init hardened: tumblr_id index created after migration to avoid conflicts
@@ -41,6 +46,9 @@ Build Phase 4e (year/month timeline navigation, oldest-first month pages).
 - `apps/thehoecks/src/app/tags/[slug]/page.tsx` — tag filtered page
 - `apps/thehoecks/src/app/people/[slug]/page.tsx` — person filtered page
 - `apps/thehoecks/src/app/albums/[slug]/page.tsx` — album filtered page
+- `apps/thehoecks/src/app/archive/page.tsx` — archive index (year/month grid)
+- `apps/thehoecks/src/app/archive/[year]/[month]/page.tsx` — month page (oldest-first)
+- `apps/thehoecks/src/app/api/archive/route.ts` — archive API (years/months/counts)
 - `apps/thehoecks/tests/cursor-pagination.test.ts` — cursor pagination tests
 - `apps/thehoecks/src/app/login/page.tsx` — login page
 - `apps/thehoecks/src/middleware.ts` — auth middleware

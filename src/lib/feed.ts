@@ -43,17 +43,22 @@ export interface FeedFilter {
   tagId?: string;
   personId?: string;
   albumId?: string;
+  year?: number;
+  month?: number;
 }
 
 /**
  * Fetch a page of posts for server-side rendering.
- * Supports optional filtering by tag, person, or album.
+ * Supports optional filtering by tag, person, album, or year/month.
+ * Month pages use oldest-first ordering.
  */
 export async function getInitialFeed(filter?: FeedFilter) {
   const r2PublicUrl = process.env.R2_PUBLIC_URL!;
 
   let filterJoin = "";
   const filterArgs: (string | number)[] = [];
+  let dateWhere = "";
+  const dateArgs: string[] = [];
 
   if (filter?.tagId) {
     filterJoin =
@@ -69,12 +74,25 @@ export async function getInitialFeed(filter?: FeedFilter) {
     filterArgs.push(filter.albumId);
   }
 
+  const isOldestFirst = !!(filter?.year && filter?.month);
+  const orderDir = isOldestFirst ? "ASC" : "DESC";
+
+  if (filter?.year && filter?.month) {
+    const startDate = `${filter.year}-${String(filter.month).padStart(2, "0")}-01`;
+    const nextMonth = filter.month === 12 ? 1 : filter.month + 1;
+    const nextYear = filter.month === 12 ? filter.year + 1 : filter.year;
+    const endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
+    dateWhere = "WHERE p.date >= ? AND p.date < ?";
+    dateArgs.push(startDate, endDate);
+  }
+
   const result = await db.execute({
     sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout
           FROM posts p
           ${filterJoin}
-          ORDER BY p.date DESC, p.id DESC LIMIT ?`,
-    args: [...filterArgs, PAGE_SIZE + 1],
+          ${dateWhere}
+          ORDER BY p.date ${orderDir}, p.id ${orderDir} LIMIT ?`,
+    args: [...filterArgs, ...dateArgs, PAGE_SIZE + 1],
   });
 
   let posts = result.rows as unknown as PostRow[];

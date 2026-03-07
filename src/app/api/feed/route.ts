@@ -61,10 +61,17 @@ export async function GET(request: NextRequest) {
   const tagSlug = request.nextUrl.searchParams.get("tag");
   const personSlug = request.nextUrl.searchParams.get("person");
   const albumSlug = request.nextUrl.searchParams.get("album");
+  const yearParam = request.nextUrl.searchParams.get("year");
+  const monthParam = request.nextUrl.searchParams.get("month");
+
+  // Month pages use oldest-first ordering
+  const isOldestFirst = !!(yearParam && monthParam);
 
   // Resolve filter to ID if present
   let filterJoin = "";
   let filterArgs: (string | number)[] = [];
+  let dateWhere = "";
+  const dateArgs: string[] = [];
 
   if (tagSlug) {
     const tag = await db.execute({
@@ -98,6 +105,25 @@ export async function GET(request: NextRequest) {
     filterArgs = [album.rows[0].id as string];
   }
 
+  // Year/month date range filter
+  if (yearParam && monthParam) {
+    const year = parseInt(yearParam, 10);
+    const month = parseInt(monthParam, 10);
+    if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+      return NextResponse.json({ error: "Invalid year/month" }, { status: 400 });
+    }
+    const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+    // Calculate end date (first day of next month)
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
+    dateWhere = "AND p.date >= ? AND p.date < ?";
+    dateArgs.push(startDate, endDate);
+  }
+
+  const orderDir = isOldestFirst ? "ASC" : "DESC";
+  const cursorOp = isOldestFirst ? ">" : "<";
+
   let posts: PostRow[];
 
   if (cursor) {
@@ -109,10 +135,11 @@ export async function GET(request: NextRequest) {
       sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout
             FROM posts p
             ${filterJoin}
-            WHERE (p.date < ? OR (p.date = ? AND p.id < ?))
-            ORDER BY p.date DESC, p.id DESC
+            WHERE (p.date ${cursorOp} ? OR (p.date = ? AND p.id ${cursorOp} ?))
+            ${dateWhere}
+            ORDER BY p.date ${orderDir}, p.id ${orderDir}
             LIMIT ?`,
-      args: [...filterArgs, parsed.date, parsed.date, parsed.id, PAGE_SIZE + 1],
+      args: [...filterArgs, parsed.date, parsed.date, parsed.id, ...dateArgs, PAGE_SIZE + 1],
     });
     posts = result.rows as unknown as PostRow[];
   } else {
@@ -120,9 +147,10 @@ export async function GET(request: NextRequest) {
       sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout
             FROM posts p
             ${filterJoin}
-            ORDER BY p.date DESC, p.id DESC
+            WHERE 1=1 ${dateWhere}
+            ORDER BY p.date ${orderDir}, p.id ${orderDir}
             LIMIT ?`,
-      args: [...filterArgs, PAGE_SIZE + 1],
+      args: [...filterArgs, ...dateArgs, PAGE_SIZE + 1],
     });
     posts = result.rows as unknown as PostRow[];
   }
