@@ -1,38 +1,37 @@
 # State
 
 ## Current Status
-Phases 1-3 complete. Phase 4a-4d implemented. Feed shows tag/people links on every post. Filtered pages at `/tags/{slug}`, `/people/{slug}`, `/albums/{slug}` with cursor-based infinite scroll. Album pages show cover image when set.
+Phases 1-4d complete and verified. Tumblr migration has been run — real content is live on dev.thehoecks.com. Seed test data cleaned. Feed shows tag/people links on every post. Filtered pages at `/tags/{slug}`, `/people/{slug}`, `/albums/{slug}` with cursor-based infinite scroll.
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4d deployed — needs verification (tag/people/album pages, clickable links in feed, pagination within filters)
+Phase 4e: Year/month timeline navigation + month pages (oldest-first)
 
 ## Blockers
 None
 
 ## Known Issues
-- Seed test posts must be deleted before running real migration (`DELETE /api/seed?clean=all`)
 - FTS5 tags field always inserts empty string (trigger doesn't join tag names)
-- Seed posts don't have tags/people/albums, so tag/people links won't appear in seeded feed
 
 ## Next Action
-Verify filtered pages work with real tagged/peopled data. Then begin Phase 4e (year/month timeline navigation).
+Build Phase 4e (year/month timeline navigation, oldest-first month pages).
 
 ## Recent Changes
-- Phase 4d: Tag filtered page at `/tags/[slug]` with cursor-based infinite scroll
-- Phase 4d: People filtered page at `/people/[slug]` with cursor-based infinite scroll
-- Phase 4d: Album filtered page at `/albums/[slug]` with cover image and cursor-based infinite scroll
-- Phase 4d: Feed API extended with `tag`, `person`, `album` filter query params
-- Phase 4d: Feed API now returns tags and people per post (for rendering links)
-- Phase 4d: Feed component shows clickable `@person` and `#tag` links below each post
-- Phase 4d: Extracted shared `getInitialFeed()` into `lib/feed.ts` to reduce duplication
-- Phase 4d: Back arrow navigation on all filtered pages
-- Fullscreen lightbox: tap any image → fullscreen view, swipe left/right for photosets, dot indicators, keyboard arrows on desktop, body scroll lock
-- iMessage chat bubble: blue icon next to each post's caption, opens pre-filled SMS with post URL
-- Post detail page simplified to permalink-only (OG tags for link previews, no iMessage button)
-- Feed images no longer link to post pages — tap opens lightbox instead
+- Seed data cleaned from dev site (`DELETE /api/seed?clean=all`) — only real migrated content remains
+- Clean-all seed endpoint added to remove seed posts, media, tags, people, and albums
+- Schema init hardened: tumblr_id index created after migration to avoid conflicts
+- Migration script hardened: transactions, slug dedup, seed cleanup
+- Tumblr OAuth key renamed to match Vercel env convention
+- Tumblr blog ID and family people list configured for migration
+- Phase 4d: Tag/people/album filtered pages with cursor-based infinite scroll
+- Phase 4d: Feed API extended with filter params, returns tags/people per post
+- Phase 4d: Clickable `@person` and `#tag` links in feed
+- Phase 4d: Shared `lib/feed.ts` for server-side feed fetching
+- Fullscreen lightbox with swipe, keyboard arrows, dot indicators
+- iMessage chat bubble on feed posts
+- Post detail page simplified to permalink-only (OG tags for link previews)
 
 ## Relevant Files
 - `apps/thehoecks/src/app/page.tsx` — home feed (SSR first page)
