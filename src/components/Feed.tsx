@@ -193,56 +193,17 @@ export default function Feed({
 
       <div className="space-y-6">
         {posts.map((post, postIndex) => (
-          <article key={post.id}>
-            {postIndex > 0 && (
-              <div className="flex justify-center my-2">
-                <div className="w-1 h-1 rounded-full bg-[#333]" />
-              </div>
-            )}
-            {/* Media — bleed to screen edge on mobile */}
-            {post.media.length > 0 && (
-              <div className="-mx-4 sm:mx-0">
-                <PhotoGrid
-                  media={post.media}
-                  layout={post.photoset_layout}
-                  onImageClick={(index) =>
-                    setLightbox({ media: post.media, index })
-                  }
-                />
-              </div>
-            )}
-
-            {/* Post info — caption area, iMessage bubble reveals on hover/tap */}
-            <div className="mt-4 px-4 sm:px-8 relative flex items-center group/caption">
-              <div className="text-center flex-1 pr-6 lg:pr-0">
-                {post.title && (
-                  <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
-                    {post.title}
-                  </h2>
-                )}
-                {post.body && (
-                  <div
-                    className="text-[#a0a0a0] text-sm leading-relaxed mb-2 text-left post-body"
-                    dangerouslySetInnerHTML={{ __html: post.body }}
-                  />
-                )}
-                <div className="flex items-center justify-center gap-2 flex-wrap">
-                  <time className="text-[#555] text-xs tracking-wide uppercase">
-                    {formatDate(post.date)}
-                  </time>
-                  {isAdmin && <PostMeta tags={post.tags} people={post.people} />}
-                </div>
-              </div>
-
-              {/* iMessage button — mobile only, ghost until caption area hovered/tapped */}
-              <div className="absolute right-1 sm:right-4 top-1/2 -translate-y-1/2 lg:hidden opacity-15 group-hover/caption:opacity-60 transition-opacity duration-300">
-                <IMessageBubble
-                  recipients={recipients}
-                  postUrl={`${siteUrl}/posts/${post.slug}`}
-                />
-              </div>
-            </div>
-          </article>
+          <PostCard
+            key={post.id}
+            post={post}
+            postIndex={postIndex}
+            recipients={recipients}
+            siteUrl={siteUrl}
+            isAdmin={isAdmin}
+            onLightbox={(index) =>
+              setLightbox({ media: post.media, index })
+            }
+          />
         ))}
       </div>
 
@@ -271,6 +232,84 @@ export default function Feed({
         />
       )}
     </>
+  );
+}
+
+/** Individual post card — manages bubble visibility on caption tap */
+function PostCard({
+  post,
+  postIndex,
+  recipients,
+  siteUrl,
+  isAdmin,
+  onLightbox,
+}: {
+  post: Post;
+  postIndex: number;
+  recipients: string[];
+  siteUrl: string;
+  isAdmin?: boolean;
+  onLightbox: (index: number) => void;
+}) {
+  const [showBubble, setShowBubble] = useState(false);
+  const isMulti = post.media.length > 1;
+
+  return (
+    <article>
+      {postIndex > 0 && (
+        <div className="flex justify-center my-2">
+          <div className="w-1 h-1 rounded-full bg-[#333]" />
+        </div>
+      )}
+      {/* Media — bleed to screen edge on mobile */}
+      {post.media.length > 0 && (
+        <div className="-mx-4 sm:mx-0">
+          <PhotoGrid
+            media={post.media}
+            layout={post.photoset_layout}
+            onImageClick={isMulti ? (index) => onLightbox(index) : undefined}
+          />
+        </div>
+      )}
+
+      {/* Post info — caption area, tap to reveal iMessage bubble */}
+      <div
+        className="mt-4 px-4 sm:px-8 relative flex items-center cursor-pointer"
+        onClick={() => setShowBubble((v) => !v)}
+      >
+        <div className="text-center flex-1 pr-6 lg:pr-0">
+          {post.title && (
+            <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
+              {post.title}
+            </h2>
+          )}
+          {post.body && (
+            <div
+              className="text-[#a0a0a0] text-sm leading-relaxed mb-2 text-left post-body"
+              dangerouslySetInnerHTML={{ __html: post.body }}
+            />
+          )}
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <time className="text-[#555] text-xs tracking-wide uppercase">
+              {formatDate(post.date)}
+            </time>
+            {isAdmin && <PostMeta tags={post.tags} people={post.people} />}
+          </div>
+        </div>
+
+        {/* iMessage button — hidden until caption tapped, then 40% opacity */}
+        <div
+          className={`absolute right-1 sm:right-4 top-1/2 -translate-y-1/2 lg:hidden transition-opacity duration-300 ${
+            showBubble ? "opacity-40" : "opacity-0 pointer-events-none"
+          }`}
+        >
+          <IMessageBubble
+            recipients={recipients}
+            postUrl={`${siteUrl}/posts/${post.slug}`}
+          />
+        </div>
+      </div>
+    </article>
   );
 }
 
