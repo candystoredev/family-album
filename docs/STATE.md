@@ -3,26 +3,30 @@
 ## Current Status
 Phases 1-4 complete. Tumblr migration completed against production on 2026-03-07. All posts migrated, FTS index rebuilt. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
 
-Phase 4 feedback items identified — addressing before moving to Phase 5.
+Phase 4h (post-migration polish) implemented. Ready for review and Phase 5.
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4 polish — addressing feedback from real-content review before Phase 5.
+Phase 4h deployed. Awaiting Tom's review on desktop sidebar, image quality, and header removal. Then Phase 5a.
 
 ## Blockers
 None
 
 ## Known Issues
-1. **Feed image quality** — Feed renders thumbnails (400px wide) instead of originals. At 900px feed width, images are significantly upscaled/blurry. Need to serve higher-quality images in feed while keeping performance reasonable.
-2. **Desktop navigation** — FAB hamburger button works well on mobile but is suboptimal for desktop. Need persistent left sidebar nav on desktop (like the old Tumblr site) that is semi-transparent, full opacity on hover, and tucks away when screen is too narrow.
-3. **Header removal** — Sticky header with title/nav is unnecessary. Replace with optional banner message capability only.
+None
 
 ## Next Action
-Address Phase 4 feedback items (image quality, desktop nav, header), then Phase 5a (single photo upload).
+Tom reviews Phase 4h changes on dev.thehoecks.com, then Phase 5a (single photo upload).
 
 ## Recent Changes
+- Phase 4h: Feed images now serve originals instead of 400px thumbnails
+- Phase 4h: Desktop sidebar — persistent left nav at 35% opacity, full on hover (lg+ breakpoint)
+- Phase 4h: Mobile keeps FAB + slide-out panel unchanged
+- Phase 4h: Removed sticky headers from all 8 pages
+- Phase 4h: Added BannerMessage component (reads `banner_message` from site_settings)
+- Phase 4h: Logout + admin badge moved to sidebar bottom
 - 2026-03-07: Full Tumblr migration completed against production, FTS index rebuilt
 - Phase 4f: FTS5 search — search bar in slide-out panel, `/search?q=` results page
 - Phase 4f: Search API at `/api/search` with FTS5 ranking, offset pagination
