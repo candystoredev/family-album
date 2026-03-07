@@ -9,9 +9,9 @@ interface DoubleTapHeartProps {
   onClick?: () => void;
 }
 
-const HEARTS_KEY = "thehoecks_hearts";
+export const HEARTS_KEY = "thehoecks_hearts";
 
-function getHearts(): Set<string> {
+export function getHearts(): Set<string> {
   try {
     const raw = localStorage.getItem(HEARTS_KEY);
     return raw ? new Set(JSON.parse(raw)) : new Set();
@@ -20,7 +20,7 @@ function getHearts(): Set<string> {
   }
 }
 
-function saveHearts(hearts: Set<string>) {
+export function saveHearts(hearts: Set<string>) {
   localStorage.setItem(HEARTS_KEY, JSON.stringify([...hearts]));
 }
 
@@ -39,14 +39,20 @@ export default function DoubleTapHeart({
     setHearted(getHearts().has(mediaId));
   }, [mediaId]);
 
-  const triggerHeart = useCallback(() => {
+  const toggleHeart = useCallback(() => {
     const hearts = getHearts();
-    hearts.add(mediaId);
-    saveHearts(hearts);
-    setHearted(true);
-    setShowBurst(true);
-    if (burstTimeout.current) clearTimeout(burstTimeout.current);
-    burstTimeout.current = setTimeout(() => setShowBurst(false), 900);
+    if (hearts.has(mediaId)) {
+      hearts.delete(mediaId);
+      saveHearts(hearts);
+      setHearted(false);
+    } else {
+      hearts.add(mediaId);
+      saveHearts(hearts);
+      setHearted(true);
+      setShowBurst(true);
+      if (burstTimeout.current) clearTimeout(burstTimeout.current);
+      burstTimeout.current = setTimeout(() => setShowBurst(false), 900);
+    }
   }, [mediaId]);
 
   const handleClick = useCallback(
@@ -54,7 +60,7 @@ export default function DoubleTapHeart({
       const now = Date.now();
       if (now - lastTap.current < 350) {
         e.stopPropagation();
-        triggerHeart();
+        toggleHeart();
         lastTap.current = 0;
       } else {
         lastTap.current = now;
@@ -67,7 +73,7 @@ export default function DoubleTapHeart({
         }, 350);
       }
     },
-    [triggerHeart, onClick]
+    [toggleHeart, onClick]
   );
 
   return (

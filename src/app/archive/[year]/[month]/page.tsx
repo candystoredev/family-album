@@ -107,6 +107,7 @@ export default async function MonthPage({
           siteUrl={siteUrl}
           imessageRecipients={imessageRecipients}
           filterParams={`year=${year}&month=${month}`}
+          isAdmin={session.role === "admin"}
         />
 
         {/* Previous / Next month navigation */}

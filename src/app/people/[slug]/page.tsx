@@ -69,6 +69,7 @@ export default async function PersonPage({
             siteUrl={siteUrl}
             imessageRecipients={imessageRecipients}
             filterParams={`person=${encodeURIComponent(person.slug)}`}
+            isAdmin={session.role === "admin"}
           />
         )}
       </div>

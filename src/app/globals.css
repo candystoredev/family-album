@@ -96,3 +96,12 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.8s ease-in-out infinite;
 }
+
+/* Hide scrollbar for horizontal scroll containers */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

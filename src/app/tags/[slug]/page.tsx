@@ -69,6 +69,7 @@ export default async function TagPage({
             siteUrl={siteUrl}
             imessageRecipients={imessageRecipients}
             filterParams={`tag=${encodeURIComponent(tag.slug)}`}
+            isAdmin={session.role === "admin"}
           />
         )}
       </div>

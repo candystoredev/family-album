@@ -29,12 +29,14 @@ interface SearchResultsProps {
   initialQuery: string;
   siteUrl: string;
   imessageRecipients: string;
+  isAdmin?: boolean;
 }
 
 export default function SearchResults({
   initialQuery,
   siteUrl,
   imessageRecipients,
+  isAdmin,
 }: SearchResultsProps) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
@@ -179,6 +181,7 @@ export default function SearchResults({
               initialCursor={null}
               siteUrl={siteUrl}
               imessageRecipients={imessageRecipients}
+              isAdmin={isAdmin}
             />
 
             {hasMore && (

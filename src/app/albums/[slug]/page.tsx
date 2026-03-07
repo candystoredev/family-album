@@ -110,6 +110,7 @@ export default async function AlbumPage({
             siteUrl={siteUrl}
             imessageRecipients={imessageRecipients}
             filterParams={`album=${encodeURIComponent(album.slug)}`}
+            isAdmin={session.role === "admin"}
           />
         )}
       </div>

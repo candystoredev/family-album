@@ -34,6 +34,7 @@ interface FeedProps {
   siteUrl: string;
   imessageRecipients: string;
   filterParams?: string;
+  isAdmin?: boolean;
 }
 
 const END_MESSAGES = [
@@ -59,11 +60,11 @@ function formatDate(dateStr: string): string {
 /** Skeleton placeholder for a loading post */
 function PostSkeleton() {
   return (
-    <div className="animate-pulse">
+    <div>
       <div className="skeleton-shimmer rounded-lg h-[300px] sm:h-[400px] -mx-4 sm:mx-0 sm:rounded-lg" />
-      <div className="mt-4 px-4 sm:px-8 space-y-2">
-        <div className="skeleton-shimmer h-3 w-32 mx-auto rounded" />
-        <div className="skeleton-shimmer h-2.5 w-20 mx-auto rounded" />
+      <div className="mt-4 px-4 sm:px-8 flex flex-col items-center gap-2">
+        <div className="skeleton-shimmer h-3 w-32 rounded" />
+        <div className="skeleton-shimmer h-2.5 w-20 rounded" />
       </div>
     </div>
   );
@@ -75,6 +76,7 @@ export default function Feed({
   siteUrl,
   imessageRecipients,
   filterParams,
+  isAdmin,
 }: FeedProps) {
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
@@ -139,7 +141,6 @@ export default function Feed({
         prefetchedRef.current = null;
         setPosts((prev) => [...prev, ...data.posts]);
         setCursor(data.nextCursor);
-        // Prefetch next page
         prefetchNext(data.nextCursor);
       } else {
         const res = await fetch(buildUrl(cursor));
@@ -147,7 +148,6 @@ export default function Feed({
         const data = await res.json();
         setPosts((prev) => [...prev, ...data.posts]);
         setCursor(data.nextCursor);
-        // Prefetch next page
         prefetchNext(data.nextCursor);
       }
     } finally {
@@ -212,28 +212,30 @@ export default function Feed({
               </div>
             )}
 
-            {/* Post info */}
-            <div className="mt-4 px-4 sm:px-8 text-center">
-              {post.title && (
-                <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
-                  {post.title}
-                </h2>
-              )}
-              {post.body && (
-                <div
-                  className="text-[#a0a0a0] text-sm leading-relaxed mb-2 text-left post-body"
-                  dangerouslySetInnerHTML={{ __html: post.body }}
-                />
-              )}
-              <div className="flex items-center justify-center gap-2 flex-wrap">
-                <time className="text-[#555] text-xs tracking-wide uppercase">
-                  {formatDate(post.date)}
-                </time>
-                <PostMeta tags={post.tags} people={post.people} />
+            {/* Post info — caption area with iMessage bubble in lower-right */}
+            <div className="mt-4 px-4 sm:px-8 relative">
+              <div className="text-center pr-8 lg:pr-0">
+                {post.title && (
+                  <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
+                    {post.title}
+                  </h2>
+                )}
+                {post.body && (
+                  <div
+                    className="text-[#a0a0a0] text-sm leading-relaxed mb-2 text-left post-body"
+                    dangerouslySetInnerHTML={{ __html: post.body }}
+                  />
+                )}
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <time className="text-[#555] text-xs tracking-wide uppercase">
+                    {formatDate(post.date)}
+                  </time>
+                  {isAdmin && <PostMeta tags={post.tags} people={post.people} />}
+                </div>
               </div>
 
-              {/* iMessage button — mobile only */}
-              <div className="mt-3 lg:hidden">
+              {/* iMessage button — mobile only, positioned lower-right */}
+              <div className="absolute bottom-0 right-4 sm:right-8 lg:hidden">
                 <IMessageBubble
                   recipients={recipients}
                   postUrl={`${siteUrl}/posts/${post.slug}`}
@@ -325,7 +327,7 @@ function IMessageBubble({
   return (
     <a
       href={smsUrl}
-      className="shrink-0 mt-0.5 text-[#427ea3] hover:text-[#5aadde] transition-colors"
+      className="shrink-0 text-[#427ea3] hover:text-[#5aadde] transition-colors"
       aria-label="Text us about this"
       title="Text us about this"
     >

@@ -54,6 +54,7 @@ export default async function Home() {
               initialCursor={nextCursor}
               siteUrl={siteUrl}
               imessageRecipients={imessageRecipients}
+              isAdmin={session.role === "admin"}
             />
             {session.role === "admin" && (
               <div className="flex justify-center pt-8">
