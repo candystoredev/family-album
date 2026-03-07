@@ -1,13 +1,13 @@
 # State
 
 ## Current Status
-Phases 1-4e complete and verified. Tumblr migration has been run — real content is live on dev.thehoecks.com. Seed test data cleaned. Feed shows tag/people links on every post. Filtered pages at `/tags/{slug}`, `/people/{slug}`, `/albums/{slug}` with cursor-based infinite scroll. Archive timeline via floating menu button with slide-out panel (years/months/albums).
+Phases 1-4 complete and verified. Database initialized on production (dev.thehoecks.com), no posts yet — Tumblr migration not yet re-run. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4f complete — FTS index rebuilt via `/api/init` on production (dev.thehoecks.com). Ready to verify search, then move to Phase 4g.
+Phase 4 complete. Ready for Tumblr migration re-run, then Phase 5 (Admin Panel).
 
 ## Blockers
 None
@@ -16,7 +16,7 @@ None
 None
 
 ## Next Action
-Verify search on dev.thehoecks.com (search "birthday", search person name, empty search). Then Phase 4g (crawler blocking hardening).
+Re-run Tumblr migration against production, then rebuild FTS index via `/api/init`. After that, Phase 5a (single photo upload).
 
 ## Recent Changes
 - Phase 4f: FTS5 search — search bar in slide-out panel, `/search?q=` results page
@@ -80,7 +80,7 @@ Verify search on dev.thehoecks.com (search "birthday", search person name, empty
 ## AI Guardrails
 Assumptions:
 - Phases 1-3 are considered complete per ROADMAP.md phase definitions
-- Migration has been run — real Tumblr content is live
+- Migration has not yet been re-run on production (DB is clean)
 - dev.thehoecks.com is the production site (old Tumblr site still on www.thehoecks.com)
 - Tom is the primary admin user
 
