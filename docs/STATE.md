@@ -9,7 +9,7 @@ Phase 4 (Public Site) fully done including all polish (4i). Ready for Phase 5 (A
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 5a: Single photo upload — implementation complete, pending verification.
+Phase 5b: Full upload form — implementation complete, pending verification.
 
 ## Blockers
 None
@@ -18,9 +18,17 @@ None
 None
 
 ## Next Action
-Verify 5a: Upload photo via `/admin/upload` → appears in feed with thumbnail. Check R2 bucket for both `original.jpg` and `thumb.jpg`. Then proceed to 5b.
+Verify 5b: Upload 4-photo post with tags/people → grid renders + tag/people links work. Upload video → poster frame captured + playback works. Drag-reorder changes display order. Then proceed to 5c.
 
 ## Recent Changes
+- Phase 5b: Full upload form — multi-file, title, date, tags, people, albums, drag-reorder, video poster capture
+- Phase 5b: Presign endpoint now accepts video types (mp4, quicktime, webm)
+- Phase 5b: Complete endpoint handles multiple media items, auto-detects post type (photo/video/mixed)
+- Phase 5b: Tags and people find-or-create on upload, albums assigned by ID
+- Phase 5b: Photoset layout auto-generated for multi-photo posts
+- Phase 5b: Video poster frame captured via canvas on client, uploaded as thumbnail
+- Phase 5b: Admin autocomplete APIs for tags (`/api/admin/tags`), people (`/api/admin/people`), albums (`/api/admin/albums`)
+- Phase 5b: FTS5 index updated with tags and people names on upload
 - Phase 5a: Single photo upload — `/admin/upload` page + `POST /api/admin/upload` endpoint
 - Phase 5a: EXIF date/time extraction, sharp thumbnail generation (400px), auto-rotate
 - Phase 5a: R2 keys use timestamp format: `media/YYYYMMDD-HHmmUTC-{id}/original.jpg`
@@ -62,8 +70,12 @@ Verify 5a: Upload photo via `/admin/upload` → appears in feed with thumbnail. 
 - Post detail page simplified to permalink-only (OG tags for link previews)
 
 ## Relevant Files
-- `apps/thehoecks/src/app/admin/upload/page.tsx` — mobile-optimized photo upload page
-- `apps/thehoecks/src/app/api/admin/upload/route.ts` — upload API (EXIF extraction, sharp processing, R2 upload, DB insert)
+- `apps/thehoecks/src/app/admin/upload/page.tsx` — multi-file upload page with drag-reorder, tag/people/album pickers, video poster capture
+- `apps/thehoecks/src/app/api/admin/upload/presign/route.ts` — presigned URL generation (photos + videos)
+- `apps/thehoecks/src/app/api/admin/upload/complete/route.ts` — multi-file processing, tag/people/album assignment, FTS update
+- `apps/thehoecks/src/app/api/admin/tags/route.ts` — tag autocomplete API
+- `apps/thehoecks/src/app/api/admin/people/route.ts` — people autocomplete API
+- `apps/thehoecks/src/app/api/admin/albums/route.ts` — album autocomplete API
 - `apps/thehoecks/src/app/page.tsx` — home feed (SSR first page)
 - `apps/thehoecks/src/components/Feed.tsx` — infinite scroll client component with tag/people links
 - `apps/thehoecks/src/app/api/feed/route.ts` — cursor-based feed API with filter support

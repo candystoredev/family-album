@@ -17,6 +17,9 @@ export async function POST(request: NextRequest) {
       "image/webp",
       "image/heic",
       "image/heif",
+      "video/mp4",
+      "video/quicktime",
+      "video/webm",
     ];
     if (!contentType || !allowedTypes.includes(contentType)) {
       return NextResponse.json(
@@ -42,6 +45,9 @@ export async function POST(request: NextRequest) {
       "image/webp": "webp",
       "image/heic": "heic",
       "image/heif": "heif",
+      "video/mp4": "mp4",
+      "video/quicktime": "mov",
+      "video/webm": "webm",
     };
     const ext = extMap[contentType] || "jpg";
     const r2Key = `${keyPrefix}/original.${ext}`;
