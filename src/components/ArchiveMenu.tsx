@@ -324,9 +324,17 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
       {isLoggedIn && (
         <div className="pt-8 mt-8 border-t border-[#2a2929] space-y-3">
           {isAdmin && (
-            <span className="inline-block text-[10px] text-[#427ea3] border border-[#427ea3]/40 px-2 py-0.5 rounded uppercase tracking-wider">
-              Admin
-            </span>
+            <div className="space-y-2">
+              <span className="inline-block text-[10px] text-[#427ea3] border border-[#427ea3]/40 px-2 py-0.5 rounded uppercase tracking-wider">
+                Admin
+              </span>
+              <a
+                href="/admin/upload"
+                className="block text-sm text-[#427ea3] hover:text-[#5a9ec5] transition-colors"
+              >
+                Upload Photo
+              </a>
+            </div>
           )}
           <button
             onClick={handleLogout}

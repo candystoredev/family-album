@@ -9,7 +9,7 @@ Phase 4 (Public Site) fully done including all polish (4i). Ready for Phase 5 (A
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 5a: Single photo upload (presigned URL → R2 → server thumbnail via `sharp` → DB).
+Phase 5a: Single photo upload — implementation complete, pending verification.
 
 ## Blockers
 None
@@ -18,9 +18,13 @@ None
 None
 
 ## Next Action
-Phase 5a — single photo upload. Build the admin upload flow: presigned R2 URL, server-side thumbnail generation via `sharp`, DB record creation.
+Verify 5a: Upload photo via `/admin/upload` → appears in feed with thumbnail. Check R2 bucket for both `original.jpg` and `thumb.jpg`. Then proceed to 5b.
 
 ## Recent Changes
+- Phase 5a: Single photo upload — `/admin/upload` page + `POST /api/admin/upload` endpoint
+- Phase 5a: EXIF date/time extraction, sharp thumbnail generation (400px), auto-rotate
+- Phase 5a: R2 keys use timestamp format: `media/YYYYMMDD-HHmmUTC-{id}/original.jpg`
+- Phase 5a: "Upload Photo" link added to admin section of sidebar
 - Phase 4 complete — all sub-phases 4a through 4i done
 - Phase 4i: "On This Day" — full feature with thumbnail row, swipeable memory cards, nav arrows, dot indicators, lightbox
 - Phase 4i: Double-tap hearts, image fade-in, skeleton shimmer, randomized end-of-feed messages, scroll-to-top, feed prefetch
@@ -58,6 +62,8 @@ Phase 5a — single photo upload. Build the admin upload flow: presigned R2 URL,
 - Post detail page simplified to permalink-only (OG tags for link previews)
 
 ## Relevant Files
+- `apps/thehoecks/src/app/admin/upload/page.tsx` — mobile-optimized photo upload page
+- `apps/thehoecks/src/app/api/admin/upload/route.ts` — upload API (EXIF extraction, sharp processing, R2 upload, DB insert)
 - `apps/thehoecks/src/app/page.tsx` — home feed (SSR first page)
 - `apps/thehoecks/src/components/Feed.tsx` — infinite scroll client component with tag/people links
 - `apps/thehoecks/src/app/api/feed/route.ts` — cursor-based feed API with filter support
