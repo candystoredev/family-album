@@ -3,13 +3,13 @@
 ## Current Status
 Phases 1-4 complete. Tumblr migration completed against production on 2026-03-07. All posts migrated, FTS index rebuilt. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
 
-Phase 4i (delight & polish) in progress. Addressing Tom's feedback on feed layout, lightbox animation, On This Day, and iMessage bubble.
+Phase 4 (Public Site) fully done including all polish (4i). Ready for Phase 5 (Admin Panel & Settings).
 
 ## Active Branch
 claude/family-photo-album-plan-rEoOE
 
 ## Current Task
-Phase 4i polish: On This Day shows 3 posts from 2+ years, bubble centered + iMessage-shaped, post spacing tightened, dot divider, lightbox swipe animation improved. Review queue feature added to Phase 5 roadmap.
+Phase 5a: Single photo upload (presigned URL → R2 → server thumbnail via `sharp` → DB).
 
 ## Blockers
 None
@@ -18,14 +18,14 @@ None
 None
 
 ## Next Action
-Tom reviews Phase 4i changes, then Phase 5a (single photo upload).
+Phase 5a — single photo upload. Build the admin upload flow: presigned R2 URL, server-side thumbnail generation via `sharp`, DB record creation.
 
 ## Recent Changes
-- Phase 4i: On This Day returns 3 posts from at least 2 different years
-- Phase 4i: iMessage bubble vertically centered in caption area, redesigned to match iPhone Messages shape
-- Phase 4i: Post divider changed from line to subtle dot, spacing between posts reduced
-- Phase 4i: Lightbox swipe animation improved with slide+fade transition and smoother easing
-- Phase 4i: Post flagging & review queue added to Phase 5 roadmap (5d-flag)
+- Phase 4 complete — all sub-phases 4a through 4i done
+- Phase 4i: "On This Day" — full feature with thumbnail row, swipeable memory cards, nav arrows, dot indicators, lightbox
+- Phase 4i: Double-tap hearts, image fade-in, skeleton shimmer, randomized end-of-feed messages, scroll-to-top, feed prefetch
+- Phase 4i: iMessage bubble redesigned, post spacing tightened, lightbox swipe improved
+- Phase 4i: Known polish deferred: nav button overlap on some viewports, single-image memory card sizing on narrow screens
 - Phase 4h: Feed images now serve originals instead of 400px thumbnails
 - Phase 4h: Desktop sidebar — persistent left nav at 35% opacity, full on hover (lg+ breakpoint)
 - Phase 4h: Mobile keeps FAB + slide-out panel unchanged
@@ -93,8 +93,8 @@ Tom reviews Phase 4i changes, then Phase 5a (single photo upload).
 
 ## AI Guardrails
 Assumptions:
-- Phases 1-3 are considered complete per ROADMAP.md phase definitions
-- Migration has not yet been re-run on production (DB is clean)
+- Phases 1-4 are considered complete per ROADMAP.md phase definitions
+- Production migration completed 2026-03-07, site live with all content
 - dev.thehoecks.com is the production site (old Tumblr site still on www.thehoecks.com)
 - Tom is the primary admin user
 

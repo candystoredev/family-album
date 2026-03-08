@@ -37,9 +37,9 @@
 - Verified: Post count matches Tumblr, no orphaned media/records, people/tags split correctly, feed renders all content
 - **2026-03-07**: Full production migration completed, FTS index rebuilt, site live with all content
 
-## In Progress
+## Completed (continued)
 
-### Phase 4 — Public Site
+### Phase 4 — Public Site — **DONE**
 Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each sub-slice deployed and verified before next.
 
 - **4a** ~~Polished feed + cursor-based infinite scroll~~ — **DONE**
@@ -89,15 +89,17 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
   - iMessage bubble: mobile only (hidden on desktop)
   - Center-aligned post text with padding, tags inline with date
   - Subtle post dividers, shorter date format (Nov 27, 2025), left-aligned body text
-- **4i**: Delight & performance polish
+- **4i**: ~~Delight & performance polish~~ — **DONE**
   - Double-tap to "heart" photos in feed (floating heart animation, hearts stored in localStorage)
   - Image fade-in on load (prevent layout shift, smooth reveal)
-  - "On this day" nudge — when today matches a past post's date, show a subtle callout
+  - "On this day" — full expanded feature: thumbnail row, swipeable memory cards, desktop nav arrows, dot indicators, lightbox integration. Shows 3 posts from 2+ different years matching today's month/day
   - Randomized end-of-feed messages (playful family-themed messages instead of static text)
   - Skeleton loading shimmer for infinite scroll (instead of plain spinner)
   - Smooth scroll-to-top when tapping "The Latest" in sidebar
   - Prefetch next page of feed for instant infinite scroll
-  - Verify: Double-tap heart works on mobile + desktop. Images fade in smoothly. Skeleton shimmers appear during load. End-of-feed messages rotate
+  - Known polish items deferred: nav button overlap on some viewports, single-image memory card sizing on narrow screens
+
+## Up Next
 
 ### Phase 5 — Admin Panel & Settings
 Responsive web throughout (not PWA). Each sub-slice builds on previous.
@@ -162,7 +164,7 @@ Schema can accommodate all V2 features without breaking changes.
 - Bulk operations (multi-select posts for tag/album assignment)
 
 ### Content Features
-- "On this day" — surface posts from same date in past years
+- ~~"On this day" — surface posts from same date in past years~~ (built in 4i)
 - Favorites / pinned posts
 - Download original photo button
 - Print-friendly view
