@@ -237,7 +237,8 @@ export default function OnThisDay() {
           transition: "grid-template-rows 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out, margin 0.3s ease-out",
         }}
       >
-        <div className={isViewing ? "overflow-visible" : "overflow-hidden"}>
+        {/* sm:-mx-6 sm:px-6 extends the overflow boundary so nav buttons aren't clipped */}
+        <div className={`overflow-hidden ${isViewing ? "sm:-mx-6 sm:px-6" : ""}`}>
         {/* Thumbnail card row — fades out when viewing */}
         <div
           style={{
@@ -284,11 +285,11 @@ export default function OnThisDay() {
 
         {/* Expanded memory view — swipeable between posts */}
         {isViewing && (
-          <div className="relative">
+          <div className="relative w-full min-w-0">
             {/* Swipe container — clips content horizontally */}
             <div
               ref={containerRef}
-              className="overflow-hidden"
+              className="overflow-hidden w-full"
               onTouchStart={onTouchStart}
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
@@ -312,6 +313,7 @@ export default function OnThisDay() {
               {/* Current memory */}
               <div
                 ref={postContentRef}
+                className="w-full min-w-0"
                 style={{
                   transform: swipeOffsetX !== 0 ? `translateX(${swipeOffsetX}px)` : undefined,
                   transition: isSwiping || skipTransition.current
@@ -407,7 +409,7 @@ function MemoryCard({
   });
 
   return (
-    <div className="px-1 sm:px-0">
+    <div className="px-1 sm:px-0 w-full min-w-0">
       <div className="rounded-lg overflow-hidden bg-[#252424] border border-[#333]">
         {/* Photos */}
         {post.media.length > 0 && (
