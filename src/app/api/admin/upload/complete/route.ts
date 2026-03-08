@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
-import { uploadToR2 } from "@/lib/r2";
+import { downloadFromR2, uploadToR2 } from "@/lib/r2";
 import { db } from "@/lib/db";
 
 const THUMB_WIDTH = 400;
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 function slugify(s: string): string {
   return s
@@ -16,7 +15,6 @@ function slugify(s: string): string {
     .slice(0, 100);
 }
 
-/** Generate a unique slug, appending -2, -3, etc. if needed */
 async function uniqueSlug(base: string): Promise<string> {
   let slug = base;
   let suffix = 1;
@@ -31,85 +29,45 @@ async function uniqueSlug(base: string): Promise<string> {
   }
 }
 
-/**
- * Generate a timestamp-based R2 key prefix from a Date.
- * Format: media/YYYYMMDD-HHmmUTC
- * If the key already exists, appends -2, -3, etc.
- */
-function timestampKey(date: Date): string {
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  const h = String(date.getUTCHours()).padStart(2, "0");
-  const min = String(date.getUTCMinutes()).padStart(2, "0");
-  return `media/${y}${m}${d}-${h}${min}UTC`;
-}
-
-/**
- * Extract date/time from EXIF data.
- * sharp exposes exif as a raw buffer — we parse the DateTimeOriginal tag.
- */
 async function extractExifDate(buffer: Buffer): Promise<Date | null> {
   try {
     const metadata = await sharp(buffer).metadata();
     if (!metadata.exif) return null;
 
-    // Parse EXIF buffer to find DateTimeOriginal (tag 0x9003) or DateTime (tag 0x0132)
     const exifStr = metadata.exif.toString("binary");
-
-    // Look for date pattern in EXIF: "YYYY:MM:DD HH:MM:SS"
     const dateMatch = exifStr.match(
       /(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/
     );
     if (dateMatch) {
       const [, yr, mo, dy, hr, mi, sc] = dateMatch;
-      const d = new Date(
-        `${yr}-${mo}-${dy}T${hr}:${mi}:${sc}`
-      );
+      const d = new Date(`${yr}-${mo}-${dy}T${hr}:${mi}:${sc}`);
       if (!isNaN(d.getTime())) return d;
     }
-
     return null;
   } catch {
     return null;
   }
 }
 
+/**
+ * Complete the upload: download from R2, extract EXIF, generate thumbnail,
+ * create post + media records.
+ *
+ * Client sends: { r2Key, keyPrefix, title?, date? }
+ */
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const title = (formData.get("title") as string) || null;
-    const dateOverride = formData.get("date") as string | null;
+    const { r2Key, keyPrefix, title, date: dateOverride } = await request.json();
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
-    }
-
-    // Validate file type
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/heic",
-      "image/heif",
-    ];
-    if (!allowedTypes.includes(file.type)) {
+    if (!r2Key || !keyPrefix) {
       return NextResponse.json(
-        { error: `Unsupported file type: ${file.type}` },
+        { error: "Missing r2Key or keyPrefix" },
         { status: 400 }
       );
     }
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: "File too large (max 20MB)" },
-        { status: 400 }
-      );
-    }
-
-    const buffer = Buffer.from(await file.arrayBuffer());
+    // Download the uploaded file from R2
+    const buffer = await downloadFromR2(r2Key);
 
     // Extract EXIF date
     const exifDate = await extractExifDate(buffer);
@@ -123,9 +81,9 @@ export async function POST(request: NextRequest) {
       postDate = exifDate || new Date();
     }
 
-    // Process image with sharp: convert to JPEG, strip EXIF, get dimensions
+    // Process image: auto-rotate, convert to JPEG, get dimensions
     const processed = await sharp(buffer)
-      .rotate() // Auto-rotate based on EXIF orientation
+      .rotate()
       .jpeg({ quality: 90 })
       .toBuffer({ resolveWithObject: true });
 
@@ -139,16 +97,13 @@ export async function POST(request: NextRequest) {
       .jpeg({ quality: 80 })
       .toBuffer();
 
-    // Generate R2 keys
-    const keyPrefix = timestampKey(postDate);
-    // Check for key collision by appending nanoid suffix
-    const keySuffix = nanoid(4);
-    const originalKey = `${keyPrefix}-${keySuffix}/original.jpg`;
-    const thumbKey = `${keyPrefix}-${keySuffix}/thumb.jpg`;
+    // Re-upload the processed original (EXIF-stripped, rotated JPEG)
+    // and upload thumbnail
+    const processedKey = `${keyPrefix}/original.jpg`;
+    const thumbKey = `${keyPrefix}/thumb.jpg`;
 
-    // Upload to R2
     await Promise.all([
-      uploadToR2(originalKey, originalBuffer, "image/jpeg"),
+      uploadToR2(processedKey, originalBuffer, "image/jpeg"),
       uploadToR2(thumbKey, thumbBuffer, "image/jpeg"),
     ]);
 
@@ -157,9 +112,9 @@ export async function POST(request: NextRequest) {
     const mediaId = nanoid();
     const dateStr = postDate.toISOString().replace("T", " ").replace("Z", "");
 
-    // Generate slug from title or date
-    const slugBase = title
-      ? slugify(title)
+    const postTitle = title?.trim() || null;
+    const slugBase = postTitle
+      ? slugify(postTitle)
       : `photo-${postDate.getFullYear()}-${String(postDate.getMonth() + 1).padStart(2, "0")}-${String(postDate.getDate()).padStart(2, "0")}`;
     const slug = await uniqueSlug(slugBase);
 
@@ -167,28 +122,20 @@ export async function POST(request: NextRequest) {
     await db.execute({
       sql: `INSERT INTO posts (id, slug, title, body, date, type, created_at, updated_at)
             VALUES (?, ?, ?, NULL, ?, 'photo', datetime('now'), datetime('now'))`,
-      args: [postId, slug, title, dateStr],
+      args: [postId, slug, postTitle, dateStr],
     });
 
     await db.execute({
       sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type)
             VALUES (?, ?, ?, ?, 'photo', ?, ?, ?, 0, 'image/jpeg')`,
-      args: [
-        mediaId,
-        postId,
-        originalKey,
-        thumbKey,
-        width,
-        height,
-        originalBuffer.length,
-      ],
+      args: [mediaId, postId, processedKey, thumbKey, width, height, originalBuffer.length],
     });
 
-    // Update FTS index for this post
+    // Update FTS index
     await db.execute({
       sql: `INSERT INTO posts_fts(post_id, title, body, tags, people)
             VALUES (?, ?, '', '', '')`,
-      args: [postId, title || ""],
+      args: [postId, postTitle || ""],
     });
 
     return NextResponse.json({
@@ -198,12 +145,12 @@ export async function POST(request: NextRequest) {
       date: dateStr,
       exifDate: exifDate?.toISOString() || null,
       dimensions: { width, height },
-      r2Keys: { original: originalKey, thumbnail: thumbKey },
+      r2Keys: { original: processedKey, thumbnail: thumbKey },
     });
   } catch (error) {
-    console.error("Upload error:", error);
+    console.error("Upload complete error:", error);
     return NextResponse.json(
-      { error: "Upload failed" },
+      { error: "Processing failed" },
       { status: 500 }
     );
   }

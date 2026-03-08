@@ -14,6 +14,7 @@ export default function UploadPage() {
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [state, setState] = useState<UploadState>("idle");
+  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<{
     slug: string;
@@ -41,24 +42,58 @@ export default function UploadPage() {
     if (!file) return;
 
     setState("uploading");
+    setStatus("Getting upload URL...");
     setError("");
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      if (title.trim()) formData.append("title", title.trim());
-      if (date) formData.append("date", date);
-
-      const res = await fetch("/api/admin/upload", {
+      // Step 1: Get presigned URL from our server
+      const presignRes = await fetch("/api/admin/upload/presign", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType: file.type }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
+      if (!presignRes.ok) {
+        const data = await presignRes.json();
         setState("error");
-        setError(data.error || "Upload failed");
+        setError(data.error || "Failed to get upload URL");
+        return;
+      }
+
+      const { uploadUrl, r2Key, keyPrefix } = await presignRes.json();
+
+      // Step 2: Upload directly to R2 (bypasses Vercel body limit)
+      setStatus("Uploading photo...");
+      const uploadRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        setState("error");
+        setError("Failed to upload photo to storage");
+        return;
+      }
+
+      // Step 3: Tell server to process (thumbnail, EXIF, DB)
+      setStatus("Processing...");
+      const completeRes = await fetch("/api/admin/upload/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          r2Key,
+          keyPrefix,
+          title: title.trim() || undefined,
+          date: date || undefined,
+        }),
+      });
+
+      const data = await completeRes.json();
+
+      if (!completeRes.ok) {
+        setState("error");
+        setError(data.error || "Processing failed");
         return;
       }
 
@@ -81,6 +116,7 @@ export default function UploadPage() {
     setTitle("");
     setDate("");
     setState("idle");
+    setStatus("");
     setError("");
     setResult(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -167,7 +203,7 @@ export default function UploadPage() {
             {state === "uploading" && (
               <div className="text-center py-3 text-[#888]">
                 <div className="inline-block w-5 h-5 border-2 border-[#427ea3] border-t-transparent rounded-full animate-spin mr-2 align-middle" />
-                Uploading...
+                {status || "Uploading..."}
               </div>
             )}
 

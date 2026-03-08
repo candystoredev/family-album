@@ -1,8 +1,10 @@
 import {
   S3Client,
   PutObjectCommand,
+  GetObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 let _s3: S3Client | null = null;
 
@@ -38,6 +40,32 @@ export async function uploadToR2(
     })
   );
   return `${PUBLIC_URL()}/${key}`;
+}
+
+/** Generate a presigned PUT URL for direct client upload */
+export async function getPresignedUploadUrl(
+  key: string,
+  contentType: string,
+  expiresIn = 600
+): Promise<string> {
+  const command = new PutObjectCommand({
+    Bucket: BUCKET(),
+    Key: key,
+    ContentType: contentType,
+  });
+  return getSignedUrl(getR2(), command, { expiresIn });
+}
+
+/** Download an object from R2 */
+export async function downloadFromR2(key: string): Promise<Buffer> {
+  const response = await getR2().send(
+    new GetObjectCommand({
+      Bucket: BUCKET(),
+      Key: key,
+    })
+  );
+  const bytes = await response.Body!.transformToByteArray();
+  return Buffer.from(bytes);
 }
 
 /** Delete an object from R2 */
