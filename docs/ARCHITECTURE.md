@@ -288,6 +288,11 @@ NEXT_PUBLIC_SITE_URL       = https://dev.thehoecks.com
 - Future: `thehoecks.com` will point here at go-live (Phase 8)
 
 **Cloudflare R2**: Create bucket `thehoecks-media` → enable public access → create R2 API token (read + write)
+- **CORS Policy** (required for browser uploads): In Cloudflare dashboard → R2 → bucket → Settings → CORS Policy, add a policy allowing `PUT` from all site origins. If the site domain changes, this must be updated or uploads will silently fail with a "Network error".
+  - Allowed origins: `https://dev.thehoecks.com`, `https://thehoecks.com`, `https://www.thehoecks.com`, `http://localhost:3000`
+  - Allowed methods: `PUT`
+  - Allowed headers: `Content-Type`
+  - Expose headers: `ETag`
 
 **Turso**: `turso db create thehoecks` → get URL + auth token
 
