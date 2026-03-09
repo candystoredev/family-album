@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
     const tagNames: string[] = body.tags || [];
     const peopleNames: string[] = body.people || [];
     const albumIds: string[] = body.albumIds || [];
+    const clientLayout: string | undefined = body.photosetLayout;
 
     if (items.length === 0 || !items[0].r2Key) {
       return NextResponse.json(
@@ -123,79 +124,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Process each media item
+    // Process all media items in parallel
     let firstExifDate: Date | null = null;
-    const mediaRecords: {
-      id: string;
-      r2Key: string;
-      thumbKey: string;
-      type: "photo" | "video";
-      width: number;
-      height: number;
-      fileSize: number;
-      displayOrder: number;
-    }[] = [];
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const mediaId = nanoid();
+    const mediaResults = await Promise.all(
+      items.map(async (item, i) => {
+        const mediaId = nanoid();
 
-      if (item.type === "video") {
-        // For videos: store as-is, use client-provided poster as thumbnail
-        const processedKey = item.r2Key; // keep original video file
-        let thumbKey = "";
-
-        if (item.posterDataUrl) {
-          // Decode base64 poster frame from client
-          const base64 = item.posterDataUrl.split(",")[1];
-          const posterBuffer = Buffer.from(base64, "base64");
-
-          // Process poster through sharp for consistent thumbnail
-          const thumbBuffer = await sharp(posterBuffer)
-            .resize(THUMB_WIDTH, null, { withoutEnlargement: true })
-            .jpeg({ quality: 80 })
-            .toBuffer();
-
-          thumbKey = `${item.keyPrefix}/thumb.jpg`;
-          await uploadToR2(thumbKey, thumbBuffer, "image/jpeg");
+        if (item.type === "video") {
+          let thumbKey = "";
+          if (item.posterDataUrl) {
+            const base64 = item.posterDataUrl.split(",")[1];
+            const posterBuffer = Buffer.from(base64, "base64");
+            const thumbBuffer = await sharp(posterBuffer)
+              .resize(THUMB_WIDTH, null, { withoutEnlargement: true })
+              .jpeg({ quality: 80 })
+              .toBuffer();
+            thumbKey = `${item.keyPrefix}/thumb.jpg`;
+            await uploadToR2(thumbKey, thumbBuffer, "image/jpeg");
+          }
+          return {
+            id: mediaId,
+            r2Key: item.r2Key,
+            thumbKey,
+            type: "video" as const,
+            width: 0,
+            height: 0,
+            fileSize: 0,
+            displayOrder: i,
+            exifDate: null as Date | null,
+          };
         }
 
-        mediaRecords.push({
-          id: mediaId,
-          r2Key: processedKey,
-          thumbKey,
-          type: "video",
-          width: 0,
-          height: 0,
-          fileSize: 0,
-          displayOrder: i,
-        });
-      } else {
-        // Photo: download, extract EXIF, process, thumbnail
+        // Photo: download, extract EXIF, process, thumbnail — all at once
         const buffer = await downloadFromR2(item.r2Key);
+        const exifDate = await extractExifDate(buffer);
 
-        // Extract EXIF date from first photo
-        if (i === 0 || !firstExifDate) {
-          const exif = await extractExifDate(buffer);
-          if (exif && !firstExifDate) firstExifDate = exif;
-        }
-
-        // Process image: auto-rotate, convert to JPEG, get dimensions
-        const processed = await sharp(buffer)
-          .rotate()
-          .jpeg({ quality: 90 })
-          .toBuffer({ resolveWithObject: true });
+        const [processed, thumbBuffer] = await Promise.all([
+          sharp(buffer).rotate().jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
+          sharp(buffer).rotate().resize(THUMB_WIDTH, null, { withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
+        ]);
 
         const { width, height } = processed.info;
         const originalBuffer = processed.data;
-
-        // Generate thumbnail
-        const thumbBuffer = await sharp(buffer)
-          .rotate()
-          .resize(THUMB_WIDTH, null, { withoutEnlargement: true })
-          .jpeg({ quality: 80 })
-          .toBuffer();
-
         const processedKey = `${item.keyPrefix}/original.jpg`;
         const thumbKey = `${item.keyPrefix}/thumb.jpg`;
 
@@ -204,18 +175,29 @@ export async function POST(request: NextRequest) {
           uploadToR2(thumbKey, thumbBuffer, "image/jpeg"),
         ]);
 
-        mediaRecords.push({
+        return {
           id: mediaId,
           r2Key: processedKey,
           thumbKey,
-          type: "photo",
+          type: "photo" as const,
           width,
           height,
           fileSize: originalBuffer.length,
           displayOrder: i,
-        });
+          exifDate,
+        };
+      })
+    );
+
+    // Extract first EXIF date from results (preserve original order)
+    for (const r of mediaResults) {
+      if (r.exifDate) {
+        firstExifDate = r.exifDate;
+        break;
       }
     }
+
+    const mediaRecords = mediaResults.map(({ exifDate, ...rest }) => rest);
 
     // Determine post date
     let postDate: Date;
@@ -234,10 +216,21 @@ export async function POST(request: NextRequest) {
     else if (hasVideos) postType = "video";
     else postType = "photo";
 
-    // Generate photoset_layout for multi-photo posts
+    // Use client-provided layout or auto-generate for multi-photo posts
     let photosetLayout: string | null = null;
     if (mediaRecords.length > 1) {
-      photosetLayout = generatePhotosetLayout(mediaRecords.length);
+      if (clientLayout) {
+        // Validate client layout: digits must sum to media count
+        const digits = clientLayout.split("").map(Number);
+        const sum = digits.reduce((a, b) => a + b, 0);
+        if (sum === mediaRecords.length && digits.every((d) => d >= 1 && d <= 3)) {
+          photosetLayout = clientLayout;
+        } else {
+          photosetLayout = generatePhotosetLayout(mediaRecords.length);
+        }
+      } else {
+        photosetLayout = generatePhotosetLayout(mediaRecords.length);
+      }
     }
 
     // Generate IDs and slug

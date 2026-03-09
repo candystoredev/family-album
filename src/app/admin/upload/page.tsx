@@ -42,6 +42,28 @@ function isVideoFile(file: File) {
   return file.type.startsWith("video/");
 }
 
+/** Generate all valid photoset layouts for N photos (rows of 1-3) */
+function generateLayoutOptions(count: number): string[] {
+  if (count <= 0) return [];
+  if (count === 1) return ["1"];
+
+  const results: string[] = [];
+  function build(remaining: number, current: string) {
+    if (remaining === 0) {
+      results.push(current);
+      return;
+    }
+    for (let row = 1; row <= Math.min(3, remaining); row++) {
+      build(remaining - row, current + row);
+    }
+  }
+  build(count, "");
+
+  // Limit to reasonable number — sort by fewest rows first
+  results.sort((a, b) => a.length - b.length);
+  return results.slice(0, 20);
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function UploadPage() {
@@ -71,9 +93,18 @@ export default function UploadPage() {
   const [error, setError] = useState("");
   const [resultSlug, setResultSlug] = useState("");
 
-  // Drag state
+  // Photoset layout
+  const [customLayout, setCustomLayout] = useState<string | null>(null);
+
+  // Drag state (desktop)
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  // Touch drag state (mobile)
+  const [touchDragIdx, setTouchDragIdx] = useState<number | null>(null);
+  const [touchOverIdx, setTouchOverIdx] = useState<number | null>(null);
+  const touchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   // Load tags/people/albums on mount
   useEffect(() => {
@@ -168,16 +199,65 @@ export default function UploadPage() {
     setDragOverIdx(null);
   }
 
-  // ─── Touch reorder (long-press + move buttons) ─────────────────────────────
+  // ─── Touch drag reorder (long-press to pick up, drag to reorder) ──────────
 
-  function moveFile(idx: number, direction: -1 | 1) {
-    const newIdx = idx + direction;
-    if (newIdx < 0 || newIdx >= files.length) return;
-    setFiles((prev) => {
-      const updated = [...prev];
-      [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
-      return updated;
-    });
+  function handleTouchStart(e: React.TouchEvent, idx: number) {
+    if (disabled) return;
+    touchTimeout.current = setTimeout(() => {
+      setTouchDragIdx(idx);
+      // Prevent scrolling while dragging
+      document.body.style.overflow = "hidden";
+    }, 300);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (touchDragIdx === null || !gridRef.current) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const gridItems = gridRef.current.querySelectorAll("[data-grid-idx]");
+    for (const el of gridItems) {
+      const rect = el.getBoundingClientRect();
+      if (
+        touch.clientX >= rect.left &&
+        touch.clientX <= rect.right &&
+        touch.clientY >= rect.top &&
+        touch.clientY <= rect.bottom
+      ) {
+        const overIdx = parseInt(el.getAttribute("data-grid-idx") || "-1", 10);
+        if (overIdx >= 0 && overIdx !== touchDragIdx) {
+          setTouchOverIdx(overIdx);
+        }
+        break;
+      }
+    }
+  }
+
+  function handleTouchEnd() {
+    if (touchTimeout.current) {
+      clearTimeout(touchTimeout.current);
+      touchTimeout.current = null;
+    }
+    if (touchDragIdx !== null && touchOverIdx !== null && touchDragIdx !== touchOverIdx) {
+      setFiles((prev) => {
+        const updated = [...prev];
+        const [moved] = updated.splice(touchDragIdx, 1);
+        updated.splice(touchOverIdx, 0, moved);
+        return updated;
+      });
+    }
+    setTouchDragIdx(null);
+    setTouchOverIdx(null);
+    document.body.style.overflow = "";
+  }
+
+  function handleTouchCancel() {
+    if (touchTimeout.current) {
+      clearTimeout(touchTimeout.current);
+      touchTimeout.current = null;
+    }
+    setTouchDragIdx(null);
+    setTouchOverIdx(null);
+    document.body.style.overflow = "";
   }
 
   // ─── Tag/People helpers ─────────────────────────────────────────────────────
@@ -223,18 +303,10 @@ export default function UploadPage() {
     setError("");
 
     try {
-      // Step 1: Upload each file to R2 via presigned URLs
-      const uploadedItems: {
-        r2Key: string;
-        keyPrefix: string;
-        type: "photo" | "video";
-        posterDataUrl?: string;
-      }[] = [];
+      // Step 1: Upload all files to R2 in parallel via presigned URLs
+      setProgress(`Uploading ${files.length} ${files.length === 1 ? "file" : "files"}...`);
 
-      for (let i = 0; i < files.length; i++) {
-        const mf = files[i];
-        setProgress(`Uploading ${i + 1} of ${files.length}...`);
-
+      const uploadPromises = files.map(async (mf, i) => {
         // Get presigned URL
         const presignRes = await fetch("/api/admin/upload/presign", {
           method: "POST",
@@ -244,7 +316,7 @@ export default function UploadPage() {
 
         if (!presignRes.ok) {
           const data = await presignRes.json();
-          throw new Error(data.error || "Failed to get upload URL");
+          throw new Error(data.error || `Failed to get upload URL for file ${i + 1}`);
         }
 
         const { uploadUrl, r2Key, keyPrefix } = await presignRes.json();
@@ -260,16 +332,18 @@ export default function UploadPage() {
           throw new Error(`Failed to upload file ${i + 1}`);
         }
 
-        uploadedItems.push({
+        return {
           r2Key,
           keyPrefix,
           type: mf.type,
           posterDataUrl: mf.posterDataUrl,
-        });
-      }
+        };
+      });
+
+      const uploadedItems = await Promise.all(uploadPromises);
 
       // Step 2: Complete — server processes all files + creates post
-      setProgress("Processing...");
+      setProgress("Finalizing...");
       const completeRes = await fetch("/api/admin/upload/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -280,6 +354,7 @@ export default function UploadPage() {
           tags: selectedTags,
           people: selectedPeople,
           albumIds: selectedAlbumIds,
+          photosetLayout: customLayout || undefined,
         }),
       });
 
@@ -289,12 +364,10 @@ export default function UploadPage() {
         throw new Error(data.error || "Processing failed");
       }
 
+      // Immediate redirect — no artificial delay
       setState("success");
       setResultSlug(data.slug);
-
-      setTimeout(() => {
-        router.push(`/posts/${data.slug}`);
-      }, 1500);
+      router.push(`/posts/${data.slug}`);
     } catch (err) {
       setState("error");
       setError(
@@ -313,6 +386,7 @@ export default function UploadPage() {
     setSelectedAlbumIds([]);
     setNewTag("");
     setNewPerson("");
+    setCustomLayout(null);
     setState("idle");
     setProgress("");
     setError("");
@@ -369,84 +443,92 @@ export default function UploadPage() {
         {/* Media preview grid with drag-reorder */}
         {files.length > 0 && (
           <div className="space-y-6">
-            <div className="grid grid-cols-3 gap-2">
-              {files.map((mf, idx) => (
-                <div
-                  key={mf.id}
-                  draggable={!disabled}
-                  onDragStart={() => handleDragStart(idx)}
-                  onDragOver={(e) => handleDragOver(e, idx)}
-                  onDrop={() => handleDrop(idx)}
-                  onDragEnd={() => {
-                    setDragIdx(null);
-                    setDragOverIdx(null);
-                  }}
-                  className={`relative aspect-square rounded-lg overflow-hidden bg-[#141313] cursor-grab active:cursor-grabbing transition-all ${
-                    dragOverIdx === idx
-                      ? "ring-2 ring-[#427ea3] scale-105"
-                      : ""
-                  } ${dragIdx === idx ? "opacity-40" : ""}`}
-                >
-                  {mf.type === "video" ? (
-                    <VideoPreview
-                      file={mf}
-                      onPosterCapture={captureVideoPoster}
-                    />
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={mf.preview}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
-                  )}
+            <div
+              ref={gridRef}
+              className="grid grid-cols-3 gap-2"
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchCancel}
+            >
+              {files.map((mf, idx) => {
+                const isDragging = dragIdx === idx || touchDragIdx === idx;
+                const isDragOver = dragOverIdx === idx || touchOverIdx === idx;
+                return (
+                  <div
+                    key={mf.id}
+                    data-grid-idx={idx}
+                    draggable={!disabled}
+                    onDragStart={() => handleDragStart(idx)}
+                    onDragOver={(e) => handleDragOver(e, idx)}
+                    onDrop={() => handleDrop(idx)}
+                    onDragEnd={() => {
+                      setDragIdx(null);
+                      setDragOverIdx(null);
+                    }}
+                    onTouchStart={(e) => handleTouchStart(e, idx)}
+                    className={`relative aspect-square rounded-lg overflow-hidden bg-[#141313] cursor-grab active:cursor-grabbing transition-all select-none ${
+                      isDragOver ? "ring-2 ring-[#427ea3] scale-105" : ""
+                    } ${isDragging ? "opacity-40 scale-95" : ""}`}
+                  >
+                    {mf.type === "video" ? (
+                      <VideoPreview
+                        file={mf}
+                        onPosterCapture={captureVideoPoster}
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={mf.preview}
+                        alt=""
+                        className="w-full h-full object-cover pointer-events-none"
+                      />
+                    )}
 
-                  {/* Order badge */}
-                  <div className="absolute top-1 left-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white font-medium">
-                    {idx + 1}
+                    {/* Order badge */}
+                    <div className="absolute top-1 left-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white font-medium">
+                      {idx + 1}
+                    </div>
+
+                    {/* Remove button */}
+                    {!disabled && (
+                      <button
+                        onClick={() => removeFile(mf.id)}
+                        className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white"
+                      >
+                        ×
+                      </button>
+                    )}
+
+                    {/* Touch drag hint */}
+                    {touchDragIdx === idx && (
+                      <div className="absolute inset-0 bg-[#427ea3]/20 border-2 border-[#427ea3] rounded-lg" />
+                    )}
+
+                    {/* Video indicator */}
+                    {mf.type === "video" && (
+                      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
+                        VIDEO
+                      </div>
+                    )}
                   </div>
-
-                  {/* Remove button */}
-                  {!disabled && (
-                    <button
-                      onClick={() => removeFile(mf.id)}
-                      className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white"
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {/* Reorder buttons (mobile-friendly) */}
-                  {!disabled && files.length > 1 && (
-                    <div className="absolute bottom-1 right-1 flex gap-0.5">
-                      {idx > 0 && (
-                        <button
-                          onClick={() => moveFile(idx, -1)}
-                          className="w-5 h-5 bg-black/70 rounded text-[10px] flex items-center justify-center text-white"
-                        >
-                          ←
-                        </button>
-                      )}
-                      {idx < files.length - 1 && (
-                        <button
-                          onClick={() => moveFile(idx, 1)}
-                          className="w-5 h-5 bg-black/70 rounded text-[10px] flex items-center justify-center text-white"
-                        >
-                          →
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Video indicator */}
-                  {mf.type === "video" && (
-                    <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
-                      VIDEO
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
+
+            {files.length > 1 && !disabled && (
+              <p className="text-[10px] text-[#666] text-center -mt-4">
+                Drag to reorder &middot; Long-press on mobile
+              </p>
+            )}
+
+            {/* ─── Photoset Layout Picker ──────────────────────────────── */}
+            {files.length >= 2 && !disabled && (
+              <LayoutPicker
+                count={files.length}
+                selected={customLayout}
+                onSelect={setCustomLayout}
+              />
+            )}
 
             {/* Title */}
             <input
@@ -669,6 +751,67 @@ export default function UploadPage() {
             Back to feed
           </a>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Layout Picker Component ────────────────────────────────────────────────
+
+function LayoutPicker({
+  count,
+  selected,
+  onSelect,
+}: {
+  count: number;
+  selected: string | null;
+  onSelect: (layout: string | null) => void;
+}) {
+  const options = generateLayoutOptions(count);
+
+  // Default layout (what server would auto-generate)
+  const defaultLayout =
+    count === 1 ? "1" : count === 2 ? "2" : count === 3 ? "21" : count === 4 ? "22" : null;
+
+  return (
+    <div>
+      <label className="block text-xs text-[#888] mb-2">
+        Row layout
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {options.map((layout) => {
+          const rows = layout.split("").map(Number);
+          const isSelected = selected
+            ? selected === layout
+            : layout === defaultLayout;
+          return (
+            <button
+              key={layout}
+              onClick={() => onSelect(layout === defaultLayout ? null : layout)}
+              className={`p-1.5 rounded-lg border transition-colors ${
+                isSelected
+                  ? "border-[#427ea3] bg-[#427ea3]/20"
+                  : "border-[#3a3939] bg-[#2a2929] hover:border-[#555]"
+              }`}
+              title={`Layout: ${rows.join("-")}`}
+            >
+              <div className="flex flex-col gap-0.5 w-12">
+                {rows.map((cols, ri) => (
+                  <div key={ri} className="flex gap-0.5">
+                    {Array.from({ length: cols }).map((_, ci) => (
+                      <div
+                        key={ci}
+                        className={`h-2 rounded-[1px] flex-1 ${
+                          isSelected ? "bg-[#427ea3]" : "bg-[#555]"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
