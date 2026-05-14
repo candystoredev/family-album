@@ -7,7 +7,8 @@ import {
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
@@ -175,7 +176,8 @@ export default function UploadPage() {
   // ─── Drag reorder ──────────────────────────────────────────────────────────
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
 
   // Row layout auto-derived from count — produces the photoset_layout string
@@ -671,10 +673,15 @@ function SortableMediaItem({
   return (
     <div
       ref={setNodeRef}
+      style={{ touchAction: "none" }}
       {...attributes}
       {...listeners}
-      className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none ${
-        disabled ? "cursor-default" : isDragging ? "cursor-grabbing" : "cursor-grab"
+      className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none transition-shadow ${
+        disabled
+          ? "cursor-default"
+          : isDragging
+          ? "cursor-grabbing"
+          : "cursor-grab active:ring-2 active:ring-[#427ea3] active:ring-inset"
       }`}
     >
       {/* Content — hidden when this slot is the active drag source */}
