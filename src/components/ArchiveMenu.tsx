@@ -54,12 +54,14 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // Hide on login page
+  // Hide on login and upload pages
   const isLoginPage = pathname === "/login";
+  const isUploadPage = pathname === "/admin/upload";
+  const isHiddenPage = isLoginPage || isUploadPage;
 
   // Track desktop vs mobile
   useEffect(() => {
-    if (isLoginPage) return;
+    if (isHiddenPage) return;
 
     function check() {
       setIsDesktop(window.innerWidth >= LG_BREAKPOINT);
@@ -70,16 +72,14 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
     return () => window.removeEventListener("resize", check);
   }, [isLoginPage]);
 
-  // Auto-fetch archive data on desktop (sidebar always visible)
+  // Pre-fetch archive data on mount (eliminates spinner on first open)
   useEffect(() => {
-    if (isDesktop && !data && !loading && !isLoginPage) {
-      fetchData();
-    }
-  }, [isDesktop, isLoginPage]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isHiddenPage) fetchData();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hide FAB on scroll down, show on scroll up (mobile only)
   useEffect(() => {
-    if (isLoginPage || isDesktop) return;
+    if (isHiddenPage || isDesktop) return;
 
     function handleScroll() {
       const currentY = window.scrollY;
@@ -157,9 +157,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
 
   // Close panel on navigation (mobile only)
   useEffect(() => {
-    if (!isDesktop) {
-      handleClose();
-    }
+    if (!isDesktop) handleClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
@@ -174,7 +172,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isDesktop]);
 
-  if (isLoginPage) return null;
+  if (isHiddenPage) return null;
 
   // Shared sidebar content
   const sidebarContent = (

@@ -307,8 +307,7 @@ export default function UploadPage() {
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    // 500ms hold required — long enough that quick scroll flicks don't start a drag
-    useSensor(TouchSensor, { activationConstraint: { delay: 500, tolerance: 8 } })
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
   );
 
   // Crop target — when set, show crop modal for that file
@@ -562,7 +561,7 @@ export default function UploadPage() {
 
             {flatFiles.length > 1 && !disabled && (
               <p className="text-[10px] text-[#666] text-center -mt-4">
-                Hold to drag · tap crop icon to adjust
+                Drag grip to reorder · tap crop icon to adjust
               </p>
             )}
 
@@ -781,6 +780,23 @@ export default function UploadPage() {
           </a>
         </div>
       </div>
+
+      {/* Trash FAB — discard in-progress post */}
+      {rows.length > 0 && !disabled && (
+        <button
+          onClick={reset}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-14 h-14 rounded-full bg-[#d4d4d4] shadow-lg shadow-black/40 flex items-center justify-center active:scale-95 transition-transform duration-100"
+          aria-label="Discard post"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6">
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M19 6l-1 14H6L5 6" />
+            <path d="M10 11v6" />
+            <path d="M14 11v6" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -811,11 +827,9 @@ function DraggableItem({
       data-item
       {...(isDragging ? { "data-dragging": "" } : {})}
       {...attributes}
-      {...listeners}
-      style={{ touchAction: "none" }}
-      className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none transition-transform duration-100 ${
-        !isDragging && !disabled ? "active:scale-95" : ""
-      } ${disabled ? "cursor-default" : "cursor-grab"}`}
+      className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none ${
+        disabled ? "cursor-default" : ""
+      }`}
     >
       <div className={`h-full ${isDragging ? "opacity-0" : "opacity-100"}`}>
         {mf.type === "video" ? (
@@ -832,6 +846,25 @@ function DraggableItem({
 
       {isDragging && (
         <div className="absolute inset-0 border-2 border-dashed border-[#427ea3]/60 rounded-lg" />
+      )}
+
+      {/* Drag handle — only interactive zone; touch-action:none only here so rest of screen scrolls */}
+      {!disabled && !isDragging && (
+        <div
+          {...listeners}
+          style={{ touchAction: "none" }}
+          className="absolute top-1 left-1 w-7 h-7 cursor-grab active:cursor-grabbing active:scale-95 flex items-center justify-center bg-black/55 rounded z-10 transition-transform duration-75"
+          aria-label="Drag to reorder"
+        >
+          <svg viewBox="0 0 10 14" fill="currentColor" className="w-2.5 h-3.5 text-white/70">
+            <circle cx="3" cy="2" r="1.2" />
+            <circle cx="7" cy="2" r="1.2" />
+            <circle cx="3" cy="7" r="1.2" />
+            <circle cx="7" cy="7" r="1.2" />
+            <circle cx="3" cy="12" r="1.2" />
+            <circle cx="7" cy="12" r="1.2" />
+          </svg>
+        </div>
       )}
 
       {!disabled && !isDragging && (
@@ -884,7 +917,7 @@ function CropModal({
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(false);
-  const [crop, setCrop] = useState<CropBox>({ x: 0, y: 0, w: 1, h: 1 });
+  const [crop, setCrop] = useState<CropBox>({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
 
   function getScale() {
     const img = imgRef.current;
