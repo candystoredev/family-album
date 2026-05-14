@@ -4,21 +4,14 @@ import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  DragEndEvent,
   DragOverlay,
   DragStartEvent,
   MouseSensor,
   TouchSensor,
-  closestCenter,
+  useDraggable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  rectSortingStrategy,
-  useSortable,
-} from "@dnd-kit/sortable";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,25 +52,19 @@ function isVideoFile(file: File) {
   return file.type.startsWith("video/");
 }
 
-/**
- * Derive the default row layout for N photos.
- * Returns an array of row widths, e.g. [2, 2] for 4 photos.
- * The resulting layout string (joined) matches the DB photoset_layout format.
- */
-function deriveRowLayout(count: number): number[] {
-  if (count === 0) return [];
-  if (count === 1) return [1];
-  if (count === 2) return [2];
-  if (count === 3) return [2, 1];
-  if (count === 4) return [2, 2];
-  // 5+: fill rows of 3; when 4 remain, split 2+2 to avoid orphaned single
-  const rows: number[] = [];
-  let rem = count;
-  while (rem > 0) {
-    if (rem <= 3) { rows.push(rem); break; }
-    if (rem === 4) { rows.push(2, 2); break; }
-    rows.push(3);
-    rem -= 3;
+/** Convert a flat array into the default 2D row layout. */
+function defaultLayout(files: MediaFile[]): MediaFile[][] {
+  if (files.length === 0) return [];
+  if (files.length <= 3) return [files];
+  if (files.length === 4) return [[files[0], files[1]], [files[2], files[3]]];
+  const rows: MediaFile[][] = [];
+  let i = 0;
+  while (i < files.length) {
+    const rem = files.length - i;
+    if (rem <= 3) { rows.push(files.slice(i)); break; }
+    if (rem === 4) { rows.push(files.slice(i, i + 2), files.slice(i + 2)); break; }
+    rows.push(files.slice(i, i + 3));
+    i += 3;
   }
   return rows;
 }
@@ -87,9 +74,10 @@ function deriveRowLayout(count: number): number[] {
 export default function UploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Media files (flat ordered array — source of truth)
-  const [files, setFiles] = useState<MediaFile[]>([]);
+  // rows is the source of truth — layout IS the row structure
+  const [rows, setRows] = useState<MediaFile[][]>([]);
 
   // Metadata
   const [title, setTitle] = useState("");
@@ -113,6 +101,33 @@ export default function UploadPage() {
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [insertAt, setInsertAt] = useState<{ rowIdx: number; colIdx: number } | null>(null);
+
+  // Flat file list for upload ordering
+  const flatFiles = useMemo(() => rows.flat(), [rows]);
+
+  // Live preview: item moves to hovered row/col while dragging
+  const displayRows = useMemo(() => {
+    if (!activeId || !insertAt) return rows;
+    const activeFile = rows.flat().find((f) => f.id === activeId);
+    if (!activeFile) return rows;
+    const sourceRowIdx = rows.findIndex((row) => row.some((f) => f.id === activeId));
+    const sourceRowWillBeEmpty = rows[sourceRowIdx]?.length === 1;
+    const stripped = rows
+      .map((row) => row.filter((f) => f.id !== activeId))
+      .filter((r) => r.length > 0);
+    let targetRowIdx = insertAt.rowIdx;
+    if (sourceRowWillBeEmpty && sourceRowIdx < insertAt.rowIdx) targetRowIdx--;
+    if (targetRowIdx < 0 || targetRowIdx >= stripped.length) return rows;
+    if (stripped[targetRowIdx].length >= 3) return rows;
+    const colIdx = Math.min(insertAt.colIdx, stripped[targetRowIdx].length);
+    return stripped.map((row, i) => {
+      if (i !== targetRowIdx) return row;
+      const r = [...row];
+      r.splice(colIdx, 0, activeFile);
+      return r;
+    });
+  }, [rows, activeId, insertAt]);
 
   // Load tags/people/albums on mount
   useEffect(() => {
@@ -130,6 +145,35 @@ export default function UploadPage() {
       .catch(() => {});
   }, []);
 
+  // Hit-test pointer position against rows/items during drag
+  useEffect(() => {
+    if (!activeId) return;
+    function onPointerMove(e: PointerEvent) {
+      if (!containerRef.current) return;
+      const rowEls = Array.from(
+        containerRef.current.querySelectorAll<HTMLElement>("[data-row]")
+      );
+      for (let ri = 0; ri < rowEls.length; ri++) {
+        const rowRect = rowEls[ri].getBoundingClientRect();
+        if (e.clientY >= rowRect.top - 8 && e.clientY <= rowRect.bottom + 8) {
+          const itemEls = Array.from(
+            rowEls[ri].querySelectorAll<HTMLElement>("[data-item]")
+          );
+          let colIdx = itemEls.length;
+          for (let ci = 0; ci < itemEls.length; ci++) {
+            const r = itemEls[ci].getBoundingClientRect();
+            if (e.clientX < r.left + r.width / 2) { colIdx = ci; break; }
+          }
+          setInsertAt({ rowIdx: ri, colIdx });
+          return;
+        }
+      }
+      setInsertAt(null);
+    }
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onPointerMove);
+  }, [activeId]);
+
   // ─── File handling ──────────────────────────────────────────────────────────
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -141,18 +185,26 @@ export default function UploadPage() {
       preview: URL.createObjectURL(f),
       type: isVideoFile(f) ? "video" : "photo",
     }));
-    setFiles((prev) => [...prev, ...mediaFiles]);
+    setRows((prev) =>
+      prev.length === 0
+        ? defaultLayout(mediaFiles)
+        : [...prev, ...defaultLayout(mediaFiles)]
+    );
     setError("");
     setState("idle");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeFile(id: string) {
-    setFiles((prev) => {
-      const f = prev.find((x) => x.id === id);
-      if (f) URL.revokeObjectURL(f.preview);
-      return prev.filter((x) => x.id !== id);
-    });
+    setRows((prev) =>
+      prev
+        .map((row) => {
+          const f = row.find((x) => x.id === id);
+          if (f) URL.revokeObjectURL(f.preview);
+          return row.filter((x) => x.id !== id);
+        })
+        .filter((r) => r.length > 0)
+    );
   }
 
   // ─── Video poster capture ──────────────────────────────────────────────────
@@ -166,8 +218,10 @@ export default function UploadPage() {
       if (!ctx) return;
       ctx.drawImage(videoEl, 0, 0);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-      setFiles((prev) =>
-        prev.map((f) => (f.id === fileId ? { ...f, posterDataUrl: dataUrl } : f))
+      setRows((prev) =>
+        prev.map((row) =>
+          row.map((f) => (f.id === fileId ? { ...f, posterDataUrl: dataUrl } : f))
+        )
       );
     },
     []
@@ -180,26 +234,19 @@ export default function UploadPage() {
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
 
-  // Row layout auto-derived from count — produces the photoset_layout string
-  const rowLayout = useMemo(() => deriveRowLayout(files.length), [files.length]);
-
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
+  function handleDragEnd() {
+    if (insertAt && displayRows !== rows) setRows(displayRows);
     setActiveId(null);
-    if (!over || active.id === over.id) return;
-    setFiles((prev) => {
-      const ai = prev.findIndex((f) => f.id === active.id);
-      const oi = prev.findIndex((f) => f.id === over.id);
-      return arrayMove(prev, ai, oi);
-    });
+    setInsertAt(null);
   }
 
   function handleDragCancel() {
     setActiveId(null);
+    setInsertAt(null);
   }
 
   // ─── Tag/People helpers ─────────────────────────────────────────────────────
@@ -235,14 +282,14 @@ export default function UploadPage() {
   // ─── Upload ─────────────────────────────────────────────────────────────────
 
   async function handleUpload() {
-    if (files.length === 0) return;
+    if (flatFiles.length === 0) return;
     setState("uploading");
     setError("");
 
     try {
-      setProgress(`Uploading ${files.length} ${files.length === 1 ? "file" : "files"}...`);
+      setProgress(`Uploading ${flatFiles.length} ${flatFiles.length === 1 ? "file" : "files"}...`);
 
-      const uploadPromises = files.map(async (mf, i) => {
+      const uploadPromises = flatFiles.map(async (mf, i) => {
         const presignRes = await fetch("/api/admin/upload/presign", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -263,9 +310,7 @@ export default function UploadPage() {
       });
 
       const uploadedItems = await Promise.all(uploadPromises);
-
-      // Derive layout from the committed file order at upload time
-      const layout = deriveRowLayout(files.length);
+      const photosetLayout = rows.map((r) => r.length).join("");
 
       setProgress("Finalizing...");
       const completeRes = await fetch("/api/admin/upload/complete", {
@@ -278,7 +323,7 @@ export default function UploadPage() {
           tags: selectedTags,
           people: selectedPeople,
           albumIds: selectedAlbumIds,
-          photosetLayout: files.length > 1 ? layout.join("") : undefined,
+          photosetLayout: flatFiles.length > 1 ? photosetLayout : undefined,
         }),
       });
 
@@ -295,8 +340,8 @@ export default function UploadPage() {
   }
 
   function reset() {
-    files.forEach((f) => URL.revokeObjectURL(f.preview));
-    setFiles([]);
+    flatFiles.forEach((f) => URL.revokeObjectURL(f.preview));
+    setRows([]);
     setTitle("");
     setDate("");
     setSelectedTags([]);
@@ -329,7 +374,7 @@ export default function UploadPage() {
       newPerson.length > 0
   );
 
-  const activeFile = activeId ? files.find((f) => f.id === activeId) ?? null : null;
+  const activeFile = activeId ? flatFiles.find((f) => f.id === activeId) ?? null : null;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -352,53 +397,36 @@ export default function UploadPage() {
           <div className="text-[#888] space-y-1">
             <div className="text-3xl">+</div>
             <div className="text-sm">
-              {files.length === 0 ? "Tap to choose photos or videos" : "Add more files"}
+              {flatFiles.length === 0 ? "Tap to choose photos or videos" : "Add more files"}
             </div>
           </div>
         </label>
 
         {/* Media grid + metadata */}
-        {files.length > 0 && (
+        {flatFiles.length > 0 && (
           <div className="space-y-6">
-            {/* Row-based photoset grid */}
+            {/* Tumblr-style row-based photoset grid */}
             <DndContext
               sensors={sensors}
-              collisionDetection={closestCenter}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
               onDragCancel={handleDragCancel}
             >
-              <SortableContext
-                items={files.map((f) => f.id)}
-                strategy={rectSortingStrategy}
-              >
-                <div className="space-y-2">
-                  {(() => {
-                    const rows: React.ReactNode[] = [];
-                    let cursor = 0;
-                    for (let r = 0; r < rowLayout.length; r++) {
-                      const width = rowLayout[r];
-                      const rowFiles = files.slice(cursor, cursor + width);
-                      const startIdx = cursor;
-                      cursor += width;
-                      rows.push(
-                        <div key={startIdx} className="flex gap-2" style={{ height: 128 }}>
-                          {rowFiles.map((mf, i) => (
-                            <SortableMediaItem
-                              key={mf.id}
-                              mf={mf}
-                              disabled={disabled}
-                              onRemove={removeFile}
-                              onPosterCapture={captureVideoPoster}
-                            />
-                          ))}
-                        </div>
-                      );
-                    }
-                    return rows;
-                  })()}
-                </div>
-              </SortableContext>
+              <div ref={containerRef} className="space-y-2">
+                {displayRows.map((row, rowIdx) => (
+                  <div key={rowIdx} data-row className="flex gap-2" style={{ height: 160 }}>
+                    {row.map((mf) => (
+                      <DraggableItem
+                        key={mf.id}
+                        mf={mf}
+                        disabled={disabled}
+                        onRemove={removeFile}
+                        onPosterCapture={captureVideoPoster}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
 
               <DragOverlay dropAnimation={null}>
                 {activeFile ? (
@@ -427,9 +455,9 @@ export default function UploadPage() {
               </DragOverlay>
             </DndContext>
 
-            {files.length > 1 && !disabled && (
+            {flatFiles.length > 1 && !disabled && (
               <p className="text-[10px] text-[#666] text-center -mt-4">
-                Drag to reorder
+                Drag to reorder or change row layout
               </p>
             )}
 
@@ -592,7 +620,7 @@ export default function UploadPage() {
                 onClick={handleUpload}
                 className="w-full bg-[#427ea3] text-white rounded-lg py-3 font-semibold hover:bg-[#3a6f91] transition-colors"
               >
-                Upload {files.length} {files.length === 1 ? "file" : "files"}
+                Upload {flatFiles.length} {flatFiles.length === 1 ? "file" : "files"}
               </button>
             )}
 
@@ -608,7 +636,7 @@ export default function UploadPage() {
             {state === "success" && (
               <div className="bg-[#1a2e1a] border border-[#2d4a2d] rounded-lg p-4 space-y-1">
                 <div className="text-[#6db86d] font-semibold">
-                  {files.length === 1 ? "Photo" : "Post"} uploaded!
+                  {flatFiles.length === 1 ? "Photo" : "Post"} uploaded!
                 </div>
                 <div className="text-xs text-[#888]">Redirecting to post...</div>
               </div>
@@ -652,9 +680,9 @@ export default function UploadPage() {
   );
 }
 
-// ─── Sortable Media Item ─────────────────────────────────────────────────────
+// ─── Draggable Media Item ─────────────────────────────────────────────────────
 
-function SortableMediaItem({
+function DraggableItem({
   mf,
   disabled,
   onRemove,
@@ -665,7 +693,7 @@ function SortableMediaItem({
   onRemove: (id: string) => void;
   onPosterCapture: (fileId: string, video: HTMLVideoElement) => void;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: mf.id,
     disabled,
   });
@@ -673,6 +701,7 @@ function SortableMediaItem({
   return (
     <div
       ref={setNodeRef}
+      data-item
       style={{ touchAction: "none" }}
       {...attributes}
       {...listeners}
@@ -684,7 +713,6 @@ function SortableMediaItem({
           : "cursor-grab active:ring-2 active:ring-[#427ea3] active:ring-inset"
       }`}
     >
-      {/* Content — hidden when this slot is the active drag source */}
       <div className={isDragging ? "opacity-0" : "opacity-100"}>
         {mf.type === "video" ? (
           <VideoPreview file={mf} onPosterCapture={onPosterCapture} />
@@ -698,12 +726,10 @@ function SortableMediaItem({
         )}
       </div>
 
-      {/* Insertion slot indicator — shown while dragging */}
       {isDragging && (
         <div className="absolute inset-0 border-2 border-dashed border-[#427ea3]/60 rounded-lg" />
       )}
 
-      {/* Remove button */}
       {!disabled && !isDragging && (
         <button
           onPointerDown={(e) => e.stopPropagation()}
@@ -714,7 +740,6 @@ function SortableMediaItem({
         </button>
       )}
 
-      {/* Video indicator */}
       {mf.type === "video" && !isDragging && (
         <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
           VIDEO
