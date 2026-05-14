@@ -313,8 +313,12 @@ export default function UploadPage() {
   // Crop target — when set, show crop modal for that file
   const [cropTargetId, setCropTargetId] = useState<string | null>(null);
 
+  // Fire haptic in the same animation frame as the visual update (not before it)
+  useEffect(() => {
+    if (activeId) requestAnimationFrame(() => navigator.vibrate?.(30));
+  }, [activeId]);
+
   function handleDragStart(event: DragStartEvent) {
-    navigator.vibrate?.(40); // haptic on Android (iOS Safari doesn't support this)
     setActiveId(event.active.id as string);
   }
 
@@ -511,7 +515,7 @@ export default function UploadPage() {
 
               <DragOverlay dropAnimation={null}>
                 {activeFile ? (
-                  <div className="w-28 h-28 rounded-lg overflow-hidden opacity-90 shadow-2xl cursor-grabbing select-none ring-2 ring-[#427ea3]">
+                  <div className="w-36 h-40 rounded-lg overflow-hidden opacity-95 shadow-2xl cursor-grabbing select-none ring-2 ring-[#427ea3]">
                     {activeFile.posterDataUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -833,7 +837,7 @@ function DraggableItem({
         disabled ? "cursor-default" : "cursor-grab"
       }`}
     >
-      <div className={`h-full ${isDragging ? "opacity-0" : "opacity-100"}`}>
+      <div className={`h-full transition-opacity duration-0 ${isDragging ? "opacity-20" : "opacity-100"}`}>
         {mf.type === "video" ? (
           <VideoPreview file={mf} onPosterCapture={onPosterCapture} />
         ) : (
@@ -845,10 +849,6 @@ function DraggableItem({
           />
         )}
       </div>
-
-      {isDragging && (
-        <div className="absolute inset-0 border-2 border-dashed border-[#427ea3]/60 rounded-lg" />
-      )}
 
       {!disabled && !isDragging && (
         <button
