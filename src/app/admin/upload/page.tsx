@@ -101,7 +101,11 @@ export default function UploadPage() {
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [insertAt, setInsertAt] = useState<{ rowIdx: number; colIdx: number } | null>(null);
+  const [insertAt, setInsertAt] = useState<{
+    rowIdx: number;
+    colIdx: number;
+    isNewRow?: boolean;
+  } | null>(null);
 
   // Flat file list for upload ordering
   const flatFiles = useMemo(() => rows.flat(), [rows]);
@@ -118,6 +122,14 @@ export default function UploadPage() {
       .filter((r) => r.length > 0);
     let targetRowIdx = insertAt.rowIdx;
     if (sourceRowWillBeEmpty && sourceRowIdx < insertAt.rowIdx) targetRowIdx--;
+
+    if (insertAt.isNewRow) {
+      targetRowIdx = Math.max(0, Math.min(targetRowIdx, stripped.length));
+      const result = [...stripped];
+      result.splice(targetRowIdx, 0, [activeFile]);
+      return result;
+    }
+
     if (targetRowIdx < 0 || targetRowIdx >= stripped.length) return rows;
     if (stripped[targetRowIdx].length >= 3) return rows;
     const colIdx = Math.min(insertAt.colIdx, stripped[targetRowIdx].length);
@@ -145,28 +157,57 @@ export default function UploadPage() {
       .catch(() => {});
   }, []);
 
-  // Hit-test pointer position against rows/items during drag
+  // Hit-test pointer position against rows/items during drag.
+  // Top/bottom 24px of each row = create new row; middle = drop into row.
   useEffect(() => {
     if (!activeId) return;
+    const NEW_ROW_ZONE = 24;
     function onPointerMove(e: PointerEvent) {
       if (!containerRef.current) return;
       const rowEls = Array.from(
         containerRef.current.querySelectorAll<HTMLElement>("[data-row]")
       );
+      if (rowEls.length === 0) { setInsertAt(null); return; }
+
+      // Pointer below all rows → new row at end
+      const lastRect = rowEls[rowEls.length - 1].getBoundingClientRect();
+      if (e.clientY > lastRect.bottom) {
+        setInsertAt({ rowIdx: rowEls.length, colIdx: 0, isNewRow: true });
+        return;
+      }
+
       for (let ri = 0; ri < rowEls.length; ri++) {
         const rowRect = rowEls[ri].getBoundingClientRect();
-        if (e.clientY >= rowRect.top - 8 && e.clientY <= rowRect.bottom + 8) {
-          const itemEls = Array.from(
-            rowEls[ri].querySelectorAll<HTMLElement>("[data-item]")
-          );
-          let colIdx = itemEls.length;
-          for (let ci = 0; ci < itemEls.length; ci++) {
-            const r = itemEls[ci].getBoundingClientRect();
-            if (e.clientX < r.left + r.width / 2) { colIdx = ci; break; }
-          }
-          setInsertAt({ rowIdx: ri, colIdx });
+        if (e.clientY < rowRect.top || e.clientY > rowRect.bottom) continue;
+
+        // Row has only the dragging ghost — keep it as a standalone new row
+        const realItemEls = Array.from(
+          rowEls[ri].querySelectorAll<HTMLElement>("[data-item]:not([data-dragging])")
+        );
+        if (realItemEls.length === 0) {
+          setInsertAt({ rowIdx: ri, colIdx: 0, isNewRow: true });
           return;
         }
+
+        // Top zone → new row before this row
+        if (e.clientY < rowRect.top + NEW_ROW_ZONE) {
+          setInsertAt({ rowIdx: ri, colIdx: 0, isNewRow: true });
+          return;
+        }
+        // Bottom zone → new row after this row
+        if (e.clientY > rowRect.bottom - NEW_ROW_ZONE) {
+          setInsertAt({ rowIdx: ri + 1, colIdx: 0, isNewRow: true });
+          return;
+        }
+
+        // Middle → drop into this row; use only real (non-dragging) items for column detection
+        let colIdx = realItemEls.length;
+        for (let ci = 0; ci < realItemEls.length; ci++) {
+          const r = realItemEls[ci].getBoundingClientRect();
+          if (e.clientX < r.left + r.width / 2) { colIdx = ci; break; }
+        }
+        setInsertAt({ rowIdx: ri, colIdx, isNewRow: false });
+        return;
       }
       setInsertAt(null);
     }
@@ -702,6 +743,7 @@ function DraggableItem({
     <div
       ref={setNodeRef}
       data-item
+      {...(isDragging ? { "data-dragging": "" } : {})}
       style={{ touchAction: "none" }}
       {...attributes}
       {...listeners}
@@ -713,7 +755,7 @@ function DraggableItem({
           : "cursor-grab active:ring-2 active:ring-[#427ea3] active:ring-inset"
       }`}
     >
-      <div className={isDragging ? "opacity-0" : "opacity-100"}>
+      <div className={`h-full ${isDragging ? "opacity-0" : "opacity-100"}`}>
         {mf.type === "video" ? (
           <VideoPreview file={mf} onPosterCapture={onPosterCapture} />
         ) : (
