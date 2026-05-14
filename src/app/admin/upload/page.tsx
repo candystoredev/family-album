@@ -2,6 +2,23 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -96,15 +113,8 @@ export default function UploadPage() {
   // Photoset layout
   const [customLayout, setCustomLayout] = useState<string | null>(null);
 
-  // Drag state (desktop)
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-
-  // Touch drag state (mobile)
-  const [touchDragIdx, setTouchDragIdx] = useState<number | null>(null);
-  const [touchOverIdx, setTouchOverIdx] = useState<number | null>(null);
-  const touchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
+  // Active drag item (for DragOverlay ghost)
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   // Load tags/people/albums on mount
   useEffect(() => {
@@ -171,93 +181,25 @@ export default function UploadPage() {
     []
   );
 
-  // ─── Drag reorder ──────────────────────────────────────────────────────────
+  // ─── Drag reorder (dnd-kit) ─────────────────────────────────────────────────
 
-  function handleDragStart(idx: number) {
-    setDragIdx(idx);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
   }
 
-  function handleDragOver(e: React.DragEvent, idx: number) {
-    e.preventDefault();
-    setDragOverIdx(idx);
-  }
-
-  function handleDrop(idx: number) {
-    if (dragIdx === null || dragIdx === idx) {
-      setDragIdx(null);
-      setDragOverIdx(null);
-      return;
-    }
-
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over || active.id === over.id) return;
     setFiles((prev) => {
-      const updated = [...prev];
-      const [moved] = updated.splice(dragIdx, 1);
-      updated.splice(idx, 0, moved);
-      return updated;
+      const oldIdx = prev.findIndex((f) => f.id === active.id);
+      const newIdx = prev.findIndex((f) => f.id === over.id);
+      return arrayMove(prev, oldIdx, newIdx);
     });
-    setDragIdx(null);
-    setDragOverIdx(null);
-  }
-
-  // ─── Touch drag reorder (long-press to pick up, drag to reorder) ──────────
-
-  function handleTouchStart(e: React.TouchEvent, idx: number) {
-    if (disabled) return;
-    touchTimeout.current = setTimeout(() => {
-      setTouchDragIdx(idx);
-      // Prevent scrolling while dragging
-      document.body.style.overflow = "hidden";
-    }, 300);
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    if (touchDragIdx === null || !gridRef.current) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    const gridItems = gridRef.current.querySelectorAll("[data-grid-idx]");
-    for (const el of gridItems) {
-      const rect = el.getBoundingClientRect();
-      if (
-        touch.clientX >= rect.left &&
-        touch.clientX <= rect.right &&
-        touch.clientY >= rect.top &&
-        touch.clientY <= rect.bottom
-      ) {
-        const overIdx = parseInt(el.getAttribute("data-grid-idx") || "-1", 10);
-        if (overIdx >= 0 && overIdx !== touchDragIdx) {
-          setTouchOverIdx(overIdx);
-        }
-        break;
-      }
-    }
-  }
-
-  function handleTouchEnd() {
-    if (touchTimeout.current) {
-      clearTimeout(touchTimeout.current);
-      touchTimeout.current = null;
-    }
-    if (touchDragIdx !== null && touchOverIdx !== null && touchDragIdx !== touchOverIdx) {
-      setFiles((prev) => {
-        const updated = [...prev];
-        const [moved] = updated.splice(touchDragIdx, 1);
-        updated.splice(touchOverIdx, 0, moved);
-        return updated;
-      });
-    }
-    setTouchDragIdx(null);
-    setTouchOverIdx(null);
-    document.body.style.overflow = "";
-  }
-
-  function handleTouchCancel() {
-    if (touchTimeout.current) {
-      clearTimeout(touchTimeout.current);
-      touchTimeout.current = null;
-    }
-    setTouchDragIdx(null);
-    setTouchOverIdx(null);
-    document.body.style.overflow = "";
   }
 
   // ─── Tag/People helpers ─────────────────────────────────────────────────────
@@ -412,6 +354,8 @@ export default function UploadPage() {
       newPerson.length > 0
   );
 
+  const activeFile = activeId ? files.find((f) => f.id === activeId) : null;
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -443,81 +387,59 @@ export default function UploadPage() {
         {/* Media preview grid with drag-reorder */}
         {files.length > 0 && (
           <div className="space-y-6">
-            <div
-              ref={gridRef}
-              className="grid grid-cols-3 gap-2"
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              onTouchCancel={handleTouchCancel}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
             >
-              {files.map((mf, idx) => {
-                const isDragging = dragIdx === idx || touchDragIdx === idx;
-                const isDragOver = dragOverIdx === idx || touchOverIdx === idx;
-                return (
-                  <div
-                    key={mf.id}
-                    data-grid-idx={idx}
-                    draggable={!disabled}
-                    onDragStart={() => handleDragStart(idx)}
-                    onDragOver={(e) => handleDragOver(e, idx)}
-                    onDrop={() => handleDrop(idx)}
-                    onDragEnd={() => {
-                      setDragIdx(null);
-                      setDragOverIdx(null);
-                    }}
-                    onTouchStart={(e) => handleTouchStart(e, idx)}
-                    className={`relative aspect-square rounded-lg overflow-hidden bg-[#141313] cursor-grab active:cursor-grabbing transition-all select-none ${
-                      isDragOver ? "ring-2 ring-[#427ea3] scale-105" : ""
-                    } ${isDragging ? "opacity-40 scale-95" : ""}`}
-                  >
-                    {mf.type === "video" ? (
+              <SortableContext
+                items={files.map((f) => f.id)}
+                strategy={rectSortingStrategy}
+              >
+                <div className="grid grid-cols-3 gap-2">
+                  {files.map((mf, idx) => (
+                    <SortableMediaItem
+                      key={mf.id}
+                      mf={mf}
+                      idx={idx}
+                      disabled={disabled}
+                      onRemove={removeFile}
+                      onPosterCapture={captureVideoPoster}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+
+              <DragOverlay>
+                {activeFile ? (
+                  <div className="relative aspect-square rounded-lg overflow-hidden bg-[#141313] opacity-90 shadow-2xl cursor-grabbing select-none">
+                    {activeFile.type === "video" ? (
                       <VideoPreview
-                        file={mf}
+                        file={activeFile}
                         onPosterCapture={captureVideoPoster}
                       />
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={mf.preview}
+                        src={activeFile.preview}
                         alt=""
                         className="w-full h-full object-cover pointer-events-none"
                       />
                     )}
-
-                    {/* Order badge */}
-                    <div className="absolute top-1 left-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white font-medium">
-                      {idx + 1}
-                    </div>
-
-                    {/* Remove button */}
-                    {!disabled && (
-                      <button
-                        onClick={() => removeFile(mf.id)}
-                        className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white"
-                      >
-                        ×
-                      </button>
-                    )}
-
-                    {/* Touch drag hint */}
-                    {touchDragIdx === idx && (
-                      <div className="absolute inset-0 bg-[#427ea3]/20 border-2 border-[#427ea3] rounded-lg" />
-                    )}
-
-                    {/* Video indicator */}
-                    {mf.type === "video" && (
+                    {activeFile.type === "video" && (
                       <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
                         VIDEO
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
 
             {files.length > 1 && !disabled && (
               <p className="text-[10px] text-[#666] text-center -mt-4">
-                Drag to reorder &middot; Long-press on mobile
+                Drag to reorder
               </p>
             )}
 
@@ -752,6 +674,84 @@ export default function UploadPage() {
           </a>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Sortable Media Item ─────────────────────────────────────────────────────
+
+function SortableMediaItem({
+  mf,
+  idx,
+  disabled,
+  onRemove,
+  onPosterCapture,
+}: {
+  mf: MediaFile;
+  idx: number;
+  disabled: boolean;
+  onRemove: (id: string) => void;
+  onPosterCapture: (fileId: string, video: HTMLVideoElement) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: mf.id, disabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`relative aspect-square rounded-lg overflow-hidden bg-[#141313] select-none ${
+        isDragging ? "cursor-grabbing" : "cursor-grab"
+      }`}
+    >
+      {mf.type === "video" ? (
+        <VideoPreview file={mf} onPosterCapture={onPosterCapture} />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={mf.preview}
+          alt=""
+          className="w-full h-full object-cover pointer-events-none"
+        />
+      )}
+
+      {/* Order badge */}
+      <div className="absolute top-1 left-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white font-medium">
+        {idx + 1}
+      </div>
+
+      {/* Remove button */}
+      {!disabled && (
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onRemove(mf.id)}
+          className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white"
+        >
+          ×
+        </button>
+      )}
+
+      {/* Video indicator */}
+      {mf.type === "video" && (
+        <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
+          VIDEO
+        </div>
+      )}
     </div>
   );
 }
