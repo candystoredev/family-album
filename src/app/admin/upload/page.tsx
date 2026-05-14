@@ -307,10 +307,15 @@ export default function UploadPage() {
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
+    // 500ms hold required — long enough that quick scroll flicks don't start a drag
+    useSensor(TouchSensor, { activationConstraint: { delay: 500, tolerance: 8 } })
   );
 
+  // Crop target — when set, show crop modal for that file
+  const [cropTargetId, setCropTargetId] = useState<string | null>(null);
+
   function handleDragStart(event: DragStartEvent) {
+    navigator.vibrate?.(40); // haptic on Android (iOS Safari doesn't support this)
     setActiveId(event.active.id as string);
   }
 
@@ -498,6 +503,7 @@ export default function UploadPage() {
                         disabled={disabled}
                         onRemove={removeFile}
                         onPosterCapture={captureVideoPoster}
+                        onCrop={setCropTargetId}
                       />
                     ))}
                   </div>
@@ -531,9 +537,32 @@ export default function UploadPage() {
               </DragOverlay>
             </DndContext>
 
+            {/* Crop modal — rendered outside DndContext so it sits above everything */}
+            {cropTargetId && (() => {
+              const cropFile = flatFiles.find((f) => f.id === cropTargetId);
+              return cropFile ? (
+                <CropModal
+                  mf={cropFile}
+                  onApply={(newFile, newPreview) => {
+                    setRows((prev) =>
+                      prev.map((row) =>
+                        row.map((f) => {
+                          if (f.id !== cropTargetId) return f;
+                          URL.revokeObjectURL(f.preview);
+                          return { ...f, file: newFile, preview: newPreview, posterDataUrl: undefined };
+                        })
+                      )
+                    );
+                    setCropTargetId(null);
+                  }}
+                  onCancel={() => setCropTargetId(null)}
+                />
+              ) : null;
+            })()}
+
             {flatFiles.length > 1 && !disabled && (
               <p className="text-[10px] text-[#666] text-center -mt-4">
-                Drag to reorder or change row layout
+                Hold to drag · tap crop icon to adjust
               </p>
             )}
 
@@ -763,11 +792,13 @@ function DraggableItem({
   disabled,
   onRemove,
   onPosterCapture,
+  onCrop,
 }: {
   mf: MediaFile;
   disabled: boolean;
   onRemove: (id: string) => void;
   onPosterCapture: (fileId: string, video: HTMLVideoElement) => void;
+  onCrop: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: mf.id,
@@ -780,7 +811,11 @@ function DraggableItem({
       data-item
       {...(isDragging ? { "data-dragging": "" } : {})}
       {...attributes}
-      className="relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none"
+      {...listeners}
+      style={{ touchAction: "none" }}
+      className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none transition-transform duration-100 ${
+        !isDragging && !disabled ? "active:scale-95" : ""
+      } ${disabled ? "cursor-default" : "cursor-grab"}`}
     >
       <div className={`h-full ${isDragging ? "opacity-0" : "opacity-100"}`}>
         {mf.type === "video" ? (
@@ -815,23 +850,179 @@ function DraggableItem({
         </div>
       )}
 
-      {/* Drag handle — touch-action:none only here so the rest of the image scrolls normally */}
-      {!disabled && !isDragging && (
-        <div
-          {...listeners}
-          style={{ touchAction: "none" }}
-          className="absolute bottom-1 right-1 w-7 h-7 flex items-center justify-center bg-black/50 rounded cursor-grab active:bg-[#427ea3]/70"
+      {/* Crop button — bottom-right, stops pointer propagation so it doesn't start a drag */}
+      {!disabled && !isDragging && mf.type === "photo" && (
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onCrop(mf.id)}
+          className="absolute bottom-1 right-1 w-7 h-7 flex items-center justify-center bg-black/55 rounded active:bg-[#427ea3]/80"
+          aria-label="Crop image"
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <circle cx="3.5" cy="2.5" r="1.2" fill="rgba(255,255,255,0.85)" />
-            <circle cx="8.5" cy="2.5" r="1.2" fill="rgba(255,255,255,0.85)" />
-            <circle cx="3.5" cy="6"   r="1.2" fill="rgba(255,255,255,0.85)" />
-            <circle cx="8.5" cy="6"   r="1.2" fill="rgba(255,255,255,0.85)" />
-            <circle cx="3.5" cy="9.5" r="1.2" fill="rgba(255,255,255,0.85)" />
-            <circle cx="8.5" cy="9.5" r="1.2" fill="rgba(255,255,255,0.85)" />
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+            <path d="M6 2v14a2 2 0 002 2h14" />
+            <path d="M18 22V8a2 2 0 00-2-2H2" />
           </svg>
-        </div>
+        </button>
       )}
+    </div>
+  );
+}
+
+// ─── Crop Modal ──────────────────────────────────────────────────────────────
+
+interface CropBox { x: number; y: number; w: number; h: number }
+
+function CropModal({
+  mf,
+  onApply,
+  onCancel,
+}: {
+  mf: MediaFile;
+  onApply: (file: File, preview: string) => void;
+  onCancel: () => void;
+}) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [crop, setCrop] = useState<CropBox>({ x: 0, y: 0, w: 1, h: 1 });
+
+  function getScale() {
+    const img = imgRef.current;
+    const c = containerRef.current;
+    if (!img || !c || !img.naturalWidth) return null;
+    const s = Math.min(c.clientWidth / img.naturalWidth, c.clientHeight / img.naturalHeight);
+    const dw = img.naturalWidth * s;
+    const dh = img.naturalHeight * s;
+    return { s, dw, dh, ox: (c.clientWidth - dw) / 2, oy: (c.clientHeight - dh) / 2 };
+  }
+
+  function makeDragHandlers(corner: string) {
+    return {
+      onPointerDown(e: React.PointerEvent) {
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+      },
+      onPointerMove(e: React.PointerEvent) {
+        if (!(e.buttons & 1) && e.pointerType === "mouse") return;
+        const sc = getScale();
+        if (!sc) return;
+        const dx = e.movementX / sc.dw;
+        const dy = e.movementY / sc.dh;
+        const MIN = 0.08;
+        setCrop((c) => {
+          let { x, y, w, h } = c;
+          if (corner === "tl") {
+            const nx = Math.min(x + w - MIN, Math.max(0, x + dx));
+            const ny = Math.min(y + h - MIN, Math.max(0, y + dy));
+            w += x - nx; h += y - ny; x = nx; y = ny;
+          } else if (corner === "tr") {
+            const ny = Math.min(y + h - MIN, Math.max(0, y + dy));
+            h += y - ny; y = ny;
+            w = Math.max(MIN, Math.min(1 - x, w + dx));
+          } else if (corner === "bl") {
+            const nx = Math.min(x + w - MIN, Math.max(0, x + dx));
+            w += x - nx; x = nx;
+            h = Math.max(MIN, Math.min(1 - y, h + dy));
+          } else if (corner === "br") {
+            w = Math.max(MIN, Math.min(1 - x, w + dx));
+            h = Math.max(MIN, Math.min(1 - y, h + dy));
+          } else {
+            x = Math.max(0, Math.min(1 - w, x + dx));
+            y = Math.max(0, Math.min(1 - h, y + dy));
+          }
+          return { x, y, w, h };
+        });
+      },
+    };
+  }
+
+  function handleApply() {
+    const img = imgRef.current;
+    if (!img) return;
+    const sx = Math.round(crop.x * img.naturalWidth);
+    const sy = Math.round(crop.y * img.naturalHeight);
+    const sw = Math.round(crop.w * img.naturalWidth);
+    const sh = Math.round(crop.h * img.naturalHeight);
+    const canvas = document.createElement("canvas");
+    canvas.width = sw; canvas.height = sh;
+    canvas.getContext("2d")!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+    canvas.toBlob((blob) => {
+      if (!blob) { onCancel(); return; }
+      const file = new File([blob], mf.file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+      onApply(file, URL.createObjectURL(file));
+    }, "image/jpeg", 0.92);
+  }
+
+  const sc = loaded ? getScale() : null;
+  const box = sc ? {
+    left: sc.ox + crop.x * sc.dw,
+    top:  sc.oy + crop.y * sc.dh,
+    w:    crop.w * sc.dw,
+    h:    crop.h * sc.dh,
+  } : null;
+
+  const corners = [
+    { id: "tl", style: { left: box ? box.left - 14 : 0, top: box ? box.top - 14 : 0 } },
+    { id: "tr", style: { left: box ? box.left + box.w - 14 : 0, top: box ? box.top - 14 : 0 } },
+    { id: "bl", style: { left: box ? box.left - 14 : 0, top: box ? box.top + box.h - 14 : 0 } },
+    { id: "br", style: { left: box ? box.left + box.w - 14 : 0, top: box ? box.top + box.h - 14 : 0 } },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black flex flex-col">
+      <div ref={containerRef} className="flex-1 relative overflow-hidden select-none">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={imgRef}
+          src={mf.preview}
+          alt=""
+          className="w-full h-full object-contain"
+          onLoad={() => setLoaded(true)}
+          draggable={false}
+        />
+        {box && (
+          <>
+            {/* Dimming overlay with crop hole via box-shadow */}
+            <div
+              className="absolute border border-white/80 pointer-events-none"
+              style={{
+                left: box.left, top: box.top,
+                width: box.w, height: box.h,
+                boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
+              }}
+            />
+            {/* Center drag — moves whole box */}
+            <div
+              className="absolute touch-none cursor-move"
+              style={{ left: box.left, top: box.top, width: box.w, height: box.h }}
+              {...makeDragHandlers("center")}
+            />
+            {/* Corner handles */}
+            {corners.map(({ id, style }) => (
+              <div
+                key={id}
+                className="absolute w-7 h-7 flex items-center justify-center touch-none cursor-grab z-10"
+                style={style}
+                {...makeDragHandlers(id)}
+              >
+                <div className="w-3.5 h-3.5 rounded-full bg-white shadow-md" />
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between px-6 py-4 bg-black border-t border-white/10">
+        <button onClick={onCancel} className="text-white/60 text-base px-4 py-2 active:text-white">
+          Cancel
+        </button>
+        <button
+          onClick={handleApply}
+          className="bg-[#427ea3] text-white text-base font-semibold px-6 py-2.5 rounded-full active:bg-[#3a6f91]"
+        >
+          Apply crop
+        </button>
+      </div>
     </div>
   );
 }

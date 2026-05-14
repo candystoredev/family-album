@@ -374,6 +374,28 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
   // ─── Mobile: FAB + slide-out overlay ───
   return (
     <>
+      {/* Admin upload FAB — floats 45° up-left from main FAB when menu opens */}
+      {isAdmin && (
+        <Link
+          href="/admin/upload"
+          onClick={handleClose}
+          className="fixed bottom-6 right-6 z-[49] w-11 h-11 rounded-full bg-[#427ea3] shadow-xl shadow-black/50 flex items-center justify-center lg:hidden"
+          style={{
+            transform: open ? "translate(-56px, -56px) scale(1)" : "translate(0,0) scale(0)",
+            opacity: open ? 1 : 0,
+            pointerEvents: open ? "auto" : "none",
+            transition: open
+              ? "transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.15s ease-out"
+              : "transform 0.2s ease-in, opacity 0.15s ease-in",
+          }}
+          aria-label="New upload"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" className="w-5 h-5">
+            <path d="M12 5v14" /><path d="M5 12h14" />
+          </svg>
+        </Link>
+      )}
+
       {/* Floating Action Button */}
       <button
         onClick={open ? handleClose : handleOpen}
