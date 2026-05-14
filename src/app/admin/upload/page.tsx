@@ -1209,6 +1209,7 @@ function VideoPreview({
       ref={videoRef}
       src={file.preview}
       muted
+      autoPlay
       playsInline
       onLoadedData={handleLoaded}
       onSeeked={handleSeeked}

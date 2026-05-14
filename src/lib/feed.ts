@@ -163,9 +163,11 @@ export async function getInitialFeed(filter?: FeedFilter) {
       id: m.id,
       type: m.type,
       url: `${r2PublicUrl}/${m.r2_key}`,
+      // For videos with no thumbnail, return "" — a video URL used as a poster
+      // fails silently and shows black. PhotoGrid skips poster="" cleanly.
       thumbnailUrl: m.thumbnail_r2_key
         ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
-        : `${r2PublicUrl}/${m.r2_key}`,
+        : m.type === "video" ? "" : `${r2PublicUrl}/${m.r2_key}`,
       width: m.width,
       height: m.height,
     })),

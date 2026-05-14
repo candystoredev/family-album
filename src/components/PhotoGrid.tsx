@@ -65,7 +65,7 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
         {item.type === "video" ? (
           <video
             src={item.url}
-            poster={item.thumbnailUrl}
+            poster={item.thumbnailUrl || undefined}
             controls
             playsInline
             className="w-full"
@@ -107,7 +107,7 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
                 {item.type === "video" ? (
                   <video
                     src={item.url}
-                    poster={item.thumbnailUrl}
+                    poster={item.thumbnailUrl || undefined}
                     controls
                     playsInline
                     className="w-full h-full object-cover"

@@ -229,7 +229,7 @@ export async function GET(request: NextRequest) {
       url: `${r2PublicUrl}/${m.r2_key}`,
       thumbnailUrl: m.thumbnail_r2_key
         ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
-        : `${r2PublicUrl}/${m.r2_key}`,
+        : m.type === "video" ? "" : `${r2PublicUrl}/${m.r2_key}`,
       width: m.width,
       height: m.height,
       display_order: m.display_order,
