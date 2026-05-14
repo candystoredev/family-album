@@ -471,7 +471,7 @@ export default function EditPostPage() {
       if (!res.ok) throw new Error(data.error || "Save failed");
 
       setSaveState("success");
-      setTimeout(() => router.push(`/posts/${postSlug}`), 800);
+      setTimeout(() => router.back(), 600);
     } catch (err) {
       setSaveState("error");
       setSaveError(err instanceof Error ? err.message : "Network error");
@@ -746,7 +746,7 @@ export default function EditPostPage() {
 
             {saveState === "success" && (
               <div className="bg-[#1a2e1a] border border-[#2d4a2d] rounded-lg p-4 text-[#6db86d] font-semibold text-center">
-                Saved! Redirecting...
+                Saved!
               </div>
             )}
 
@@ -822,11 +822,14 @@ export default function EditPostPage() {
           )}
         </div>
 
-        {/* Back link */}
+        {/* Cancel */}
         <div className="mt-6 text-center">
-          <a href={`/posts/${postSlug}`} className="text-sm text-[#888] hover:text-[#427ea3] transition-colors">
-            Back to post
-          </a>
+          <button
+            onClick={() => router.back()}
+            className="text-sm text-[#888] hover:text-[#427ea3] transition-colors"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>

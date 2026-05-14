@@ -252,6 +252,7 @@ function PostCard({
   onLightbox: (index: number) => void;
 }) {
   const [showBubble, setShowBubble] = useState(false);
+  const [showEditMenu, setShowEditMenu] = useState(false);
 
   return (
     <article className={postIndex > 0 ? "mt-10" : ""}>
@@ -266,10 +267,12 @@ function PostCard({
         </div>
       )}
 
-      {/* Post info — caption area, tap to reveal iMessage bubble */}
+      {/* Post info — caption area, tap to reveal iMessage bubble.
+          Admin: long-press / right-click opens edit sheet. */}
       <div
-        className="mt-4 px-4 sm:px-8 relative flex items-center cursor-pointer"
+        className={`mt-4 px-4 sm:px-8 relative flex items-center cursor-pointer${isAdmin ? " select-none" : ""}`}
         onClick={() => setShowBubble((v) => !v)}
+        onContextMenu={isAdmin ? (e) => { e.preventDefault(); setShowEditMenu(true); } : undefined}
       >
         <div className="text-center flex-1 pr-6 lg:pr-0">
           {post.title && (
@@ -289,15 +292,6 @@ function PostCard({
             </time>
             {isAdmin && <PostMeta tags={post.tags} people={post.people} />}
           </div>
-          {isAdmin && (
-            <Link
-              href={`/admin/posts/${post.id}/edit`}
-              onClick={(e) => e.stopPropagation()}
-              className="inline-block mt-1 text-[10px] text-[#3a3939] hover:text-[#427ea3] transition-colors tracking-wide uppercase"
-            >
-              Edit
-            </Link>
-          )}
         </div>
 
         {/* iMessage button — hidden until caption tapped, then 40% opacity */}
@@ -312,6 +306,34 @@ function PostCard({
           />
         </div>
       </div>
+
+      {/* Admin edit sheet — long-press / right-click to reveal */}
+      {isAdmin && showEditMenu && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50"
+          onClick={() => setShowEditMenu(false)}
+        >
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-[#232222] rounded-t-2xl overflow-hidden pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-[#444] rounded-full mx-auto mt-3 mb-2" />
+            <Link
+              href={`/admin/posts/${post.id}/edit`}
+              className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
+              onClick={() => setShowEditMenu(false)}
+            >
+              Edit post
+            </Link>
+            <button
+              onClick={() => setShowEditMenu(false)}
+              className="flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base border-t border-[#2a2929]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </article>
   );
 }

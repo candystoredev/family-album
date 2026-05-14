@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import DoubleTapHeart from "./DoubleTapHeart";
 
 interface MediaItem {
@@ -32,8 +32,17 @@ function FadeImage({
   onClick?: () => void;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // If the browser already loaded the image before React hydrated (SSR), the
+  // onLoad event never fires. Check img.complete on mount to catch this case.
+  useEffect(() => {
+    if (imgRef.current?.complete) setLoaded(true);
+  }, []);
+
   return (
     <img
+      ref={imgRef}
       src={src}
       alt={alt}
       loading="lazy"
