@@ -39,6 +39,7 @@ export default function OnThisDay() {
   const touchStartY = useRef(0);
   const touchDeltaX = useRef(0);
   const touchMoved = useRef(false);
+  const pinchActive = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const postContentRef = useRef<HTMLDivElement>(null);
 
@@ -94,7 +95,15 @@ export default function OnThisDay() {
   // Touch handlers for swiping between memories
   function onTouchStart(e: React.TouchEvent) {
     if (activeIndex < 0 || lightbox !== null) return;
-    if (e.touches.length > 1) return; // pinch — don't start swipe tracking
+    if (e.touches.length > 1) {
+      // Pinch started — lock out swipe for this entire gesture sequence
+      pinchActive.current = true;
+      touchDeltaX.current = 0;
+      setSwipeOffsetX(0);
+      setIsSwiping(false);
+      return;
+    }
+    if (pinchActive.current) return; // one finger still on screen after pinch
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchDeltaX.current = 0;
@@ -104,8 +113,8 @@ export default function OnThisDay() {
 
   function onTouchMove(e: React.TouchEvent) {
     if (activeIndex < 0 || lightbox !== null) return;
-    if (e.touches.length > 1) {
-      // Second finger landed (pinch) — cancel any in-progress swipe
+    if (e.touches.length > 1 || pinchActive.current) {
+      pinchActive.current = true;
       touchDeltaX.current = 0;
       setSwipeOffsetX(0);
       setIsSwiping(false);
@@ -120,8 +129,10 @@ export default function OnThisDay() {
     }
   }
 
-  function onTouchEnd() {
+  function onTouchEnd(e: React.TouchEvent) {
     if (activeIndex < 0 || lightbox !== null) return;
+    if (e.touches.length === 0) pinchActive.current = false; // all fingers lifted — clear lock
+    if (pinchActive.current) { setIsSwiping(false); return; }
     setIsSwiping(false);
     const threshold = 90;
     const dx = touchDeltaX.current;
