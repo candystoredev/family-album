@@ -1,15 +1,15 @@
 # State
 
 ## Current Status
-Phases 1-4 complete. Tumblr migration completed against production on 2026-03-07. All posts migrated, FTS index rebuilt. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
+Phases 1-5b complete. Tumblr migration completed against production on 2026-03-07. All posts migrated, FTS index rebuilt. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
 
-Phase 4 (Public Site) fully done including all polish (4i). Ready for Phase 5 (Admin Panel & Settings).
+Phase 5b (Full upload form) fully done and verified: blue insertion indicators, AudioContext haptic on iOS, multi-file drag-reorder, tags/people/albums, video poster capture all working.
 
 ## Active Branch
-claude/family-photo-album-plan-rEoOE
+claude/priceless-williamson-b4edec
 
 ## Current Task
-Phase 5b: Full upload form — implementation complete, pending verification.
+Phase 5c: Edit + delete posts — implementation complete, pending verification.
 
 ## Blockers
 None
@@ -18,9 +18,10 @@ None
 None
 
 ## Next Action
-Verify 5b: Upload 4-photo post with tags/people → grid renders + tag/people links work. Upload video → poster frame captured + playback works. Drag-reorder changes display order (smooth, works on touch). Then proceed to 5c.
+Verify 5c: Edit title → updated in feed + post page. Add photo → grid updates. Delete post → gone from feed + R2 cleaned.
 
 ## Recent Changes
+- Phase 5c: Edit + delete posts — `GET/PUT/DELETE /api/admin/posts/[postId]`, `/admin/posts/[postId]/edit` page, Edit link in feed (admin-only)
 - Phase 5b: Replaced custom drag-and-drop with @dnd-kit/core + @dnd-kit/sortable + @dnd-kit/utilities
   - PointerSensor (distance:8) handles mouse and touch — no long-press required
   - SortableMediaItem with useSortable: transform/transition/opacity from hook, cursor-grabbing while active
@@ -76,6 +77,8 @@ Verify 5b: Upload 4-photo post with tags/people → grid renders + tag/people li
 - Post detail page simplified to permalink-only (OG tags for link previews)
 
 ## Relevant Files
+- `apps/thehoecks/src/app/admin/posts/[postId]/edit/page.tsx` — edit page: pre-populated form, manage existing+new media, drag-reorder, delete post
+- `apps/thehoecks/src/app/api/admin/posts/[postId]/route.ts` — GET (post data for edit form), PUT (save edits), DELETE (post + R2 cleanup)
 - `apps/thehoecks/src/app/admin/upload/page.tsx` — multi-file upload page with drag-reorder, tag/people/album pickers, video poster capture
 - `apps/thehoecks/src/app/api/admin/upload/presign/route.ts` — presigned URL generation (photos + videos)
 - `apps/thehoecks/src/app/api/admin/upload/complete/route.ts` — multi-file processing, tag/people/album assignment, FTS update

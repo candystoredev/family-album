@@ -289,6 +289,15 @@ function PostCard({
             </time>
             {isAdmin && <PostMeta tags={post.tags} people={post.people} />}
           </div>
+          {isAdmin && (
+            <Link
+              href={`/admin/posts/${post.id}/edit`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-block mt-1 text-[10px] text-[#3a3939] hover:text-[#427ea3] transition-colors tracking-wide uppercase"
+            >
+              Edit
+            </Link>
+          )}
         </div>
 
         {/* iMessage button — hidden until caption tapped, then 40% opacity */}
