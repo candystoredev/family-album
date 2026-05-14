@@ -305,7 +305,6 @@ function PostCard({
         onPointerDown={isAdmin ? startLongPress : undefined}
         onPointerUp={isAdmin ? cancelLongPress : undefined}
         onPointerMove={isAdmin ? checkMove : undefined}
-        onPointerCancel={isAdmin ? cancelLongPress : undefined}
         onContextMenu={isAdmin ? (e) => { e.preventDefault(); cancelLongPress(); setShowEditMenu(true); } : undefined}
       >
         <div className="text-center flex-1 pr-6 lg:pr-0">
