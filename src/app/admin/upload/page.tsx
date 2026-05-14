@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
+  DragOverEvent,
   DragOverlay,
   DragStartEvent,
   PointerSensor,
@@ -18,7 +19,6 @@ import {
   rectSortingStrategy,
   useSortable,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ interface MediaFile {
   file: File;
   preview: string;
   type: "photo" | "video";
-  posterDataUrl?: string; // video poster captured via canvas
+  posterDataUrl?: string;
 }
 
 interface TagOption {
@@ -59,26 +59,27 @@ function isVideoFile(file: File) {
   return file.type.startsWith("video/");
 }
 
-/** Generate all valid photoset layouts for N photos (rows of 1-3) */
-function generateLayoutOptions(count: number): string[] {
-  if (count <= 0) return [];
-  if (count === 1) return ["1"];
-
-  const results: string[] = [];
-  function build(remaining: number, current: string) {
-    if (remaining === 0) {
-      results.push(current);
-      return;
-    }
-    for (let row = 1; row <= Math.min(3, remaining); row++) {
-      build(remaining - row, current + row);
-    }
+/**
+ * Derive the default row layout for N photos.
+ * Returns an array of row widths, e.g. [2, 2] for 4 photos.
+ * The resulting layout string (joined) matches the DB photoset_layout format.
+ */
+function deriveRowLayout(count: number): number[] {
+  if (count === 0) return [];
+  if (count === 1) return [1];
+  if (count === 2) return [2];
+  if (count === 3) return [2, 1];
+  if (count === 4) return [2, 2];
+  // 5+: fill rows of 3; when 4 remain, split 2+2 to avoid orphaned single
+  const rows: number[] = [];
+  let rem = count;
+  while (rem > 0) {
+    if (rem <= 3) { rows.push(rem); break; }
+    if (rem === 4) { rows.push(2, 2); break; }
+    rows.push(3);
+    rem -= 3;
   }
-  build(count, "");
-
-  // Limit to reasonable number — sort by fewest rows first
-  results.sort((a, b) => a.length - b.length);
-  return results.slice(0, 20);
+  return rows;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -87,7 +88,7 @@ export default function UploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Media files
+  // Media files (flat ordered array — source of truth)
   const [files, setFiles] = useState<MediaFile[]>([]);
 
   // Metadata
@@ -110,11 +111,9 @@ export default function UploadPage() {
   const [error, setError] = useState("");
   const [resultSlug, setResultSlug] = useState("");
 
-  // Photoset layout
-  const [customLayout, setCustomLayout] = useState<string | null>(null);
-
-  // Active drag item (for DragOverlay ghost)
+  // Drag state
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
   // Load tags/people/albums on mount
   useEffect(() => {
@@ -137,19 +136,15 @@ export default function UploadPage() {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const newFiles = Array.from(e.target.files || []);
     if (!newFiles.length) return;
-
     const mediaFiles: MediaFile[] = newFiles.map((f) => ({
       id: nextFileId(),
       file: f,
       preview: URL.createObjectURL(f),
       type: isVideoFile(f) ? "video" : "photo",
     }));
-
     setFiles((prev) => [...prev, ...mediaFiles]);
     setError("");
     setState("idle");
-
-    // Reset input so same file can be re-selected
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -173,33 +168,52 @@ export default function UploadPage() {
       ctx.drawImage(videoEl, 0, 0);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
       setFiles((prev) =>
-        prev.map((f) =>
-          f.id === fileId ? { ...f, posterDataUrl: dataUrl } : f
-        )
+        prev.map((f) => (f.id === fileId ? { ...f, posterDataUrl: dataUrl } : f))
       );
     },
     []
   );
 
-  // ─── Drag reorder (dnd-kit) ─────────────────────────────────────────────────
+  // ─── Drag reorder ──────────────────────────────────────────────────────────
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
+  // Live reorder preview: reflects where the dragged item would land before drop
+  const displayFiles = useMemo(() => {
+    if (!activeId || !overId || activeId === overId) return files;
+    const ai = files.findIndex((f) => f.id === activeId);
+    const oi = files.findIndex((f) => f.id === overId);
+    return ai >= 0 && oi >= 0 ? arrayMove(files, ai, oi) : files;
+  }, [files, activeId, overId]);
+
+  // Row layout auto-derived from count — produces the photoset_layout string
+  const rowLayout = useMemo(() => deriveRowLayout(displayFiles.length), [displayFiles.length]);
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    setOverId((event.over?.id as string) ?? null);
   }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveId(null);
+    setOverId(null);
     if (!over || active.id === over.id) return;
     setFiles((prev) => {
-      const oldIdx = prev.findIndex((f) => f.id === active.id);
-      const newIdx = prev.findIndex((f) => f.id === over.id);
-      return arrayMove(prev, oldIdx, newIdx);
+      const ai = prev.findIndex((f) => f.id === active.id);
+      const oi = prev.findIndex((f) => f.id === over.id);
+      return arrayMove(prev, ai, oi);
     });
+  }
+
+  function handleDragCancel() {
+    setActiveId(null);
+    setOverId(null);
   }
 
   // ─── Tag/People helpers ─────────────────────────────────────────────────────
@@ -207,9 +221,7 @@ export default function UploadPage() {
   function addTag(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (!selectedTags.includes(trimmed)) {
-      setSelectedTags((prev) => [...prev, trimmed]);
-    }
+    if (!selectedTags.includes(trimmed)) setSelectedTags((prev) => [...prev, trimmed]);
     setNewTag("");
   }
 
@@ -220,9 +232,7 @@ export default function UploadPage() {
   function addPerson(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (!selectedPeople.includes(trimmed)) {
-      setSelectedPeople((prev) => [...prev, trimmed]);
-    }
+    if (!selectedPeople.includes(trimmed)) setSelectedPeople((prev) => [...prev, trimmed]);
     setNewPerson("");
   }
 
@@ -240,51 +250,37 @@ export default function UploadPage() {
 
   async function handleUpload() {
     if (files.length === 0) return;
-
     setState("uploading");
     setError("");
 
     try {
-      // Step 1: Upload all files to R2 in parallel via presigned URLs
       setProgress(`Uploading ${files.length} ${files.length === 1 ? "file" : "files"}...`);
 
       const uploadPromises = files.map(async (mf, i) => {
-        // Get presigned URL
         const presignRes = await fetch("/api/admin/upload/presign", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ contentType: mf.file.type }),
         });
-
         if (!presignRes.ok) {
           const data = await presignRes.json();
           throw new Error(data.error || `Failed to get upload URL for file ${i + 1}`);
         }
-
         const { uploadUrl, r2Key, keyPrefix } = await presignRes.json();
-
-        // Upload to R2
         const uploadRes = await fetch(uploadUrl, {
           method: "PUT",
           headers: { "Content-Type": mf.file.type },
           body: mf.file,
         });
-
-        if (!uploadRes.ok) {
-          throw new Error(`Failed to upload file ${i + 1}`);
-        }
-
-        return {
-          r2Key,
-          keyPrefix,
-          type: mf.type,
-          posterDataUrl: mf.posterDataUrl,
-        };
+        if (!uploadRes.ok) throw new Error(`Failed to upload file ${i + 1}`);
+        return { r2Key, keyPrefix, type: mf.type, posterDataUrl: mf.posterDataUrl };
       });
 
       const uploadedItems = await Promise.all(uploadPromises);
 
-      // Step 2: Complete — server processes all files + creates post
+      // Derive layout from the committed file order at upload time
+      const layout = deriveRowLayout(files.length);
+
       setProgress("Finalizing...");
       const completeRes = await fetch("/api/admin/upload/complete", {
         method: "POST",
@@ -296,25 +292,19 @@ export default function UploadPage() {
           tags: selectedTags,
           people: selectedPeople,
           albumIds: selectedAlbumIds,
-          photosetLayout: customLayout || undefined,
+          photosetLayout: files.length > 1 ? layout.join("") : undefined,
         }),
       });
 
       const data = await completeRes.json();
+      if (!completeRes.ok) throw new Error(data.error || "Processing failed");
 
-      if (!completeRes.ok) {
-        throw new Error(data.error || "Processing failed");
-      }
-
-      // Immediate redirect — no artificial delay
       setState("success");
       setResultSlug(data.slug);
       router.push(`/posts/${data.slug}`);
     } catch (err) {
       setState("error");
-      setError(
-        err instanceof Error ? err.message : "Network error — please try again"
-      );
+      setError(err instanceof Error ? err.message : "Network error — please try again");
     }
   }
 
@@ -328,7 +318,6 @@ export default function UploadPage() {
     setSelectedAlbumIds([]);
     setNewTag("");
     setNewPerson("");
-    setCustomLayout(null);
     setState("idle");
     setProgress("");
     setError("");
@@ -354,7 +343,7 @@ export default function UploadPage() {
       newPerson.length > 0
   );
 
-  const activeFile = activeId ? files.find((f) => f.id === activeId) : null;
+  const activeFile = activeId ? files.find((f) => f.id === activeId) ?? null : null;
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -363,7 +352,7 @@ export default function UploadPage() {
       <div className="max-w-lg mx-auto">
         <h1 className="text-xl font-semibold mb-6">Upload</h1>
 
-        {/* File picker — always visible when idle */}
+        {/* File picker */}
         <label className="block border-2 border-dashed border-[#3a3939] rounded-xl p-8 text-center cursor-pointer hover:border-[#427ea3] transition-colors mb-4">
           <input
             ref={fileInputRef}
@@ -377,58 +366,74 @@ export default function UploadPage() {
           <div className="text-[#888] space-y-1">
             <div className="text-3xl">+</div>
             <div className="text-sm">
-              {files.length === 0
-                ? "Tap to choose photos or videos"
-                : "Add more files"}
+              {files.length === 0 ? "Tap to choose photos or videos" : "Add more files"}
             </div>
           </div>
         </label>
 
-        {/* Media preview grid with drag-reorder */}
+        {/* Media grid + metadata */}
         {files.length > 0 && (
           <div className="space-y-6">
+            {/* Row-based photoset grid */}
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
             >
               <SortableContext
-                items={files.map((f) => f.id)}
+                items={displayFiles.map((f) => f.id)}
                 strategy={rectSortingStrategy}
               >
-                <div className="grid grid-cols-3 gap-2">
-                  {files.map((mf, idx) => (
-                    <SortableMediaItem
-                      key={mf.id}
-                      mf={mf}
-                      idx={idx}
-                      disabled={disabled}
-                      onRemove={removeFile}
-                      onPosterCapture={captureVideoPoster}
-                    />
-                  ))}
+                <div className="space-y-2">
+                  {(() => {
+                    const rows: React.ReactNode[] = [];
+                    let cursor = 0;
+                    for (let r = 0; r < rowLayout.length; r++) {
+                      const width = rowLayout[r];
+                      const rowFiles = displayFiles.slice(cursor, cursor + width);
+                      const startIdx = cursor;
+                      cursor += width;
+                      rows.push(
+                        <div key={startIdx} className="flex gap-2" style={{ height: 128 }}>
+                          {rowFiles.map((mf, i) => (
+                            <SortableMediaItem
+                              key={mf.id}
+                              mf={mf}
+                              disabled={disabled}
+                              onRemove={removeFile}
+                              onPosterCapture={captureVideoPoster}
+                            />
+                          ))}
+                        </div>
+                      );
+                    }
+                    return rows;
+                  })()}
                 </div>
               </SortableContext>
 
-              <DragOverlay>
+              <DragOverlay dropAnimation={null}>
                 {activeFile ? (
-                  <div className="relative aspect-square rounded-lg overflow-hidden bg-[#141313] opacity-90 shadow-2xl cursor-grabbing select-none">
-                    {activeFile.type === "video" ? (
-                      <VideoPreview
-                        file={activeFile}
-                        onPosterCapture={captureVideoPoster}
+                  <div className="w-28 h-28 rounded-lg overflow-hidden opacity-90 shadow-2xl cursor-grabbing select-none ring-2 ring-[#427ea3]">
+                    {activeFile.posterDataUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={activeFile.posterDataUrl}
+                        alt=""
+                        className="w-full h-full object-cover"
                       />
-                    ) : (
+                    ) : activeFile.type === "photo" ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={activeFile.preview}
                         alt=""
-                        className="w-full h-full object-cover pointer-events-none"
+                        className="w-full h-full object-cover"
                       />
-                    )}
-                    {activeFile.type === "video" && (
-                      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
+                    ) : (
+                      <div className="w-full h-full bg-[#141313] flex items-center justify-center text-[#666] text-xs">
                         VIDEO
                       </div>
                     )}
@@ -441,15 +446,6 @@ export default function UploadPage() {
               <p className="text-[10px] text-[#666] text-center -mt-4">
                 Drag to reorder
               </p>
-            )}
-
-            {/* ─── Photoset Layout Picker ──────────────────────────────── */}
-            {files.length >= 2 && !disabled && (
-              <LayoutPicker
-                count={files.length}
-                selected={customLayout}
-                onSelect={setCustomLayout}
-              />
             )}
 
             {/* Title */}
@@ -585,9 +581,7 @@ export default function UploadPage() {
             {/* Albums */}
             {allAlbums.length > 0 && (
               <div>
-                <label className="block text-xs text-[#888] mb-1">
-                  Albums
-                </label>
+                <label className="block text-xs text-[#888] mb-1">Albums</label>
                 <div className="flex flex-wrap gap-1.5">
                   {allAlbums.map((album) => (
                     <button
@@ -631,9 +625,7 @@ export default function UploadPage() {
                 <div className="text-[#6db86d] font-semibold">
                   {files.length === 1 ? "Photo" : "Post"} uploaded!
                 </div>
-                <div className="text-xs text-[#888]">
-                  Redirecting to post...
-                </div>
+                <div className="text-xs text-[#888]">Redirecting to post...</div>
               </div>
             )}
 
@@ -666,10 +658,7 @@ export default function UploadPage() {
 
         {/* Back link */}
         <div className="mt-8 text-center">
-          <a
-            href="/"
-            className="text-sm text-[#888] hover:text-[#427ea3] transition-colors"
-          >
+          <a href="/" className="text-sm text-[#888] hover:text-[#427ea3] transition-colors">
             Back to feed
           </a>
         </div>
@@ -682,61 +671,50 @@ export default function UploadPage() {
 
 function SortableMediaItem({
   mf,
-  idx,
   disabled,
   onRemove,
   onPosterCapture,
 }: {
   mf: MediaFile;
-  idx: number;
   disabled: boolean;
   onRemove: (id: string) => void;
   onPosterCapture: (fileId: string, video: HTMLVideoElement) => void;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: mf.id, disabled });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 10 : undefined,
-  };
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+    id: mf.id,
+    disabled,
+  });
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
       {...attributes}
       {...listeners}
-      className={`relative aspect-square rounded-lg overflow-hidden bg-[#141313] select-none ${
-        isDragging ? "cursor-grabbing" : "cursor-grab"
+      className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none ${
+        disabled ? "cursor-default" : isDragging ? "cursor-grabbing" : "cursor-grab"
       }`}
     >
-      {mf.type === "video" ? (
-        <VideoPreview file={mf} onPosterCapture={onPosterCapture} />
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={mf.preview}
-          alt=""
-          className="w-full h-full object-cover pointer-events-none"
-        />
-      )}
-
-      {/* Order badge */}
-      <div className="absolute top-1 left-1 w-5 h-5 bg-black/70 rounded-full text-[10px] flex items-center justify-center text-white font-medium">
-        {idx + 1}
+      {/* Content — hidden when this slot is the active drag source */}
+      <div className={isDragging ? "opacity-0" : "opacity-100"}>
+        {mf.type === "video" ? (
+          <VideoPreview file={mf} onPosterCapture={onPosterCapture} />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={mf.preview}
+            alt=""
+            className="w-full h-full object-cover pointer-events-none"
+          />
+        )}
       </div>
 
+      {/* Insertion slot indicator — shown while dragging */}
+      {isDragging && (
+        <div className="absolute inset-0 border-2 border-dashed border-[#427ea3]/60 rounded-lg" />
+      )}
+
       {/* Remove button */}
-      {!disabled && (
+      {!disabled && !isDragging && (
         <button
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onRemove(mf.id)}
@@ -747,72 +725,11 @@ function SortableMediaItem({
       )}
 
       {/* Video indicator */}
-      {mf.type === "video" && (
+      {mf.type === "video" && !isDragging && (
         <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
           VIDEO
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Layout Picker Component ────────────────────────────────────────────────
-
-function LayoutPicker({
-  count,
-  selected,
-  onSelect,
-}: {
-  count: number;
-  selected: string | null;
-  onSelect: (layout: string | null) => void;
-}) {
-  const options = generateLayoutOptions(count);
-
-  // Default layout (what server would auto-generate)
-  const defaultLayout =
-    count === 1 ? "1" : count === 2 ? "2" : count === 3 ? "21" : count === 4 ? "22" : null;
-
-  return (
-    <div>
-      <label className="block text-xs text-[#888] mb-2">
-        Row layout
-      </label>
-      <div className="flex flex-wrap gap-2">
-        {options.map((layout) => {
-          const rows = layout.split("").map(Number);
-          const isSelected = selected
-            ? selected === layout
-            : layout === defaultLayout;
-          return (
-            <button
-              key={layout}
-              onClick={() => onSelect(layout === defaultLayout ? null : layout)}
-              className={`p-1.5 rounded-lg border transition-colors ${
-                isSelected
-                  ? "border-[#427ea3] bg-[#427ea3]/20"
-                  : "border-[#3a3939] bg-[#2a2929] hover:border-[#555]"
-              }`}
-              title={`Layout: ${rows.join("-")}`}
-            >
-              <div className="flex flex-col gap-0.5 w-12">
-                {rows.map((cols, ri) => (
-                  <div key={ri} className="flex gap-0.5">
-                    {Array.from({ length: cols }).map((_, ci) => (
-                      <div
-                        key={ci}
-                        className={`h-2 rounded-[1px] flex-1 ${
-                          isSelected ? "bg-[#427ea3]" : "bg-[#555]"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -831,7 +748,6 @@ function VideoPreview({
 
   function handleLoaded() {
     if (captured || !videoRef.current) return;
-    // Seek to 1s for a better poster frame
     videoRef.current.currentTime = 1;
   }
 
@@ -844,11 +760,7 @@ function VideoPreview({
   if (file.posterDataUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={file.posterDataUrl}
-        alt=""
-        className="w-full h-full object-cover"
-      />
+      <img src={file.posterDataUrl} alt="" className="w-full h-full object-cover" />
     );
   }
 
