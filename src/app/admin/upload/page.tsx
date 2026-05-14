@@ -52,6 +52,35 @@ function isVideoFile(file: File) {
   return file.type.startsWith("video/");
 }
 
+/** Resize + JPEG-compress a photo client-side before upload. Falls back to original on error. */
+async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const { naturalWidth: w, naturalHeight: h } = img;
+      if (w <= maxPx && h <= maxPx) { resolve(file); return; }
+      const scale = maxPx / Math.max(w, h);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { resolve(file); return; }
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 /** Convert a flat array into the default 2D row layout. */
 function defaultLayout(files: MediaFile[]): MediaFile[][] {
   if (files.length === 0) return [];
@@ -217,15 +246,21 @@ export default function UploadPage() {
 
   // ─── File handling ──────────────────────────────────────────────────────────
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const newFiles = Array.from(e.target.files || []);
     if (!newFiles.length) return;
-    const mediaFiles: MediaFile[] = newFiles.map((f) => ({
-      id: nextFileId(),
-      file: f,
-      preview: URL.createObjectURL(f),
-      type: isVideoFile(f) ? "video" : "photo",
-    }));
+    const mediaFiles: MediaFile[] = await Promise.all(
+      newFiles.map(async (f) => {
+        const isVideo = isVideoFile(f);
+        const processed = isVideo ? f : await compressImage(f);
+        return {
+          id: nextFileId(),
+          file: processed,
+          preview: URL.createObjectURL(processed),
+          type: isVideo ? ("video" as const) : ("photo" as const),
+        };
+      })
+    );
     setRows((prev) =>
       prev.length === 0
         ? defaultLayout(mediaFiles)
@@ -373,7 +408,7 @@ export default function UploadPage() {
 
       setState("success");
       setResultSlug(data.slug);
-      router.push(`/posts/${data.slug}`);
+      router.push("/");
     } catch (err) {
       setState("error");
       setError(err instanceof Error ? err.message : "Network error — please try again");
@@ -744,16 +779,8 @@ function DraggableItem({
       ref={setNodeRef}
       data-item
       {...(isDragging ? { "data-dragging": "" } : {})}
-      style={{ touchAction: "none" }}
       {...attributes}
-      {...listeners}
-      className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none transition-shadow ${
-        disabled
-          ? "cursor-default"
-          : isDragging
-          ? "cursor-grabbing"
-          : "cursor-grab active:ring-2 active:ring-[#427ea3] active:ring-inset"
-      }`}
+      className="relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none"
     >
       <div className={`h-full ${isDragging ? "opacity-0" : "opacity-100"}`}>
         {mf.type === "video" ? (
@@ -785,6 +812,24 @@ function DraggableItem({
       {mf.type === "video" && !isDragging && (
         <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">
           VIDEO
+        </div>
+      )}
+
+      {/* Drag handle — touch-action:none only here so the rest of the image scrolls normally */}
+      {!disabled && !isDragging && (
+        <div
+          {...listeners}
+          style={{ touchAction: "none" }}
+          className="absolute bottom-1 right-1 w-7 h-7 flex items-center justify-center bg-black/50 rounded cursor-grab active:bg-[#427ea3]/70"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="3.5" cy="2.5" r="1.2" fill="rgba(255,255,255,0.85)" />
+            <circle cx="8.5" cy="2.5" r="1.2" fill="rgba(255,255,255,0.85)" />
+            <circle cx="3.5" cy="6"   r="1.2" fill="rgba(255,255,255,0.85)" />
+            <circle cx="8.5" cy="6"   r="1.2" fill="rgba(255,255,255,0.85)" />
+            <circle cx="3.5" cy="9.5" r="1.2" fill="rgba(255,255,255,0.85)" />
+            <circle cx="8.5" cy="9.5" r="1.2" fill="rgba(255,255,255,0.85)" />
+          </svg>
         </div>
       )}
     </div>

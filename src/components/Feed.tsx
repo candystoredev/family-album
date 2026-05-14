@@ -254,12 +254,7 @@ function PostCard({
   const [showBubble, setShowBubble] = useState(false);
 
   return (
-    <article>
-      {postIndex > 0 && (
-        <div className="flex justify-center my-2">
-          <div className="w-1 h-1 rounded-full bg-[#333]" />
-        </div>
-      )}
+    <article className={postIndex > 0 ? "mt-10" : ""}>
       {/* Media — bleed to screen edge on mobile */}
       {post.media.length > 0 && (
         <div className="-mx-4 sm:mx-0">
