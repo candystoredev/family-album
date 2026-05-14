@@ -253,6 +253,36 @@ function PostCard({
 }) {
   const [showBubble, setShowBubble] = useState(false);
   const [showEditMenu, setShowEditMenu] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressActivated = useRef(false);
+  const pointerStart = useRef({ x: 0, y: 0 });
+
+  function startLongPress(e: React.PointerEvent) {
+    if (!isAdmin) return;
+    pointerStart.current = { x: e.clientX, y: e.clientY };
+    longPressActivated.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressActivated.current = true;
+      setShowEditMenu(true);
+      if (navigator.vibrate) navigator.vibrate(20);
+    }, 500);
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }
+
+  function checkMove(e: React.PointerEvent) {
+    if (!longPressTimer.current) return;
+    const dx = e.clientX - pointerStart.current.x;
+    const dy = e.clientY - pointerStart.current.y;
+    if (dx * dx + dy * dy > 100) cancelLongPress(); // >10px = scroll, not hold
+  }
+
+  function handleCaptionClick() {
+    if (longPressActivated.current) { longPressActivated.current = false; return; }
+    setShowBubble((v) => !v);
+  }
 
   return (
     <article className={postIndex > 0 ? "mt-10" : ""}>
@@ -267,12 +297,16 @@ function PostCard({
         </div>
       )}
 
-      {/* Post info — caption area, tap to reveal iMessage bubble.
-          Admin: long-press / right-click opens edit sheet. */}
+      {/* Post info — caption area. Tap = iMessage bubble toggle.
+          Admin: 500ms hold triggers edit sheet (no visible indicator). */}
       <div
         className={`mt-4 px-4 sm:px-8 relative flex items-center cursor-pointer${isAdmin ? " select-none" : ""}`}
-        onClick={() => setShowBubble((v) => !v)}
-        onContextMenu={isAdmin ? (e) => { e.preventDefault(); setShowEditMenu(true); } : undefined}
+        onClick={handleCaptionClick}
+        onPointerDown={isAdmin ? startLongPress : undefined}
+        onPointerUp={isAdmin ? cancelLongPress : undefined}
+        onPointerMove={isAdmin ? checkMove : undefined}
+        onPointerCancel={isAdmin ? cancelLongPress : undefined}
+        onContextMenu={isAdmin ? (e) => { e.preventDefault(); cancelLongPress(); setShowEditMenu(true); } : undefined}
       >
         <div className="text-center flex-1 pr-6 lg:pr-0">
           {post.title && (
