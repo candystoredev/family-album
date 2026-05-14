@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-const BUILD_VERSION = "000031";
+const BUILD_VERSION = "000032";
 
 export default async function RootLayout({
   children,

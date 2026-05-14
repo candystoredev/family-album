@@ -94,6 +94,7 @@ export default function OnThisDay() {
   // Touch handlers for swiping between memories
   function onTouchStart(e: React.TouchEvent) {
     if (activeIndex < 0 || lightbox !== null) return;
+    if (e.touches.length > 1) return; // pinch — don't start swipe tracking
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchDeltaX.current = 0;
@@ -103,6 +104,13 @@ export default function OnThisDay() {
 
   function onTouchMove(e: React.TouchEvent) {
     if (activeIndex < 0 || lightbox !== null) return;
+    if (e.touches.length > 1) {
+      // Second finger landed (pinch) — cancel any in-progress swipe
+      touchDeltaX.current = 0;
+      setSwipeOffsetX(0);
+      setIsSwiping(false);
+      return;
+    }
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = e.touches[0].clientY - touchStartY.current;
     touchDeltaX.current = dx;
