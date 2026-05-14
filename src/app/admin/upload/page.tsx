@@ -123,20 +123,25 @@ function computeDisplayRows(
 }
 
 /**
- * Haptic feedback: Vibration API on Android; input-selection trick on iOS
- * (iOS Safari doesn't support navigator.vibrate, but briefly selecting text
- * inside an input fires the system's selection haptic).
+ * Haptic feedback.
+ * - Android/Chrome: Vibration API.
+ * - iOS Safari: navigator.vibrate isn't supported. Instead we play a 15ms
+ *   click tone through a pre-unlocked AudioContext. The AudioContext must be
+ *   created inside an active touch handler (handleDragStart) to satisfy iOS's
+ *   user-gesture requirement; subsequent plays work without a gesture.
  */
-function triggerHaptic() {
-  if (navigator.vibrate) { navigator.vibrate(30); return; }
+function playHapticClick(ctx: AudioContext) {
   try {
-    const el = document.createElement("input");
-    el.setAttribute("readonly", "");
-    el.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px;";
-    document.body.appendChild(el);
-    el.focus();
-    el.setSelectionRange(0, 1);
-    requestAnimationFrame(() => { el.blur(); el.remove(); });
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 1000;
+    gain.gain.setValueAtTime(0.45, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.015);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.015);
   } catch { /* ignore */ }
 }
 
@@ -368,12 +373,32 @@ export default function UploadPage() {
   // Crop target — when set, show crop modal for that file
   const [cropTargetId, setCropTargetId] = useState<string | null>(null);
 
+  // AudioContext for iOS haptic click — must be created inside an active touch
+  // handler to satisfy iOS's user-gesture requirement; reused across drags.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  useEffect(() => () => { audioCtxRef.current?.close(); }, []);
+
   // Haptic fires on the same paint frame as visual drag-start
   useEffect(() => {
-    if (activeId) requestAnimationFrame(triggerHaptic);
+    if (!activeId) return;
+    requestAnimationFrame(() => {
+      if (navigator.vibrate) { navigator.vibrate(30); return; }
+      if (audioCtxRef.current) playHapticClick(audioCtxRef.current);
+    });
   }, [activeId]);
 
   function handleDragStart(event: DragStartEvent) {
+    // Initialise / resume AudioContext here — we're inside an active touch event,
+    // so iOS will allow audio unlock. Subsequent plays work without a gesture.
+    if (!audioCtxRef.current) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const Ctx = window.AudioContext ?? (window as any).webkitAudioContext;
+        if (Ctx) audioCtxRef.current = new Ctx();
+      } catch { /* ignore */ }
+    } else if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume().catch(() => {});
+    }
     setActiveId(event.active.id as string);
   }
 
@@ -560,20 +585,38 @@ export default function UploadPage() {
               onDragCancel={handleDragCancel}
             >
               <div ref={containerRef} className="space-y-2">
-                {displayRows.map((row, rowIdx) => (
-                  <div key={rowIdx} data-row className="flex gap-2" style={{ height: 160 }}>
-                    {row.map((mf) => (
-                      <DraggableItem
-                        key={mf.id}
-                        mf={mf}
-                        disabled={disabled}
-                        onRemove={removeFile}
-                        onPosterCapture={captureVideoPoster}
-                        onCrop={setCropTargetId}
-                      />
-                    ))}
-                  </div>
-                ))}
+                {displayRows.map((row, rowIdx) => {
+                  // Lone dragged item → horizontal new-row indicator line
+                  if (activeId && row.length === 1 && row[0].id === activeId) {
+                    return (
+                      <div key={rowIdx} data-row className="flex items-center" style={{ height: 20 }}>
+                        <DraggableItem
+                          key={row[0].id}
+                          mf={row[0]}
+                          disabled={disabled}
+                          onRemove={removeFile}
+                          onPosterCapture={captureVideoPoster}
+                          onCrop={setCropTargetId}
+                          asIndicator="horizontal"
+                        />
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={rowIdx} data-row className="flex gap-2" style={{ height: 160 }}>
+                      {row.map((mf) => (
+                        <DraggableItem
+                          key={mf.id}
+                          mf={mf}
+                          disabled={disabled}
+                          onRemove={removeFile}
+                          onPosterCapture={captureVideoPoster}
+                          onCrop={setCropTargetId}
+                        />
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
 
               <DragOverlay dropAnimation={null}>
@@ -876,23 +919,48 @@ function DraggableItem({
   onRemove,
   onPosterCapture,
   onCrop,
+  asIndicator,
 }: {
   mf: MediaFile;
   disabled: boolean;
   onRemove: (id: string) => void;
   onPosterCapture: (fileId: string, video: HTMLVideoElement) => void;
   onCrop: (id: string) => void;
+  asIndicator?: "horizontal";
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: mf.id,
     disabled,
   });
 
+  // Horizontal new-row indicator — full-width blue line.
+  // No data-item so the hit-test sees zero real items → correctly marks as new-row zone.
+  if (asIndicator === "horizontal") {
+    return (
+      <div ref={setNodeRef} {...attributes} className="flex-1 h-0.5 rounded-full bg-[#427ea3]" />
+    );
+  }
+
+  // Vertical within-row indicator — slim blue line in the item's flex slot.
+  // Keeps data-item + data-dragging so hit-test still ignores it.
+  if (isDragging) {
+    return (
+      <div
+        ref={setNodeRef}
+        data-item
+        data-dragging=""
+        {...attributes}
+        {...listeners}
+        style={{ touchAction: "pan-y" }}
+        className="flex-shrink-0 w-0.5 h-full rounded-full bg-[#427ea3]"
+      />
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}
       data-item
-      {...(isDragging ? { "data-dragging": "" } : {})}
       {...attributes}
       {...listeners}
       style={{ touchAction: "pan-y" }}
@@ -900,7 +968,7 @@ function DraggableItem({
         disabled ? "cursor-default" : "cursor-grab"
       }`}
     >
-      <div className={`h-full transition-opacity duration-0 ${isDragging ? "opacity-20" : "opacity-100"}`}>
+      <div className="h-full opacity-100">
         {mf.type === "video" ? (
           <VideoPreview file={mf} onPosterCapture={onPosterCapture} />
         ) : (
