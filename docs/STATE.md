@@ -18,9 +18,15 @@ None
 None
 
 ## Next Action
-Verify 5b: Upload 4-photo post with tags/people → grid renders + tag/people links work. Upload video → poster frame captured + playback works. Drag-reorder changes display order. Then proceed to 5c.
+Verify 5b: Upload 4-photo post with tags/people → grid renders + tag/people links work. Upload video → poster frame captured + playback works. Drag-reorder changes display order (smooth, works on touch). Then proceed to 5c.
 
 ## Recent Changes
+- Phase 5b: Replaced custom drag-and-drop with @dnd-kit/core + @dnd-kit/sortable + @dnd-kit/utilities
+  - PointerSensor (distance:8) handles mouse and touch — no long-press required
+  - SortableMediaItem with useSortable: transform/transition/opacity from hook, cursor-grabbing while active
+  - DragOverlay renders floating ghost of dragged item
+  - arrayMove for clean reorder on dragEnd
+  - Remove button uses onPointerDown stopPropagation to prevent arming sensor
 - Phase 5b: Full upload form — multi-file, title, date, tags, people, albums, drag-reorder, video poster capture
 - Phase 5b: Presign endpoint now accepts video types (mp4, quicktime, webm)
 - Phase 5b: Complete endpoint handles multiple media items, auto-detects post type (photo/video/mixed)
