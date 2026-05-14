@@ -307,7 +307,7 @@ export default function UploadPage() {
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+    useSensor(TouchSensor, { activationConstraint: { delay: 400, tolerance: 10 } })
   );
 
   // Crop target — when set, show crop modal for that file
@@ -561,7 +561,7 @@ export default function UploadPage() {
 
             {flatFiles.length > 1 && !disabled && (
               <p className="text-[10px] text-[#666] text-center -mt-4">
-                Drag grip to reorder · tap crop icon to adjust
+                Hold to reorder · tap crop icon to adjust
               </p>
             )}
 
@@ -827,8 +827,10 @@ function DraggableItem({
       data-item
       {...(isDragging ? { "data-dragging": "" } : {})}
       {...attributes}
+      {...listeners}
+      style={{ touchAction: "pan-y" }}
       className={`relative h-full flex-1 min-w-0 overflow-hidden rounded-lg bg-[#141313] select-none ${
-        disabled ? "cursor-default" : ""
+        disabled ? "cursor-default" : "cursor-grab"
       }`}
     >
       <div className={`h-full ${isDragging ? "opacity-0" : "opacity-100"}`}>
@@ -846,25 +848,6 @@ function DraggableItem({
 
       {isDragging && (
         <div className="absolute inset-0 border-2 border-dashed border-[#427ea3]/60 rounded-lg" />
-      )}
-
-      {/* Drag handle — only interactive zone; touch-action:none only here so rest of screen scrolls */}
-      {!disabled && !isDragging && (
-        <div
-          {...listeners}
-          style={{ touchAction: "none" }}
-          className="absolute top-1 left-1 w-7 h-7 cursor-grab active:cursor-grabbing active:scale-95 flex items-center justify-center bg-black/55 rounded z-10 transition-transform duration-75"
-          aria-label="Drag to reorder"
-        >
-          <svg viewBox="0 0 10 14" fill="currentColor" className="w-2.5 h-3.5 text-white/70">
-            <circle cx="3" cy="2" r="1.2" />
-            <circle cx="7" cy="2" r="1.2" />
-            <circle cx="3" cy="7" r="1.2" />
-            <circle cx="7" cy="7" r="1.2" />
-            <circle cx="3" cy="12" r="1.2" />
-            <circle cx="7" cy="12" r="1.2" />
-          </svg>
-        </div>
       )}
 
       {!disabled && !isDragging && (
