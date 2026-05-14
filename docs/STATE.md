@@ -1,27 +1,29 @@
 # State
 
 ## Current Status
-Phases 1-5b complete. Tumblr migration completed against production on 2026-03-07. All posts migrated, FTS index rebuilt. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide (robots.txt, noindex meta, X-Robots-Tag header).
+Phases 1–5c complete and verified on device. Tumblr migration completed against production on 2026-03-07. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide.
 
-Phase 5b (Full upload form) fully done and verified: blue insertion indicators, AudioContext haptic on iOS, multi-file drag-reorder, tags/people/albums, video poster capture all working.
+Phase 5c (Edit + delete posts) fully done and verified: edit title/date/tags/people/albums/media order, add/remove media, delete with R2 cleanup. Admin long-press edit menu, back-nav returns to feed scroll position.
 
 ## Active Branch
 claude/priceless-williamson-b4edec
 
 ## Current Task
-Phase 5c: Edit + delete posts — implementation complete, pending verification.
+Phase 5d-flag: Post flagging & review queue — not started.
 
 ## Blockers
 None
 
 ## Known Issues
-None
+- Test posts from 5b upload testing still in the feed — delete via edit/delete feature
 
 ## Next Action
-Verify 5c: Edit title → updated in feed + post page. Add photo → grid updates. Delete post → gone from feed + R2 cleaned.
+Build 5d-flag: post_flags table, flag icon in feed (admin), /admin/review page, mark-resolved flow. Reuses 5c edit form.
 
 ## Recent Changes
-- Phase 5c: Edit + delete posts — `GET/PUT/DELETE /api/admin/posts/[postId]`, `/admin/posts/[postId]/edit` page, Edit link in feed (admin-only)
+- 5c UX polish: long-press caption (500ms hold) opens edit sheet; fixed iOS pointercancel killing the timer; router.back() after save restores feed scroll position
+- 5c bug fixes: SSR image hydration (img.complete on mount), video poster fallback (omit poster attr when no thumbnail), autoPlay on video preview for iOS canvas capture
+- Phase 5c: Edit + delete posts — `GET/PUT/DELETE /api/admin/posts/[postId]`, `/admin/posts/[postId]/edit` page, hold-to-edit sheet in feed (admin-only)
 - Phase 5b: Replaced custom drag-and-drop with @dnd-kit/core + @dnd-kit/sortable + @dnd-kit/utilities
   - PointerSensor (distance:8) handles mouse and touch — no long-press required
   - SortableMediaItem with useSortable: transform/transition/opacity from hook, cursor-grabbing while active
