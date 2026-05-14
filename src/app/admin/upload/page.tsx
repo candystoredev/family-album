@@ -81,6 +81,65 @@ async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<
   });
 }
 
+/** How many px at the top/bottom of a row trigger "new row" vs "merge into row" */
+const NEW_ROW_ZONE = 40;
+
+/**
+ * Pure layout computation — used by both the live-preview useMemo and drag-end
+ * so the committed layout is always based on the freshest insert position.
+ */
+function computeDisplayRows(
+  rows: MediaFile[][],
+  activeId: string | null,
+  insertAt: { rowIdx: number; colIdx: number; isNewRow?: boolean } | null
+): MediaFile[][] {
+  if (!activeId || !insertAt) return rows;
+  const activeFile = rows.flat().find((f) => f.id === activeId);
+  if (!activeFile) return rows;
+  const sourceRowIdx = rows.findIndex((row) => row.some((f) => f.id === activeId));
+  const sourceRowWillBeEmpty = rows[sourceRowIdx]?.length === 1;
+  const stripped = rows
+    .map((row) => row.filter((f) => f.id !== activeId))
+    .filter((r) => r.length > 0);
+  let targetRowIdx = insertAt.rowIdx;
+  if (sourceRowWillBeEmpty && sourceRowIdx < insertAt.rowIdx) targetRowIdx--;
+
+  if (insertAt.isNewRow) {
+    targetRowIdx = Math.max(0, Math.min(targetRowIdx, stripped.length));
+    const result = [...stripped];
+    result.splice(targetRowIdx, 0, [activeFile]);
+    return result;
+  }
+
+  if (targetRowIdx < 0 || targetRowIdx >= stripped.length) return rows;
+  if (stripped[targetRowIdx].length >= 3) return rows;
+  const colIdx = Math.min(insertAt.colIdx, stripped[targetRowIdx].length);
+  return stripped.map((row, i) => {
+    if (i !== targetRowIdx) return row;
+    const r = [...row];
+    r.splice(colIdx, 0, activeFile);
+    return r;
+  });
+}
+
+/**
+ * Haptic feedback: Vibration API on Android; input-selection trick on iOS
+ * (iOS Safari doesn't support navigator.vibrate, but briefly selecting text
+ * inside an input fires the system's selection haptic).
+ */
+function triggerHaptic() {
+  if (navigator.vibrate) { navigator.vibrate(30); return; }
+  try {
+    const el = document.createElement("input");
+    el.setAttribute("readonly", "");
+    el.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px;";
+    document.body.appendChild(el);
+    el.focus();
+    el.setSelectionRange(0, 1);
+    requestAnimationFrame(() => { el.blur(); el.remove(); });
+  } catch { /* ignore */ }
+}
+
 /** Convert a flat array into the default 2D row layout. */
 function defaultLayout(files: MediaFile[]): MediaFile[][] {
   if (files.length === 0) return [];
@@ -139,36 +198,17 @@ export default function UploadPage() {
   // Flat file list for upload ordering
   const flatFiles = useMemo(() => rows.flat(), [rows]);
 
-  // Live preview: item moves to hovered row/col while dragging
-  const displayRows = useMemo(() => {
-    if (!activeId || !insertAt) return rows;
-    const activeFile = rows.flat().find((f) => f.id === activeId);
-    if (!activeFile) return rows;
-    const sourceRowIdx = rows.findIndex((row) => row.some((f) => f.id === activeId));
-    const sourceRowWillBeEmpty = rows[sourceRowIdx]?.length === 1;
-    const stripped = rows
-      .map((row) => row.filter((f) => f.id !== activeId))
-      .filter((r) => r.length > 0);
-    let targetRowIdx = insertAt.rowIdx;
-    if (sourceRowWillBeEmpty && sourceRowIdx < insertAt.rowIdx) targetRowIdx--;
+  // Live preview — uses debounced insertAt so rapid zone-boundary oscillations
+  // don't cause the layout to thrash; committed on drag end via pendingInsertRef
+  const displayRows = useMemo(
+    () => computeDisplayRows(rows, activeId, insertAt),
+    [rows, activeId, insertAt]
+  );
 
-    if (insertAt.isNewRow) {
-      targetRowIdx = Math.max(0, Math.min(targetRowIdx, stripped.length));
-      const result = [...stripped];
-      result.splice(targetRowIdx, 0, [activeFile]);
-      return result;
-    }
-
-    if (targetRowIdx < 0 || targetRowIdx >= stripped.length) return rows;
-    if (stripped[targetRowIdx].length >= 3) return rows;
-    const colIdx = Math.min(insertAt.colIdx, stripped[targetRowIdx].length);
-    return stripped.map((row, i) => {
-      if (i !== targetRowIdx) return row;
-      const r = [...row];
-      r.splice(colIdx, 0, activeFile);
-      return r;
-    });
-  }, [rows, activeId, insertAt]);
+  // Refs for debounced insert zone — pendingInsertRef always has the latest
+  // calculated zone; insertAt state only updates after 80ms of stability
+  const pendingInsertRef = useRef<{ rowIdx: number; colIdx: number; isNewRow?: boolean } | null>(null);
+  const insertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load tags/people/albums on mount
   useEffect(() => {
@@ -187,21 +227,32 @@ export default function UploadPage() {
   }, []);
 
   // Hit-test pointer position against rows/items during drag.
-  // Top/bottom 24px of each row = create new row; middle = drop into row.
+  // NEW_ROW_ZONE px at top/bottom of each row = "new row" zone; middle = merge.
+  // insertAt is debounced 80ms so zone-boundary oscillations don't thrash the
+  // layout preview; pendingInsertRef always has the latest raw value for drop.
   useEffect(() => {
     if (!activeId) return;
-    const NEW_ROW_ZONE = 24;
+
+    function scheduleInsert(value: typeof insertAt) {
+      pendingInsertRef.current = value;
+      if (insertTimerRef.current) clearTimeout(insertTimerRef.current);
+      insertTimerRef.current = setTimeout(() => {
+        setInsertAt(value);
+        insertTimerRef.current = null;
+      }, 80);
+    }
+
     function onPointerMove(e: PointerEvent) {
       if (!containerRef.current) return;
       const rowEls = Array.from(
         containerRef.current.querySelectorAll<HTMLElement>("[data-row]")
       );
-      if (rowEls.length === 0) { setInsertAt(null); return; }
+      if (rowEls.length === 0) { scheduleInsert(null); return; }
 
       // Pointer below all rows → new row at end
       const lastRect = rowEls[rowEls.length - 1].getBoundingClientRect();
       if (e.clientY > lastRect.bottom) {
-        setInsertAt({ rowIdx: rowEls.length, colIdx: 0, isNewRow: true });
+        scheduleInsert({ rowIdx: rowEls.length, colIdx: 0, isNewRow: true });
         return;
       }
 
@@ -209,40 +260,44 @@ export default function UploadPage() {
         const rowRect = rowEls[ri].getBoundingClientRect();
         if (e.clientY < rowRect.top || e.clientY > rowRect.bottom) continue;
 
-        // Row has only the dragging ghost — keep it as a standalone new row
+        // Row has only the dragging ghost — keep as standalone new row
         const realItemEls = Array.from(
           rowEls[ri].querySelectorAll<HTMLElement>("[data-item]:not([data-dragging])")
         );
         if (realItemEls.length === 0) {
-          setInsertAt({ rowIdx: ri, colIdx: 0, isNewRow: true });
+          scheduleInsert({ rowIdx: ri, colIdx: 0, isNewRow: true });
           return;
         }
 
         // Top zone → new row before this row
         if (e.clientY < rowRect.top + NEW_ROW_ZONE) {
-          setInsertAt({ rowIdx: ri, colIdx: 0, isNewRow: true });
+          scheduleInsert({ rowIdx: ri, colIdx: 0, isNewRow: true });
           return;
         }
         // Bottom zone → new row after this row
         if (e.clientY > rowRect.bottom - NEW_ROW_ZONE) {
-          setInsertAt({ rowIdx: ri + 1, colIdx: 0, isNewRow: true });
+          scheduleInsert({ rowIdx: ri + 1, colIdx: 0, isNewRow: true });
           return;
         }
 
-        // Middle → drop into this row; use only real (non-dragging) items for column detection
+        // Middle → drop into this row
         let colIdx = realItemEls.length;
         for (let ci = 0; ci < realItemEls.length; ci++) {
           const r = realItemEls[ci].getBoundingClientRect();
           if (e.clientX < r.left + r.width / 2) { colIdx = ci; break; }
         }
-        setInsertAt({ rowIdx: ri, colIdx, isNewRow: false });
+        scheduleInsert({ rowIdx: ri, colIdx, isNewRow: false });
         return;
       }
-      setInsertAt(null);
+      scheduleInsert(null);
     }
+
     window.addEventListener("pointermove", onPointerMove, { passive: true });
-    return () => window.removeEventListener("pointermove", onPointerMove);
-  }, [activeId]);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      if (insertTimerRef.current) { clearTimeout(insertTimerRef.current); insertTimerRef.current = null; }
+    };
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── File handling ──────────────────────────────────────────────────────────
 
@@ -313,9 +368,9 @@ export default function UploadPage() {
   // Crop target — when set, show crop modal for that file
   const [cropTargetId, setCropTargetId] = useState<string | null>(null);
 
-  // Fire haptic in the same animation frame as the visual update (not before it)
+  // Haptic fires on the same paint frame as visual drag-start
   useEffect(() => {
-    if (activeId) requestAnimationFrame(() => navigator.vibrate?.(30));
+    if (activeId) requestAnimationFrame(triggerHaptic);
   }, [activeId]);
 
   function handleDragStart(event: DragStartEvent) {
@@ -323,12 +378,20 @@ export default function UploadPage() {
   }
 
   function handleDragEnd() {
-    if (insertAt && displayRows !== rows) setRows(displayRows);
+    // Flush pending debounced insert so the committed layout uses the freshest
+    // position, not the last value that survived the 80ms timer
+    if (insertTimerRef.current) { clearTimeout(insertTimerRef.current); insertTimerRef.current = null; }
+    const finalInsert = pendingInsertRef.current;
+    const finalRows = computeDisplayRows(rows, activeId, finalInsert);
+    if (finalRows !== rows) setRows(finalRows);
+    pendingInsertRef.current = null;
     setActiveId(null);
     setInsertAt(null);
   }
 
   function handleDragCancel() {
+    if (insertTimerRef.current) { clearTimeout(insertTimerRef.current); insertTimerRef.current = null; }
+    pendingInsertRef.current = null;
     setActiveId(null);
     setInsertAt(null);
   }
