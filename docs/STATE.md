@@ -21,6 +21,8 @@ None
 Build 5d-flag: post_flags table, flag icon in feed (admin), /admin/review page, mark-resolved flow. Reuses 5c edit form.
 
 ## Recent Changes
+- Memory card (OnThisDay): hold caption 500ms → navigates to full post page; lightbox now disables outer swipe while open; swipe threshold raised 60→90px
+- Feed: long-press action sheet now for all users — non-admin sees Share (iMessage to Tom/Victoria), admin sees Edit + Share (native share panel / clipboard fallback); tap-to-bubble removed
 - 5c UX polish: long-press caption (500ms hold) opens edit sheet; fixed iOS pointercancel killing the timer; router.back() after save restores feed scroll position
 - 5c bug fixes: SSR image hydration (img.complete on mount), video poster fallback (omit poster attr when no thumbnail), autoPlay on video preview for iOS canvas capture
 - Phase 5c: Edit + delete posts — `GET/PUT/DELETE /api/admin/posts/[postId]`, `/admin/posts/[postId]/edit` page, hold-to-edit sheet in feed (admin-only)

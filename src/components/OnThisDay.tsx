@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
 
@@ -92,7 +93,7 @@ export default function OnThisDay() {
 
   // Touch handlers for swiping between memories
   function onTouchStart(e: React.TouchEvent) {
-    if (activeIndex < 0) return;
+    if (activeIndex < 0 || lightbox !== null) return;
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchDeltaX.current = 0;
@@ -101,7 +102,7 @@ export default function OnThisDay() {
   }
 
   function onTouchMove(e: React.TouchEvent) {
-    if (activeIndex < 0) return;
+    if (activeIndex < 0 || lightbox !== null) return;
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = e.touches[0].clientY - touchStartY.current;
     touchDeltaX.current = dx;
@@ -112,9 +113,9 @@ export default function OnThisDay() {
   }
 
   function onTouchEnd() {
-    if (activeIndex < 0) return;
+    if (activeIndex < 0 || lightbox !== null) return;
     setIsSwiping(false);
-    const threshold = 60;
+    const threshold = 90;
     const dx = touchDeltaX.current;
     if (dx < -threshold && activeIndex < posts.length - 1 && !isTransitioning) {
       goNextMemory();
@@ -399,6 +400,30 @@ function MemoryCard({
   post: OnThisDayPost;
   onImageClick: (index: number) => void;
 }) {
+  const router = useRouter();
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdStart = useRef({ x: 0, y: 0 });
+
+  function onCaptionPointerDown(e: React.PointerEvent) {
+    holdStart.current = { x: e.clientX, y: e.clientY };
+    holdTimer.current = setTimeout(() => {
+      holdTimer.current = null;
+      if (navigator.vibrate) navigator.vibrate(20);
+      router.push(`/posts/${post.slug}`);
+    }, 500);
+  }
+
+  function onCaptionPointerUp() {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+  }
+
+  function onCaptionPointerMove(e: React.PointerEvent) {
+    if (!holdTimer.current) return;
+    const dx = e.clientX - holdStart.current.x;
+    const dy = e.clientY - holdStart.current.y;
+    if (dx * dx + dy * dy > 100) onCaptionPointerUp();
+  }
+
   const d = new Date(post.date);
   const yearsAgo = new Date().getFullYear() - d.getFullYear();
   const timeLabel = yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
@@ -422,8 +447,14 @@ function MemoryCard({
           </div>
         )}
 
-        {/* Caption & date — centered */}
-        <div className="px-4 py-3 text-center">
+        {/* Caption — hold 500ms to open full post page */}
+        <div
+          className="px-4 py-3 text-center select-none"
+          onPointerDown={onCaptionPointerDown}
+          onPointerUp={onCaptionPointerUp}
+          onPointerMove={onCaptionPointerMove}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <p className="text-[#888] text-xs mb-1">{timeLabel} &middot; {dateFormatted}</p>
           {post.title && (
             <p className="text-[#e0e0e0] text-sm font-medium leading-snug mb-1">

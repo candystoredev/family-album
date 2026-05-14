@@ -235,7 +235,7 @@ export default function Feed({
   );
 }
 
-/** Individual post card — manages bubble visibility on caption tap */
+/** Individual post card */
 function PostCard({
   post,
   postIndex,
@@ -251,19 +251,17 @@ function PostCard({
   isAdmin?: boolean;
   onLightbox: (index: number) => void;
 }) {
-  const [showBubble, setShowBubble] = useState(false);
-  const [showEditMenu, setShowEditMenu] = useState(false);
+  const [showActionSheet, setShowActionSheet] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressActivated = useRef(false);
   const pointerStart = useRef({ x: 0, y: 0 });
 
   function startLongPress(e: React.PointerEvent) {
-    if (!isAdmin) return;
     pointerStart.current = { x: e.clientX, y: e.clientY };
     longPressActivated.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressActivated.current = true;
-      setShowEditMenu(true);
+      setShowActionSheet(true);
       if (navigator.vibrate) navigator.vibrate(20);
     }, 500);
   }
@@ -281,7 +279,21 @@ function PostCard({
 
   function handleCaptionClick() {
     if (longPressActivated.current) { longPressActivated.current = false; return; }
-    setShowBubble((v) => !v);
+  }
+
+  async function handleShare() {
+    const postUrl = `${siteUrl}/posts/${post.slug}`;
+    setShowActionSheet(false);
+    if (isAdmin) {
+      if (navigator.share) {
+        try { await navigator.share({ title: post.title ?? undefined, url: postUrl }); } catch {}
+      } else {
+        try { await navigator.clipboard.writeText(postUrl); } catch {}
+      }
+    } else {
+      const body = `${postUrl}\n\nMy reaction:\n`;
+      window.location.href = `sms:${recipients.join(",")}&body=${encodeURIComponent(body)}`;
+    }
   }
 
   return (
@@ -297,17 +309,16 @@ function PostCard({
         </div>
       )}
 
-      {/* Post info — caption area. Tap = iMessage bubble toggle.
-          Admin: 500ms hold triggers edit sheet (no visible indicator). */}
+      {/* Caption area — 500ms hold opens action sheet for all users */}
       <div
-        className={`mt-4 px-4 sm:px-8 relative flex items-center cursor-pointer${isAdmin ? " select-none" : ""}`}
+        className="mt-4 px-4 sm:px-8 relative flex items-center select-none"
         onClick={handleCaptionClick}
-        onPointerDown={isAdmin ? startLongPress : undefined}
-        onPointerUp={isAdmin ? cancelLongPress : undefined}
-        onPointerMove={isAdmin ? checkMove : undefined}
-        onContextMenu={isAdmin ? (e) => { e.preventDefault(); cancelLongPress(); setShowEditMenu(true); } : undefined}
+        onPointerDown={startLongPress}
+        onPointerUp={cancelLongPress}
+        onPointerMove={checkMove}
+        onContextMenu={isAdmin ? (e) => { e.preventDefault(); cancelLongPress(); setShowActionSheet(true); } : undefined}
       >
-        <div className="text-center flex-1 pr-6 lg:pr-0">
+        <div className="text-center flex-1">
           {post.title && (
             <h2 className="text-[#e0e0e0] text-lg font-medium leading-snug mb-1.5">
               {post.title}
@@ -327,39 +338,36 @@ function PostCard({
           </div>
         </div>
 
-        {/* iMessage button — hidden until caption tapped, then 40% opacity */}
-        <div
-          className={`absolute right-1 sm:right-4 top-1/2 -translate-y-1/2 lg:hidden transition-opacity duration-300 ${
-            showBubble ? "opacity-40" : "opacity-0 pointer-events-none"
-          }`}
-        >
-          <IMessageBubble
-            recipients={recipients}
-            postUrl={`${siteUrl}/posts/${post.slug}`}
-          />
-        </div>
       </div>
 
-      {/* Admin edit sheet — long-press / right-click to reveal */}
-      {isAdmin && showEditMenu && (
+      {/* Action sheet — long-press / right-click to reveal */}
+      {showActionSheet && (
         <div
           className="fixed inset-0 z-50 bg-black/50"
-          onClick={() => setShowEditMenu(false)}
+          onClick={() => setShowActionSheet(false)}
         >
           <div
             className="absolute bottom-0 left-0 right-0 bg-[#232222] rounded-t-2xl overflow-hidden pb-8"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 bg-[#444] rounded-full mx-auto mt-3 mb-2" />
-            <Link
-              href={`/admin/posts/${post.id}/edit`}
-              className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
-              onClick={() => setShowEditMenu(false)}
-            >
-              Edit post
-            </Link>
+            {isAdmin && (
+              <Link
+                href={`/admin/posts/${post.id}/edit`}
+                className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
+                onClick={() => setShowActionSheet(false)}
+              >
+                Edit post
+              </Link>
+            )}
             <button
-              onClick={() => setShowEditMenu(false)}
+              onClick={handleShare}
+              className={`flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base${isAdmin ? " border-t border-[#2a2929]" : ""}`}
+            >
+              Share
+            </button>
+            <button
+              onClick={() => setShowActionSheet(false)}
               className="flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base border-t border-[#2a2929]"
             >
               Cancel
@@ -409,32 +417,3 @@ function PostMeta({
   );
 }
 
-/** iMessage-style blue chat bubble icon */
-function IMessageBubble({
-  recipients,
-  postUrl,
-}: {
-  recipients: string[];
-  postUrl: string;
-}) {
-  const body = `${postUrl}\n\nMy reaction:\n`;
-  const recipientPart = recipients.length > 0 ? recipients.join(",") : "";
-  const smsUrl = `sms:${recipientPart}&body=${encodeURIComponent(body)}`;
-
-  return (
-    <a
-      href={smsUrl}
-      className="shrink-0 block hover:scale-110 active:scale-95 transition-transform"
-      aria-label="Text us about this"
-      title="Text us about this"
-    >
-      {/* iPhone Messages app bubble shape with tail */}
-      <svg viewBox="0 0 32 28" fill="none" className="w-6 h-5">
-        <path
-          d="M16 1C7.72 1 1 6.37 1 12.9c0 3.77 2.28 7.12 5.82 9.28-.3 1.64-1.12 3.1-1.16 3.16a.5.5 0 00.43.76c.06 0 3.6-.24 6.2-2.02.94.16 1.93.26 2.96.26h.75c8.28 0 15-5.37 15-11.9v-.54C31 6.37 24.28 1 16 1z"
-          fill="#427ea3"
-        />
-      </svg>
-    </a>
-  );
-}
