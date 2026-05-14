@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
-  DragOverEvent,
   DragOverlay,
   DragStartEvent,
   PointerSensor,
@@ -113,7 +112,6 @@ export default function UploadPage() {
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
 
   // Load tags/people/albums on mount
   useEffect(() => {
@@ -180,29 +178,16 @@ export default function UploadPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  // Live reorder preview: reflects where the dragged item would land before drop
-  const displayFiles = useMemo(() => {
-    if (!activeId || !overId || activeId === overId) return files;
-    const ai = files.findIndex((f) => f.id === activeId);
-    const oi = files.findIndex((f) => f.id === overId);
-    return ai >= 0 && oi >= 0 ? arrayMove(files, ai, oi) : files;
-  }, [files, activeId, overId]);
-
   // Row layout auto-derived from count — produces the photoset_layout string
-  const rowLayout = useMemo(() => deriveRowLayout(displayFiles.length), [displayFiles.length]);
+  const rowLayout = useMemo(() => deriveRowLayout(files.length), [files.length]);
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
 
-  function handleDragOver(event: DragOverEvent) {
-    setOverId((event.over?.id as string) ?? null);
-  }
-
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveId(null);
-    setOverId(null);
     if (!over || active.id === over.id) return;
     setFiles((prev) => {
       const ai = prev.findIndex((f) => f.id === active.id);
@@ -213,7 +198,6 @@ export default function UploadPage() {
 
   function handleDragCancel() {
     setActiveId(null);
-    setOverId(null);
   }
 
   // ─── Tag/People helpers ─────────────────────────────────────────────────────
@@ -379,12 +363,11 @@ export default function UploadPage() {
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
               onDragCancel={handleDragCancel}
             >
               <SortableContext
-                items={displayFiles.map((f) => f.id)}
+                items={files.map((f) => f.id)}
                 strategy={rectSortingStrategy}
               >
                 <div className="space-y-2">
@@ -393,7 +376,7 @@ export default function UploadPage() {
                     let cursor = 0;
                     for (let r = 0; r < rowLayout.length; r++) {
                       const width = rowLayout[r];
-                      const rowFiles = displayFiles.slice(cursor, cursor + width);
+                      const rowFiles = files.slice(cursor, cursor + width);
                       const startIdx = cursor;
                       cursor += width;
                       rows.push(
