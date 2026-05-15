@@ -299,13 +299,13 @@ function PostCard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ postId: post.id }),
     })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        const url = data?.shareUrl ?? null;
-        prefetchedShareUrl.current = url;
-        return url;
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) return `ERROR ${r.status}: ${data?.error ?? "unknown"}`;
+        prefetchedShareUrl.current = data?.shareUrl ?? null;
+        return data?.shareUrl ?? null;
       })
-      .catch(() => null);
+      .catch((e) => `ERROR: ${e}`);
   }
 
   function handleShare() {
@@ -439,14 +439,14 @@ function PostCard({
               {shareLinkLoading && (
                 <p className="text-[#555] text-xs bg-[#1a1a1a] rounded px-3 py-2">Generating link…</p>
               )}
-              {shareLink === "error" && (
-                <p className="text-[#884444] text-xs bg-[#1a1a1a] rounded px-3 py-2">Failed to generate link. Try again.</p>
+              {shareLink && shareLink.startsWith("ERROR") && (
+                <p className="text-[#884444] text-xs bg-[#1a1a1a] rounded px-3 py-2 break-all">{shareLink}</p>
               )}
-              {shareLink && shareLink !== "error" && (
+              {shareLink && !shareLink.startsWith("ERROR") && (
                 <p className="text-[#888] text-xs break-all bg-[#1a1a1a] rounded px-3 py-2">{shareLink}</p>
               )}
             </div>
-            {shareLink && shareLink !== "error" && (
+            {shareLink && !shareLink.startsWith("ERROR") && (
               <button
                 onClick={copyShareLink}
                 className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
@@ -456,7 +456,7 @@ function PostCard({
             )}
             <button
               onClick={() => { setShareLink(null); setShareLinkLoading(false); setCopied(false); }}
-              className={`flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base${shareLink && shareLink !== "error" ? " border-t border-[#2a2929]" : ""}`}
+              className={`flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base${shareLink && !shareLink.startsWith("ERROR") ? " border-t border-[#2a2929]" : ""}`}
             >
               Cancel
             </button>
