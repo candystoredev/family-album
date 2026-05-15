@@ -133,8 +133,8 @@ export default async function SharePage({
   const { post } = result;
 
   return (
-    <main className="min-h-screen bg-[#1d1c1c]">
-      <article className="max-w-[900px] mx-auto px-4 py-8">
+    <main className="min-h-screen bg-[#1d1c1c] flex flex-col">
+      <article className="max-w-[900px] mx-auto w-full px-4 py-8 flex-1">
         <PostContent
           media={post.media}
           layout={post.photoset_layout}
@@ -143,7 +143,7 @@ export default async function SharePage({
           dateFormatted={formatDate(post.date)}
         />
       </article>
-      <footer className="text-center pb-10">
+      <footer className="text-center py-6">
         <p className="text-[#333] text-xs tracking-wide uppercase">
           The Hoecks — Private family album
         </p>

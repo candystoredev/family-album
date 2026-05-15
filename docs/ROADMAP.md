@@ -169,6 +169,10 @@ Schema can accommodate all V2 features without breaking changes.
 - Download original photo button
 - Print-friendly view
 
+### UX & Delight
+- **Favorites heart in action sheet** — heart button in the long-press sheet (all users); joyful fill animation on tap; persisted per-user. Replaces or extends the double-tap heart from 4i.
+- **Slide-out menu redesign** — current panel is functional but visually rough. Redesign to match the feed's dark aesthetic and typography more closely. Goal: joyful, easy to navigate, aesthetically consistent. Consider Claude Design for the visual pass.
+
 ### Search & Discovery
 - Search by date range
 - Filter by multiple tags/people simultaneously

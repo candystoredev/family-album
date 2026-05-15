@@ -1,21 +1,22 @@
 # State
 
 ## Current Status
-Phases 1–5c complete and verified on device. Tumblr migration completed against production on 2026-03-07. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide.
+Phases 1–5c complete and verified. Share links feature complete and live. Tumblr migration completed against production on 2026-03-07. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide.
 
-Phase 5c (Edit + delete posts) fully done and verified: edit title/date/tags/people/albums/media order, add/remove media, delete with R2 cleanup. Admin long-press edit menu, back-nav returns to feed scroll position.
+Share links: admin long-presses any post → Share → iOS native share panel opens with a scoped `/share/[token]` URL (30-day expiry). Recipients see the post with no nav. Nav hidden for non-admins on share pages.
 
 ## Active Branch
-claude/priceless-williamson-b4edec
+claude/sharp-hoover-0fdd42
 
 ## Current Task
-Phase 5d-flag: Post flagging & review queue — not started.
+No active task. Next: Phase 5d-flag (post flagging & review queue).
 
 ## Blockers
 None
 
 ## Known Issues
 - Test posts from 5b upload testing still in the feed — delete via edit/delete feature
+- Share links create a new token every Share tap; no dedup yet (low priority)
 
 ## Next Action
 Build 5d-flag: post_flags table, flag icon in feed (admin), /admin/review page, mark-resolved flow. Reuses 5c edit form.
