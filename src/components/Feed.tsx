@@ -272,18 +272,7 @@ function PostCard({
       // so the URL is ready by the time they tap Share.
       if (isAdmin) {
         prefetchedShareUrl.current = null;
-        sharePromise.current = fetch("/api/admin/share", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ postId: post.id }),
-        })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data) => {
-            const url = data?.shareUrl ?? null;
-            prefetchedShareUrl.current = url;
-            return url;
-          })
-          .catch(() => null);
+        sharePromise.current = fetchShareUrl();
       }
     }, 500);
   }
@@ -303,28 +292,43 @@ function PostCard({
     if (longPressActivated.current) { longPressActivated.current = false; return; }
   }
 
+  function fetchShareUrl(): Promise<string | null> {
+    return fetch("/api/admin/share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ postId: post.id }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const url = data?.shareUrl ?? null;
+        prefetchedShareUrl.current = url;
+        return url;
+      })
+      .catch(() => null);
+  }
+
   function handleShare() {
     setShowActionSheet(false);
-    if (isAdmin) {
-      const url = prefetchedShareUrl.current;
-      if (url) {
-        // URL already in memory — call navigator.share synchronously (iOS requires this)
-        if (navigator.share) {
-          navigator.share({ title: post.title ?? undefined, url }).catch(() => {});
-        } else {
-          navigator.clipboard.writeText(url).catch(() => {});
-          setShareLink(url);
-        }
-      } else if (sharePromise.current) {
-        // Still fetching — wait and fall back to copy sheet
-        sharePromise.current.then((resolved) => {
-          if (resolved) setShareLink(resolved);
-        });
-      }
-    } else {
+    if (!isAdmin) {
       const postUrl = `${siteUrl}/posts/${post.slug}`;
       const body = `${postUrl}\n\nMy reaction:\n`;
       window.location.href = `sms:${recipients.join(",")}&body=${encodeURIComponent(body)}`;
+      return;
+    }
+
+    const url = prefetchedShareUrl.current;
+    if (url) {
+      if (navigator.share) {
+        // Synchronous — satisfies iOS user gesture requirement
+        navigator.share({ title: post.title ?? undefined, url })
+          .catch(() => setShareLink(url)); // if share panel fails, show copy sheet
+      } else {
+        setShareLink(url);
+      }
+    } else {
+      // Pre-fetch not ready (or not started) — fetch now, show copy sheet when done
+      const p = sharePromise.current ?? fetchShareUrl();
+      p.then((resolved) => { if (resolved) setShareLink(resolved); });
     }
   }
 
