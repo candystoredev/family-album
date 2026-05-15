@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
-import { getSession } from "@/lib/auth";
 
 export async function POST(request: Request) {
-  const session = await getSession();
-  if (session?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const { postId } = await request.json();
   if (!postId) {
     return NextResponse.json({ error: "postId required" }, { status: 400 });
