@@ -257,6 +257,9 @@ function PostCard({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressActivated = useRef(false);
   const pointerStart = useRef({ x: 0, y: 0 });
+  // Pre-fetched share URL — populated while action sheet is open so Share tap is synchronous
+  const prefetchedShareUrl = useRef<string | null>(null);
+  const sharePromise = useRef<Promise<string | null> | null>(null);
 
   function startLongPress(e: React.PointerEvent) {
     pointerStart.current = { x: e.clientX, y: e.clientY };
@@ -265,6 +268,23 @@ function PostCard({
       longPressActivated.current = true;
       setShowActionSheet(true);
       if (navigator.vibrate) navigator.vibrate(20);
+      // Kick off share token fetch while user reads the action sheet,
+      // so the URL is ready by the time they tap Share.
+      if (isAdmin) {
+        prefetchedShareUrl.current = null;
+        sharePromise.current = fetch("/api/admin/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ postId: post.id }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            const url = data?.shareUrl ?? null;
+            prefetchedShareUrl.current = url;
+            return url;
+          })
+          .catch(() => null);
+      }
     }, 500);
   }
 
@@ -283,19 +303,24 @@ function PostCard({
     if (longPressActivated.current) { longPressActivated.current = false; return; }
   }
 
-  async function handleShare() {
+  function handleShare() {
     setShowActionSheet(false);
     if (isAdmin) {
-      const res = await fetch("/api/admin/share", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: post.id }),
-      });
-      if (!res.ok) return;
-      const { shareUrl } = await res.json();
-      // navigator.share requires a synchronous user gesture — after an await it
-      // silently fails on iOS. Show a copy sheet instead.
-      setShareLink(shareUrl);
+      const url = prefetchedShareUrl.current;
+      if (url) {
+        // URL already in memory — call navigator.share synchronously (iOS requires this)
+        if (navigator.share) {
+          navigator.share({ title: post.title ?? undefined, url }).catch(() => {});
+        } else {
+          navigator.clipboard.writeText(url).catch(() => {});
+          setShareLink(url);
+        }
+      } else if (sharePromise.current) {
+        // Still fetching — wait and fall back to copy sheet
+        sharePromise.current.then((resolved) => {
+          if (resolved) setShareLink(resolved);
+        });
+      }
     } else {
       const postUrl = `${siteUrl}/posts/${post.slug}`;
       const body = `${postUrl}\n\nMy reaction:\n`;
