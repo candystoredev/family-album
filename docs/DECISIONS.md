@@ -180,6 +180,26 @@ Reason: Change password, manage invites, update iMessage numbers — no redeploy
 Alternatives Considered: Environment variables for all settings, config file
 Impact: Admin panel settings page required; viewer password, iMessage recipients, site metadata all runtime-changeable
 
+## Bulk Import (Phase 9)
+
+### 2026-05-15
+Decision: Timestamp-gap grouping only for bulk import auto-grouping (no content-based ML)
+Reason: Content-based clustering requires either client-side ML (heavy, slow, unreliable on older iPads) or a paid vision API (off-limits on free tier). Timestamp proximity alone handles the primary use case — photos from the same event cluster naturally within a 1-hour gap.
+Alternatives Considered: TensorFlow.js for client-side scene similarity; perceptual hashing for near-duplicate detection; OpenAI/Google Vision API
+Impact: V1 grouping is timestamp-only. Perceptual hashing for burst-shot deduplication remains a future option if needed.
+
+### 2026-05-15
+Decision: `exifr` library for client-side EXIF extraction in bulk import
+Reason: Lightweight, browser-native, no server round-trip before grouping. Avoids sending files to Vercel just to read metadata.
+Alternatives Considered: Server-side `exiftool` or `sharp` metadata extraction
+Impact: EXIF parsing happens before any network activity; grouping UI is instant.
+
+### 2026-05-15
+Decision: Zoom control uses CSS `--bulk-cols` custom property; pinch handled via `wheel`+`ctrlKey` (trackpad) and `touchmove` distance (touchscreen)
+Reason: `wheel` with `ctrlKey` is the standard browser signal for trackpad pinch. Combining with touch distance handles iPads. Both adjust the same CSS variable so there's one source of truth for layout.
+Alternatives Considered: CSS `transform: scale()` on cards (breaks drag-and-drop hit targets); third-party gesture library
+Impact: Must call `preventDefault()` on `wheel`+`ctrlKey` within the bulk import page to suppress browser zoom; scoped to that page only.
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)
