@@ -317,17 +317,24 @@ function PostCard({
       return;
     }
 
-    // Show the sheet immediately so there's visible feedback
     const cachedUrl = prefetchedShareUrl.current;
     if (cachedUrl) {
-      setShareLink(cachedUrl);
+      // URL already in memory — navigator.share is called synchronously within
+      // the tap handler, satisfying iOS's user gesture requirement
+      if (navigator.share) {
+        navigator.share({ url: cachedUrl, title: post.title ?? undefined })
+          .catch(() => setShareLink(cachedUrl));
+      } else {
+        setShareLink(cachedUrl);
+      }
     } else {
+      // Pre-fetch not done yet — async fallback to copy sheet
       setShareLinkLoading(true);
       setShareLink(null);
       const p = sharePromise.current ?? fetchShareUrl();
       p.then((resolved) => {
         setShareLinkLoading(false);
-        setShareLink(resolved ?? "error");
+        setShareLink(resolved ?? "ERROR: no URL returned");
       });
     }
   }
