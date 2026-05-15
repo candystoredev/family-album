@@ -449,14 +449,19 @@ function PostCard({
               {shareLink && shareLink.startsWith("ERROR") && (
                 <p className="text-[#884444] text-xs bg-[#1a1a1a] rounded px-3 py-2 break-all">{shareLink}</p>
               )}
-              {shareLink && !shareLink.startsWith("ERROR") && (
-                <p className="text-[#888] text-xs break-all bg-[#1a1a1a] rounded px-3 py-2">{shareLink}</p>
-              )}
             </div>
+            {shareLink && !shareLink.startsWith("ERROR") && navigator.share && (
+              <button
+                onClick={() => navigator.share!({ url: shareLink, title: post.title ?? undefined })}
+                className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
+              >
+                Share…
+              </button>
+            )}
             {shareLink && !shareLink.startsWith("ERROR") && (
               <button
                 onClick={copyShareLink}
-                className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
+                className={`flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base${navigator.share ? " border-t border-[#2a2929]" : ""}`}
               >
                 {copied ? "Copied!" : "Copy link"}
               </button>
