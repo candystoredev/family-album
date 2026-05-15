@@ -10,6 +10,7 @@ const PUBLIC_PATHS = [
   "/api/init",
   "/api/auth/login",
   "/robots.txt",
+  "/share",
 ];
 
 // Admin paths that require admin role

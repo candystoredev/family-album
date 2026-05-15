@@ -87,6 +87,15 @@ const statements = [
     revoked INTEGER NOT NULL DEFAULT 0
   )`,
 
+  // Post share links (single-post public access, no session granted)
+  `CREATE TABLE IF NOT EXISTS post_share_links (
+    id TEXT PRIMARY KEY,
+    token TEXT UNIQUE NOT NULL,
+    post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT
+  )`,
+
   // Site settings (key-value)
   `CREATE TABLE IF NOT EXISTS site_settings (
     key TEXT PRIMARY KEY,
@@ -102,6 +111,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_post_people_person_id ON post_people(person_id)`,
   `CREATE INDEX IF NOT EXISTS idx_post_albums_album_id ON post_albums(album_id)`,
   `CREATE INDEX IF NOT EXISTS idx_invite_links_token ON invite_links(token)`,
+  `CREATE INDEX IF NOT EXISTS idx_post_share_links_token ON post_share_links(token)`,
 
 ];
 

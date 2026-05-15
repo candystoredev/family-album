@@ -282,15 +282,22 @@ function PostCard({
   }
 
   async function handleShare() {
-    const postUrl = `${siteUrl}/posts/${post.slug}`;
     setShowActionSheet(false);
     if (isAdmin) {
+      const res = await fetch("/api/admin/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId: post.id }),
+      });
+      if (!res.ok) return;
+      const { shareUrl } = await res.json();
       if (navigator.share) {
-        try { await navigator.share({ title: post.title ?? undefined, url: postUrl }); } catch {}
+        try { await navigator.share({ title: post.title ?? undefined, url: shareUrl }); } catch {}
       } else {
-        try { await navigator.clipboard.writeText(postUrl); } catch {}
+        try { await navigator.clipboard.writeText(shareUrl); } catch {}
       }
     } else {
+      const postUrl = `${siteUrl}/posts/${post.slug}`;
       const body = `${postUrl}\n\nMy reaction:\n`;
       window.location.href = `sms:${recipients.join(",")}&body=${encodeURIComponent(body)}`;
     }
