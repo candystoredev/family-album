@@ -252,6 +252,8 @@ function PostCard({
   onLightbox: (index: number) => void;
 }) {
   const [showActionSheet, setShowActionSheet] = useState(false);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressActivated = useRef(false);
   const pointerStart = useRef({ x: 0, y: 0 });
@@ -291,15 +293,24 @@ function PostCard({
       });
       if (!res.ok) return;
       const { shareUrl } = await res.json();
-      if (navigator.share) {
-        try { await navigator.share({ title: post.title ?? undefined, url: shareUrl }); } catch {}
-      } else {
-        try { await navigator.clipboard.writeText(shareUrl); } catch {}
-      }
+      // navigator.share requires a synchronous user gesture — after an await it
+      // silently fails on iOS. Show a copy sheet instead.
+      setShareLink(shareUrl);
     } else {
       const postUrl = `${siteUrl}/posts/${post.slug}`;
       const body = `${postUrl}\n\nMy reaction:\n`;
       window.location.href = `sms:${recipients.join(",")}&body=${encodeURIComponent(body)}`;
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setCopied(true);
+      setTimeout(() => { setShareLink(null); setCopied(false); }, 1500);
+    } catch {
+      // clipboard blocked — user can copy from the displayed URL
     }
   }
 
@@ -375,6 +386,37 @@ function PostCard({
             </button>
             <button
               onClick={() => setShowActionSheet(false)}
+              className="flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base border-t border-[#2a2929]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Share link sheet — shown after API returns the URL */}
+      {shareLink && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50"
+          onClick={() => { setShareLink(null); setCopied(false); }}
+        >
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-[#232222] rounded-t-2xl overflow-hidden pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-[#444] rounded-full mx-auto mt-3 mb-4" />
+            <div className="px-6 mb-2">
+              <p className="text-[#555] text-xs uppercase tracking-wide mb-2">Share link · expires in 30 days</p>
+              <p className="text-[#888] text-xs break-all bg-[#1a1a1a] rounded px-3 py-2">{shareLink}</p>
+            </div>
+            <button
+              onClick={copyShareLink}
+              className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
+            >
+              {copied ? "Copied!" : "Copy link"}
+            </button>
+            <button
+              onClick={() => { setShareLink(null); setCopied(false); }}
               className="flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base border-t border-[#2a2929]"
             >
               Cancel
