@@ -54,10 +54,11 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // Hide on login and upload pages
+  // Hide on login, upload, and share pages (share page visible to admins only)
   const isLoginPage = pathname === "/login";
   const isUploadPage = pathname === "/admin/upload";
-  const isHiddenPage = isLoginPage || isUploadPage;
+  const isSharePage = pathname.startsWith("/share/") && !isAdmin;
+  const isHiddenPage = isLoginPage || isUploadPage || isSharePage;
 
   // Track desktop vs mobile
   useEffect(() => {

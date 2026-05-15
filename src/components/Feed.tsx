@@ -319,10 +319,11 @@ function PostCard({
 
     const cachedUrl = prefetchedShareUrl.current;
     if (cachedUrl) {
-      // URL already in memory — navigator.share is called synchronously within
+      // URL already in memory — navigator.share called synchronously within
       // the tap handler, satisfying iOS's user gesture requirement
-      if (navigator.share) {
-        navigator.share({ url: cachedUrl, title: post.title ?? undefined })
+      if ('share' in navigator) {
+        (navigator as Navigator & { share: (d: ShareData) => Promise<void> })
+          .share({ url: cachedUrl, title: post.title ?? undefined })
           .catch(() => setShareLink(cachedUrl));
       } else {
         setShareLink(cachedUrl);
@@ -450,9 +451,9 @@ function PostCard({
                 <p className="text-[#884444] text-xs bg-[#1a1a1a] rounded px-3 py-2 break-all">{shareLink}</p>
               )}
             </div>
-            {shareLink && !shareLink.startsWith("ERROR") && navigator.share && (
+            {shareLink && !shareLink.startsWith("ERROR") && 'share' in navigator && (
               <button
-                onClick={() => navigator.share!({ url: shareLink, title: post.title ?? undefined })}
+                onClick={() => (navigator as Navigator & { share: (d: ShareData) => Promise<void> }).share({ url: shareLink!, title: post.title ?? undefined })}
                 className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
               >
                 Share…
@@ -461,7 +462,7 @@ function PostCard({
             {shareLink && !shareLink.startsWith("ERROR") && (
               <button
                 onClick={copyShareLink}
-                className={`flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base${navigator.share ? " border-t border-[#2a2929]" : ""}`}
+                className={`flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base${'share' in navigator ? " border-t border-[#2a2929]" : ""}`}
               >
                 {copied ? "Copied!" : "Copy link"}
               </button>
