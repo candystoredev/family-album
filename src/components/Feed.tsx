@@ -253,6 +253,7 @@ function PostCard({
 }) {
   const [showActionSheet, setShowActionSheet] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
+  const [shareLinkLoading, setShareLinkLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressActivated = useRef(false);
@@ -316,19 +317,18 @@ function PostCard({
       return;
     }
 
-    const url = prefetchedShareUrl.current;
-    if (url) {
-      if (navigator.share) {
-        // Synchronous — satisfies iOS user gesture requirement
-        navigator.share({ title: post.title ?? undefined, url })
-          .catch(() => setShareLink(url)); // if share panel fails, show copy sheet
-      } else {
-        setShareLink(url);
-      }
+    // Show the sheet immediately so there's visible feedback
+    const cachedUrl = prefetchedShareUrl.current;
+    if (cachedUrl) {
+      setShareLink(cachedUrl);
     } else {
-      // Pre-fetch not ready (or not started) — fetch now, show copy sheet when done
+      setShareLinkLoading(true);
+      setShareLink(null);
       const p = sharePromise.current ?? fetchShareUrl();
-      p.then((resolved) => { if (resolved) setShareLink(resolved); });
+      p.then((resolved) => {
+        setShareLinkLoading(false);
+        setShareLink(resolved ?? "error");
+      });
     }
   }
 
@@ -423,11 +423,11 @@ function PostCard({
         </div>
       )}
 
-      {/* Share link sheet — shown after API returns the URL */}
-      {shareLink && (
+      {/* Share link sheet */}
+      {(shareLink !== null || shareLinkLoading) && (
         <div
           className="fixed inset-0 z-50 bg-black/50"
-          onClick={() => { setShareLink(null); setCopied(false); }}
+          onClick={() => { setShareLink(null); setShareLinkLoading(false); setCopied(false); }}
         >
           <div
             className="absolute bottom-0 left-0 right-0 bg-[#232222] rounded-t-2xl overflow-hidden pb-8"
@@ -436,17 +436,27 @@ function PostCard({
             <div className="w-10 h-1 bg-[#444] rounded-full mx-auto mt-3 mb-4" />
             <div className="px-6 mb-2">
               <p className="text-[#555] text-xs uppercase tracking-wide mb-2">Share link · expires in 30 days</p>
-              <p className="text-[#888] text-xs break-all bg-[#1a1a1a] rounded px-3 py-2">{shareLink}</p>
+              {shareLinkLoading && (
+                <p className="text-[#555] text-xs bg-[#1a1a1a] rounded px-3 py-2">Generating link…</p>
+              )}
+              {shareLink === "error" && (
+                <p className="text-[#884444] text-xs bg-[#1a1a1a] rounded px-3 py-2">Failed to generate link. Try again.</p>
+              )}
+              {shareLink && shareLink !== "error" && (
+                <p className="text-[#888] text-xs break-all bg-[#1a1a1a] rounded px-3 py-2">{shareLink}</p>
+              )}
             </div>
+            {shareLink && shareLink !== "error" && (
+              <button
+                onClick={copyShareLink}
+                className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
+              >
+                {copied ? "Copied!" : "Copy link"}
+              </button>
+            )}
             <button
-              onClick={copyShareLink}
-              className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
-            >
-              {copied ? "Copied!" : "Copy link"}
-            </button>
-            <button
-              onClick={() => { setShareLink(null); setCopied(false); }}
-              className="flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base border-t border-[#2a2929]"
+              onClick={() => { setShareLink(null); setShareLinkLoading(false); setCopied(false); }}
+              className={`flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base${shareLink && shareLink !== "error" ? " border-t border-[#2a2929]" : ""}`}
             >
               Cancel
             </button>
