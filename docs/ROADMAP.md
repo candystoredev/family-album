@@ -99,6 +99,11 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
   - Prefetch next page of feed for instant infinite scroll
   - Known polish items deferred: nav button overlap on some viewports, single-image memory card sizing on narrow screens
 
+### Hotfix — iOS Safari single-photo row collapse (2026-06-10) — ~~DONE~~ ✓
+- `h-full` in an auto-height flex chain resolves to 0 on Safari (no intrinsic-size fallback)
+- Single-photo rows in multi-photo posts (e.g. layout "31") were invisible on iPhone
+- Fix: single-photo rows use `h-auto` + stored `width/height` as `aspect-ratio`; multi-photo rows keep `h-full` + `aspect-ratio: 4/3`
+
 ## Up Next
 
 ### Phase 5 — Admin Panel & Settings
@@ -147,7 +152,7 @@ Responsive web throughout (not PWA). Each sub-slice builds on previous.
 - Verify: Production end-to-end (login → feed → post → iMessage → search)
 - Share invite links with family
 
-### Phase 9 — Bulk Import
+### Phase 9 — Bulk Import — **IN PROGRESS**
 
 Desktop and tablet only (mobile shows a friendly fallback card linking to `/admin/upload`). A catch-up import tool for adding large batches of photos at once — the primary use case is uploading historical photos that predate the Tumblr era or weren't captured in the migration.
 
@@ -159,42 +164,38 @@ Select many images at once → client reads EXIF dates → app auto-groups them 
 
 #### Sub-phases
 
-- **9-pre — Shared extraction (refactor, no new behavior)**
-  - `src/lib/media/compress.ts` — move `compressImage` out of the upload page
-  - `src/lib/media/exif.ts` — `exifr` wrapper: `getExifDate(file)` → `{ date, source }` with fallback chain: `DateTimeOriginal` → `CreateDate` → filename pattern (`YYYYMMDD` / `YYYY-MM-DD`) → `file.lastModified`
-  - `src/lib/media/layout.ts` — move `defaultLayout` (upload page) + `generatePhotosetLayout` (complete route) into one module; they encode the same rules and are currently duplicated
-  - `src/components/MetadataFields.tsx` — title/date/tags/people/albums field group extracted from the upload page (edit page can adopt later)
-  - **Fixes a standing bug while here**: client-side compression re-encodes via canvas, which strips EXIF — so for photos >1920px the server's EXIF date detection silently fails and posts get the upload date. Single upload now reads the EXIF date client-side and passes `date` to complete.
-  - Verify: single upload behavior unchanged except large photos now get correct EXIF dates. Unit tests for exif fallback chain + layout parity.
+- **9-pre — Shared extraction** ~~DONE~~ ✓
+  - `src/lib/media/compress.ts` — `compressImage` extracted from upload page
+  - `src/lib/media/exif.ts` — `getMediaDate(file)` with fallback chain: EXIF → filename pattern → `file.lastModified`. `dateFromFilename` handles `IMG_20190704`, `2019-07-04`, `20190704` etc.
+  - `src/lib/media/layout.ts` — unified `defaultLayout`/`generatePhotosetLayout`, previously duplicated between upload page and complete route
+  - `src/components/MetadataFields.tsx` — `useMetadataOptions()` hook + shared fields component (title, date, tags, people, albums)
+  - **Bug fixed**: large photos (>1920px) silently got today's date instead of EXIF date — canvas re-encode strips EXIF; single upload now reads date client-side and passes it explicitly
+  - Tests: `tests/media-lib.test.ts` (layout + EXIF), `tests/grouping.test.ts` (gap grouping)
 
-- **9a — Ingest + auto-grouping + merge/split**
-  - `/admin/bulk-import` page, multi-file picker (no hard cap; 50–200 images must stay smooth)
-  - Two-pass ingest: (1) EXIF date pass — header-only reads via `exifr`, progress text ("Reading photo 120/200…"), groups render immediately with shimmer placeholders; (2) thumbnail pass — previews generated progressively (`createImageBitmap(file, { resizeWidth: 320 })` → canvas → blob URL), small worker queue (~4 concurrent)
-  - **Memory rules**: never render an object URL of the original file — previews are ≤320px generated blobs; `content-visibility: auto` + `contain-intrinsic-size` on cards so offscreen cards don't render
-  - Grouping: pure function `groupByGap(items, thresholdMs)` in `src/lib/media/grouping.ts`, unit-tested
-  - Threshold control: segmented "1 hr / 6 hrs / 1 day" in the toolbar — regroups live (pure recompute, instant); locks with a note after the first manual group edit so it can't destroy manual work
-  - Group cards in CSS grid (`grid-template-columns: repeat(var(--bulk-cols), 1fr)`, default 3); mini photo grid per card via shared `defaultLayout`
-  - **Merge/split**: each card has a "merge into previous group" button; hovering between two photos inside a card shows a "split here" divider — these two cover the common mis-grouping cases without any drag-and-drop
-  - Date-source badge on cards whose date came from filename/mtime fallback (tiny icon + tooltip) — trust signal for old scanned photos
-  - `beforeunload` confirm guard whenever unpublished work exists
-  - Verify: 40 photos spanning 3 days → groups split at day boundaries. Threshold change regroups live. Merge then split round-trips. EXIF-less file lands via mtime with badge. 200-photo selection: no tab jank, memory stays flat while scrolling.
+- **9a — Ingest + auto-grouping + merge/split** ~~DONE~~ ✓
+  - `/admin/bulk-import` page; "Bulk Import" link added to `ArchiveMenu` (desktop only)
+  - Two-pass ingest: EXIF pass (8-concurrent, groups render immediately) then thumbnail pass (4-concurrent, ≤320px `createImageBitmap` blobs, progressive)
+  - Memory: originals never rendered as object URLs; `content-visibility: auto` + `containIntrinsicSize` on cards
+  - `groupByGap(items, thresholdMs)` pure function in `src/lib/media/grouping.ts`
+  - Segmented threshold control (1 hr / 6 hrs / 1 day); locks after first manual edit
+  - Merge-into-previous button; split-here affordance (hover between photos to reveal ✂)
+  - Date-source badge for filename/mtime fallback dates
+  - `beforeunload` guard while unpublished work exists
+  - Mobile fallback card
 
-- **9b — Per-group metadata editing**
-  - Each card: title, date (pre-filled from group's earliest EXIF date), tags, people, albums — via shared `MetadataFields`
-  - "Apply to all" shortcut for tags, people, and albums
-  - "Skip this group" toggle per card — excluded from publish without deleting from view
-  - Toolbar summary: "12 posts · 47 photos · 2 skipped"
-  - Verify: Set title on one card. Apply tags to all. Toggle skip → excluded from count. Date pre-filled from first image EXIF.
+- **9b — Per-group metadata editing** ~~DONE~~ ✓
+  - Inline `MetadataFields` per card: title, date (pre-filled from EXIF), tags, people, albums
+  - "Apply tags/people/albums to all" buttons — appear when a group has selections
+  - Skip toggle per card; skipped count shown in toolbar; fields/controls lock when skipped
+  - `items-start` on grid so cards don't stretch to the tallest sibling
 
-- **9c — Batch publish**
-  - Per-group pipeline, no global barrier: compress (lazily, at upload time — never eagerly for 200 files) → presign → direct R2 PUT → when the group's files are done → `/api/admin/upload/complete` with the group's metadata, explicit `date`, and auto `photosetLayout`. Finished groups publish while slower ones still upload.
-  - Global concurrency caps: 5 simultaneous file PUTs, 3 simultaneous complete calls
-  - **Always pass the group's `date` explicitly** — compression strips EXIF, so the server cannot recover it
-  - Per-card status: progress ring → Uploading → Processing → Published / error with retry (retry re-runs only that group's failed steps)
-  - On full completion: summary toast ("12 posts published") + link to feed
-  - Skipped groups are not published
-  - Existing presign and complete endpoints are reused without modification
-  - Verify: Publish 10 groups → all appear in feed with correct media **and correct EXIF dates (not today's date)**. Skipped group absent. Failed group shows retry; other groups unaffected. Progress rings update in real time.
+- **9c — Batch publish** ~~DONE~~ ✓
+  - "Publish N posts" button (excludes skipped and already-published groups)
+  - Per group: `compressImage` → presign → PUT to R2 → `/api/admin/upload/complete`; 2 groups in parallel, photos within a group upload in parallel
+  - Date always passed explicitly (compression strips EXIF, server cannot recover it)
+  - Per-card state: "uploading…" label → green "published" badge + ring → red error + Retry
+  - Toolbar live count (`Publishing… (3/8)`) → "X published — view feed" link when all done
+  - Metadata fields/controls lock while uploading or published; Clear all resets publish state
 
 - **9d — Cross-group drag-and-drop (polish)**
   - Semantics: **membership + linear order only** — row layout inside a group is always auto-generated (`defaultLayout`); per-post layout fiddling remains the edit page's job

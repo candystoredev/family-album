@@ -236,6 +236,18 @@ Reason: Card layout should respond to the card's own width — one markup serves
 Alternatives Considered: Conditional rendering keyed on the column-count state
 Impact: Metadata collapse threshold lives in CSS (~280px card width).
 
+### 2026-06-10
+Decision: iOS Safari `h-full` fix — single-photo rows use `h-auto` + stored `aspect-ratio`; multi-photo rows keep `h-full` + `aspect-ratio: 4/3`
+Reason: Safari resolves `h-full` to 0 when the flex container has no explicit height (auto-height chain). Chrome uses the intrinsic size as a fallback; Safari does not. Single-photo rows in multi-photo posts (layout "31") were invisible on iPhone.
+Alternatives Considered: Explicit pixel height on the flex container; CSS `min-height` trick; setting aspect-ratio on the container instead of the image
+Impact: `PhotoGrid.tsx` branches on `count > 1`. Single-row images require stored `width`/`height` in the DB — already present for all photos from the sharp processing step.
+
+### 2026-06-10
+Decision: Bulk import publish pipeline uses concurrency 2 groups in parallel (not separate caps for PUTs vs completes)
+Reason: A simple `runPool(groups, 2, publishGroup)` is easier to reason about and avoids backpressure complexity. Photos within each group still upload in parallel, so the effective parallelism is adequate. The original plan's "5 PUTs, 3 completes" cap was premature optimization.
+Alternatives Considered: Original plan: separate pools for PUT (5) and complete (3); sequential per-group
+Impact: At most 2 `complete` calls and ~2×N simultaneous PUTs at any time. For batches of 5–20 groups this is indistinguishable from higher concurrency.
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)
