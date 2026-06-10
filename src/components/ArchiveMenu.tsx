@@ -333,6 +333,12 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
               >
                 Upload Photo
               </a>
+              <a
+                href="/admin/bulk-import"
+                className="hidden md:block text-sm text-[#427ea3] hover:text-[#5a9ec5] transition-colors"
+              >
+                Bulk Import
+              </a>
             </div>
           )}
           <button
