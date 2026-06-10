@@ -15,7 +15,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-const BUILD_VERSION = "000047";
+// Auto-derived from the deployed commit so it's always accurate — no manual
+// bumping. Vercel sets VERCEL_GIT_COMMIT_SHA at build; "dev" when running local.
+const BUILD_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev";
 
 export default async function RootLayout({
   children,
