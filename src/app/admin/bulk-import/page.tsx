@@ -1,6 +1,29 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  pointerWithin,
+  closestCorners,
+  type CollisionDetection,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  rectSortingStrategy,
+  useSortable,
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { getMediaDate, type DateSource } from "@/lib/media/exif";
 import { groupByGap, GAP_THRESHOLDS } from "@/lib/media/grouping";
 import { defaultLayout } from "@/lib/media/layout";
@@ -43,8 +66,22 @@ const THUMB_MAX_PX = 320;
 const EXIF_CONCURRENCY = 8;
 const THUMB_CONCURRENCY = 4;
 
+/** Droppable id for the "drop here to start a new post" tile shown during drag. */
+const NEW_GROUP_ID = "__new_group__";
+
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${++idCounter}`;
+
+/**
+ * The new-group zone wins whenever the pointer is inside it; otherwise closest
+ * corners drives both within-group reordering (nearest photo) and cross-group
+ * moves (nearest card when hovering empty card space).
+ */
+const collisionDetection: CollisionDetection = (args) => {
+  const newGroupHit = pointerWithin(args).find((c) => c.id === NEW_GROUP_ID);
+  if (newGroupHit) return [newGroupHit];
+  return closestCorners(args);
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -139,8 +176,15 @@ export default function BulkImportPage() {
   const [edited, setEdited] = useState(false);
   const [reading, setReading] = useState<{ done: number; total: number } | null>(null);
   const [publishes, setPublishes] = useState<Record<string, GroupPublish>>({});
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const options = useMetadataOptions();
+
+  const sensors = useSensors(
+    // 8px activation distance so taps on split/skip buttons stay clicks, not drags
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   // Invalidates in-flight thumb work on clear/unmount
   const generationRef = useRef(0);
@@ -307,6 +351,116 @@ export default function BulkImportPage() {
     values: string[]
   ) {
     setGroups((prev) => prev.map((g) => ({ ...g, [field]: values })));
+  }
+
+  // ─── Drag & drop (cross-group membership + order) ───────────────────────────
+
+  /** A group can't gain or lose photos while uploading, published, or skipped. */
+  const isGroupLocked = (g: BulkGroup) =>
+    g.skipped || publishes[g.id]?.state === "uploading" || publishes[g.id]?.state === "done";
+
+  /** Resolve any drag id (item, group, or new-group zone) to its container id. */
+  function containerOf(id: string): string | undefined {
+    if (id === NEW_GROUP_ID) return NEW_GROUP_ID;
+    if (groups.some((g) => g.id === id)) return id;
+    return groups.find((g) => g.itemIds.includes(id))?.id;
+  }
+
+  function handleDragStart(e: DragStartEvent) {
+    setActiveId(String(e.active.id));
+  }
+
+  function handleDragOver(e: DragOverEvent) {
+    const { active, over } = e;
+    if (!over) return;
+    const activeItemId = String(active.id);
+    const from = containerOf(activeItemId);
+    const overContainer = containerOf(String(over.id));
+    if (!from || !overContainer) return;
+    if (overContainer === NEW_GROUP_ID || overContainer === from) return;
+
+    // Live-move the photo into the hovered group so the preview tracks the cursor
+    setGroups((prev) => {
+      const src = prev.find((g) => g.itemIds.includes(activeItemId));
+      const tgt = prev.find((g) => g.id === overContainer);
+      if (!src || !tgt || src.id === tgt.id || isGroupLocked(tgt)) return prev;
+
+      const overId = String(over.id);
+      const insertAt =
+        overId === tgt.id ? tgt.itemIds.length : Math.max(0, tgt.itemIds.indexOf(overId));
+
+      return prev.map((g) => {
+        if (g.id === src.id)
+          return { ...g, itemIds: g.itemIds.filter((id) => id !== activeItemId) };
+        if (g.id === tgt.id) {
+          const ids = g.itemIds.filter((id) => id !== activeItemId);
+          ids.splice(insertAt, 0, activeItemId);
+          return { ...g, itemIds: ids };
+        }
+        return g;
+      });
+    });
+    setEdited(true);
+  }
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    setActiveId(null);
+    if (!over) {
+      pruneEmptyGroups();
+      return;
+    }
+    const activeItemId = String(active.id);
+    const overId = String(over.id);
+    const overContainer = containerOf(overId);
+
+    if (overContainer === NEW_GROUP_ID) {
+      extractToNewGroup(activeItemId);
+      return;
+    }
+
+    // Same-container reorder (cross-container moves already happened in dragOver)
+    if (overContainer && overContainer === containerOf(activeItemId) && activeItemId !== overId) {
+      setGroups((prev) =>
+        prev.map((g) => {
+          if (g.id !== overContainer) return g;
+          const oldIdx = g.itemIds.indexOf(activeItemId);
+          const newIdx = g.itemIds.indexOf(overId);
+          if (oldIdx === -1 || newIdx === -1) return g;
+          return { ...g, itemIds: arrayMove(g.itemIds, oldIdx, newIdx) };
+        })
+      );
+      setEdited(true);
+    }
+    pruneEmptyGroups();
+  }
+
+  function pruneEmptyGroups() {
+    setGroups((prev) => prev.filter((g) => g.itemIds.length > 0));
+  }
+
+  /** Pull a photo out into its own new group at the end. No-op for solo photos. */
+  function extractToNewGroup(itemId: string) {
+    setGroups((prev) => {
+      const src = prev.find((g) => g.itemIds.includes(itemId));
+      if (!src || src.itemIds.length === 1) return prev; // keep solo group + its metadata
+      const item = items[itemId];
+      const next = prev.map((g) =>
+        g.id === src.id ? { ...g, itemIds: g.itemIds.filter((id) => id !== itemId) } : g
+      );
+      next.push({
+        id: nextId("g"),
+        itemIds: [itemId],
+        title: "",
+        date: toDatetimeLocal(item.date),
+        selectedTags: [],
+        selectedPeople: [],
+        selectedAlbumIds: [],
+        skipped: false,
+      });
+      return next;
+    });
+    setEdited(true);
   }
 
   // ─── Publish ───────────────────────────────────────────────────────────────
@@ -534,27 +688,74 @@ export default function BulkImportPage() {
 
       {/* Group cards */}
       {groups.length > 0 && (
-        <div
-          className="p-6 grid gap-4 items-start"
-          style={{ gridTemplateColumns: "repeat(var(--bulk-cols, 3), minmax(0, 1fr))" }}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collisionDetection}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveId(null)}
         >
-          {groups.map((group, gi) => (
-            <GroupCard
-              key={group.id}
-              group={group}
-              items={items}
-              options={options}
-              publish={publishes[group.id]}
-              canMergeUp={gi > 0}
-              onMergeUp={() => mergeIntoPrevious(gi)}
-              onSplit={(itemIdx) => splitGroup(gi, itemIdx)}
-              onUpdate={(patch) => updateGroup(group.id, patch)}
-              onApplyToAll={applyToAll}
-              onRetry={() => publishGroup(group)}
-            />
-          ))}
-        </div>
+          <div
+            className="p-6 grid gap-4 items-start"
+            style={{ gridTemplateColumns: "repeat(var(--bulk-cols, 3), minmax(0, 1fr))" }}
+          >
+            {groups.map((group, gi) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                items={items}
+                options={options}
+                publish={publishes[group.id]}
+                canMergeUp={gi > 0}
+                onMergeUp={() => mergeIntoPrevious(gi)}
+                onSplit={(itemIdx) => splitGroup(gi, itemIdx)}
+                onUpdate={(patch) => updateGroup(group.id, patch)}
+                onApplyToAll={applyToAll}
+                onRetry={() => publishGroup(group)}
+              />
+            ))}
+            {activeId && <NewGroupZone />}
+          </div>
+
+          <DragOverlay>
+            {activeId && items[activeId] ? (
+              <div className="rounded-md overflow-hidden bg-[#141313] shadow-2xl ring-2 ring-[#427ea3] w-24 h-24 rotate-3">
+                {items[activeId].thumb ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={items[activeId].thumb!}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-[#2a2929]" />
+                )}
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
+    </div>
+  );
+}
+
+// ─── New-group drop zone (only mounted during a drag) ─────────────────────────
+
+function NewGroupZone() {
+  const { setNodeRef, isOver } = useDroppable({ id: NEW_GROUP_ID });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex items-center justify-center rounded-xl border-2 border-dashed text-center text-xs min-h-[120px] transition-colors ${
+        isOver
+          ? "border-[#427ea3] bg-[#427ea3]/10 text-[#427ea3]"
+          : "border-[#3a3939] text-[#666]"
+      }`}
+    >
+      Drop here to
+      <br />
+      start a new post
     </div>
   );
 }
@@ -612,10 +813,7 @@ function GroupCard({
   const isLocked = group.skipped || isDone || isUploading;
 
   return (
-    <div
-      className={`bg-[#252424] rounded-xl overflow-hidden transition-opacity ${group.skipped ? "opacity-40" : ""} ${isDone ? "ring-1 ring-[#3a8a50]/50" : ""}`}
-      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 480px" }}
-    >
+    <GroupDroppable groupId={group.id} disabled={isLocked} skipped={group.skipped} isDone={isDone}>
       {/* Header */}
       <div className="px-3 py-2 flex items-center gap-2 text-xs">
         <span className="text-[#d3d3d3] font-medium">{DATE_FMT.format(first.date)}</span>
@@ -668,52 +866,27 @@ function GroupCard({
       </div>
 
       {/* Mini photo grid */}
-      <div className="px-1.5 pb-0 space-y-1.5">
-        {rows.map((row, ri) => (
-          <div key={ri} className="flex gap-1.5" style={{ height: 90 }}>
-            {row.map((item) => {
-              flatIdx++;
-              const idx = flatIdx;
-              return (
-                <div
-                  key={item.id}
-                  className="relative flex-1 min-w-0 rounded-md overflow-hidden bg-[#141313] group/photo"
-                >
-                  {item.thumb ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.thumb}
-                      alt=""
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : item.thumbFailed ? (
-                    <div
-                      className="w-full h-full flex items-center justify-center text-[#555] text-[9px] px-1 text-center break-all"
-                      title={`${item.file.name} — preview unavailable in this browser; still imports fine`}
-                    >
-                      {item.file.name}
-                    </div>
-                  ) : (
-                    <div className="w-full h-full animate-pulse bg-[#2a2929]" />
-                  )}
-
-                  {/* Split-before affordance — not on the first photo */}
-                  {idx > 0 && !group.skipped && (
-                    <button
-                      onClick={() => onSplit(idx)}
-                      title="Split into a new post starting here"
-                      className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center opacity-0 group-hover/photo:opacity-100 focus:opacity-100 transition-opacity bg-gradient-to-r from-black/60 to-transparent"
-                    >
-                      <span className="text-[#d3d3d3] text-xs">✂</span>
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+      <SortableContext items={group.itemIds} strategy={rectSortingStrategy}>
+        <div className="px-1.5 pb-0 space-y-1.5">
+          {rows.map((row, ri) => (
+            <div key={ri} className="flex gap-1.5" style={{ height: 90 }}>
+              {row.map((item) => {
+                flatIdx++;
+                const idx = flatIdx;
+                return (
+                  <SortablePhoto
+                    key={item.id}
+                    item={item}
+                    canSplit={idx > 0 && !group.skipped}
+                    draggable={!isLocked}
+                    onSplit={() => onSplit(idx)}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </SortableContext>
 
       {/* Metadata fields */}
       <div className="px-3 pt-3 pb-3 space-y-2.5">
@@ -778,6 +951,103 @@ function GroupCard({
           </div>
         )}
       </div>
+    </GroupDroppable>
+  );
+}
+
+// ─── Group droppable wrapper ──────────────────────────────────────────────────
+
+function GroupDroppable({
+  groupId,
+  disabled,
+  skipped,
+  isDone,
+  children,
+}: {
+  groupId: string;
+  disabled: boolean;
+  skipped: boolean;
+  isDone: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: groupId, disabled });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`bg-[#252424] rounded-xl overflow-hidden transition-all ${skipped ? "opacity-40" : ""} ${
+        isDone ? "ring-1 ring-[#3a8a50]/50" : ""
+      } ${isOver && !disabled ? "ring-2 ring-[#427ea3]" : ""}`}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 480px" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ─── Sortable photo ───────────────────────────────────────────────────────────
+
+function SortablePhoto({
+  item,
+  canSplit,
+  draggable,
+  onSplit,
+}: {
+  item: BulkItem;
+  canSplit: boolean;
+  draggable: boolean;
+  onSplit: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: item.id, disabled: !draggable });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    touchAction: "none",
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`relative flex-1 min-w-0 rounded-md overflow-hidden bg-[#141313] group/photo ${
+        draggable ? "cursor-grab active:cursor-grabbing" : ""
+      }`}
+    >
+      {item.thumb ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.thumb}
+          alt=""
+          loading="lazy"
+          draggable={false}
+          className="w-full h-full object-cover"
+        />
+      ) : item.thumbFailed ? (
+        <div
+          className="w-full h-full flex items-center justify-center text-[#555] text-[9px] px-1 text-center break-all"
+          title={`${item.file.name} — preview unavailable in this browser; still imports fine`}
+        >
+          {item.file.name}
+        </div>
+      ) : (
+        <div className="w-full h-full animate-pulse bg-[#2a2929]" />
+      )}
+
+      {/* Split-before affordance — not on the first photo */}
+      {canSplit && (
+        <button
+          onClick={onSplit}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Split into a new post starting here"
+          className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center opacity-0 group-hover/photo:opacity-100 focus:opacity-100 transition-opacity bg-gradient-to-r from-black/60 to-transparent"
+        >
+          <span className="text-[#d3d3d3] text-xs">✂</span>
+        </button>
+      )}
     </div>
   );
 }

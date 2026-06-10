@@ -210,7 +210,13 @@ Impact: 9-pre→9c is the MVP; 9d/9e are independent polish that can slip withou
 Decision: Bulk import drag-and-drop is group membership + linear order only; row layout inside groups is always auto-generated
 Reason: The upload form's drag is custom pointer hit-testing against `[data-row]`/`[data-item]` (not `@dnd-kit` SortableContext, contrary to what the original plan assumed) — built for row-level placement that doesn't generalize to 30 cards. At bulk-review scale, only membership matters; the edit page already covers per-post layout.
 Alternatives Considered: Porting the custom row hit-test to multi-container; full SortableContext nesting with row semantics
-Impact: 9d uses the standard dnd-kit multi-container pattern (droppable cards, `rectIntersection`). `defaultLayout`/`generatePhotosetLayout` move to a shared `lib/media/layout.ts`.
+Impact: 9d uses the standard dnd-kit multi-container pattern (droppable cards, per-group `SortableContext`). `defaultLayout`/`generatePhotosetLayout` move to a shared `lib/media/layout.ts`.
+
+### 2026-06-10
+Decision: 9d collision detection is pointer-first only for the new-group zone, `closestCorners` for everything else (not `rectIntersection` as originally planned); new groups created via a dedicated drop tile, not positional gaps between cards
+Reason: `rectIntersection` makes within-group reordering jumpy, and `pointerWithin` as the sole strategy made `over` resolve to the container instead of the hovered photo (breaking same-group reorder). `closestCorners` reliably targets the nearest photo for reorder and the nearest card for cross-group moves. Positional "gaps between cards" don't map cleanly onto a wrapping CSS grid, so a single dashed drop tile at the end of the grid is the new-group affordance — group order in the review view doesn't affect published posts (each has its own date), so "at the end" is fine.
+Alternatives Considered: `rectIntersection` (jumpy reorder); pure `pointerWithin` (broke reorder target); interleaved gap droppables in the grid (layout-fragile)
+Impact: Cross-group moves happen live in `onDragOver`; `onDragEnd` finalizes same-group reorder, new-group extraction, and prunes emptied groups. Dropping a group's only photo on the new-group tile is a no-op to preserve that group's metadata.
 
 ### 2026-06-10
 Decision: Previews are ≤320px generated thumbnails (`createImageBitmap` with `resizeWidth`); original files are never rendered into the DOM
