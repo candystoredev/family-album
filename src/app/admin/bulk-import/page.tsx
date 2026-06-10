@@ -65,7 +65,14 @@ const THUMB_CONCURRENCY = 4;
 /** Fallback aspect (landscape 4:3) shown until a photo's real ratio is known. */
 const DEFAULT_ASPECT = 4 / 3;
 /** Top/bottom band of a row that means "new row here" rather than "into this row". */
-const NEW_ROW_ZONE = 26;
+const NEW_ROW_ZONE = 40;
+/** ms the drop target must hold steady before the preview updates (anti-jitter). */
+const TARGET_DEBOUNCE = 80;
+const ZOOM_KEY = "bulkImportCardMin";
+const ZOOM_MIN = 170;
+const ZOOM_MAX = 460;
+const ZOOM_STEP = 30;
+const ZOOM_DEFAULT = 300;
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${++idCounter}`;
@@ -288,6 +295,9 @@ export default function BulkImportPage() {
   const [publishes, setPublishes] = useState<Record<string, GroupPublish>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  /** Min card width — smaller = more posts per row. Auto-fill does the rest. */
+  const [cardMin, setCardMin] = useState(ZOOM_DEFAULT);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const options = useMetadataOptions();
 
@@ -309,6 +319,8 @@ export default function BulkImportPage() {
   const targetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeIdRef = useRef<string | null>(null);
   activeIdRef.current = activeId;
+  const cardMinRef = useRef(cardMin);
+  cardMinRef.current = cardMin;
 
   const itemCount = Object.keys(items).length;
   const activeGroupCount = groups.filter((g) => !g.skipped).length;
@@ -329,8 +341,33 @@ export default function BulkImportPage() {
     setIsMobile(mq.matches);
     const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     mq.addEventListener("change", onChange);
+    const saved = Number(window.localStorage.getItem(ZOOM_KEY));
+    if (saved >= ZOOM_MIN && saved <= ZOOM_MAX) setCardMin(saved);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+
+  function setZoom(px: number) {
+    const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, px));
+    setCardMin(clamped);
+    try {
+      window.localStorage.setItem(ZOOM_KEY, String(clamped));
+    } catch {
+      /* private mode — zoom just won't persist */
+    }
+  }
+
+  // Trackpad/ctrl-wheel pinch zoom, scoped to the grid (suppresses browser zoom)
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return; // ctrlKey set for pinch gestures and Ctrl+wheel
+      e.preventDefault();
+      setZoom(cardMinRef.current + (e.deltaY > 0 ? ZOOM_STEP : -ZOOM_STEP));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [mounted, itemCount]);
 
   // Unsaved-work guard — warn on refresh/close while there's unpublished work.
   // (No persistence: a confirmed reload still discards the in-memory batch.)
@@ -514,7 +551,7 @@ export default function BulkImportPage() {
     targetTimerRef.current = setTimeout(() => {
       setDropTarget(t);
       targetTimerRef.current = null;
-    }, 60);
+    }, TARGET_DEBOUNCE);
   }
 
   // Hit-test the pointer against rendered groups/rows while dragging.
@@ -552,7 +589,7 @@ export default function BulkImportPage() {
         for (let ri = 0; ri < rowEls.length; ri++) {
           const rr = rowEls[ri].getBoundingClientRect();
           if (clientY < rr.top || clientY > rr.bottom) continue;
-          const zone = Math.min(NEW_ROW_ZONE, rr.height * 0.34);
+          const zone = Math.min(NEW_ROW_ZONE, rr.height * 0.4);
           if (clientY < rr.top + zone) {
             scheduleTarget({ kind: "row", groupId, rowIdx: ri, colIdx: 0, isNewRow: true });
             return;
@@ -775,10 +812,7 @@ export default function BulkImportPage() {
   }
 
   return (
-    <div
-      className="min-h-screen bg-[#1d1c1c] text-[#d3d3d3]"
-      style={{ "--bulk-cols": 3 } as React.CSSProperties}
-    >
+    <div className="min-h-screen bg-[#1d1c1c] text-[#d3d3d3]">
       {/* Toolbar */}
       <div className="sticky top-0 z-20 bg-[#1d1c1c]/95 backdrop-blur border-b border-[#2a2929] px-6 py-3 flex items-center gap-4 flex-wrap">
         <h1 className="text-lg font-semibold mr-2">Bulk Import</h1>
@@ -826,6 +860,41 @@ export default function BulkImportPage() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Zoom — controls posts per row (auto-fills the screen width) */}
+        {itemCount > 0 && (
+          <div
+            className="flex items-center gap-1.5"
+            title="Posts per row — drag to fit more or fewer on screen"
+          >
+            <button
+              onClick={() => setZoom(cardMin + ZOOM_STEP)}
+              disabled={cardMin >= ZOOM_MAX}
+              className="text-[#888] hover:text-[#d3d3d3] disabled:opacity-30 text-lg leading-none w-5"
+              title="Larger posts (fewer per row)"
+            >
+              −
+            </button>
+            {/* Slider runs right = smaller cards = more per row, so invert the value */}
+            <input
+              type="range"
+              min={ZOOM_MIN}
+              max={ZOOM_MAX}
+              step={ZOOM_STEP}
+              value={ZOOM_MIN + ZOOM_MAX - cardMin}
+              onChange={(e) => setZoom(ZOOM_MIN + ZOOM_MAX - Number(e.target.value))}
+              className="w-24 accent-[#427ea3] cursor-pointer"
+            />
+            <button
+              onClick={() => setZoom(cardMin - ZOOM_STEP)}
+              disabled={cardMin <= ZOOM_MIN}
+              className="text-[#888] hover:text-[#d3d3d3] disabled:opacity-30 text-lg leading-none w-5"
+              title="Smaller posts (more per row)"
+            >
+              +
+            </button>
           </div>
         )}
 
@@ -903,8 +972,11 @@ export default function BulkImportPage() {
           onDragCancel={handleDragCancel}
         >
           <div
+            ref={gridRef}
             className="p-6 grid gap-4 items-start"
-            style={{ gridTemplateColumns: "repeat(var(--bulk-cols, 3), minmax(0, 1fr))" }}
+            style={{
+              gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardMin}px, 100%), 1fr))`,
+            }}
           >
             {display.map(({ group, rows }) => (
               <GroupCard
@@ -1072,28 +1144,41 @@ function GroupCard({
         )}
       </div>
 
-      {/* Photo grid — rows reflect the post layout; drag photos to rearrange */}
+      {/* Photo grid — rows reflect the post layout; drag photos to rearrange.
+          The dragged photo previews as a blue line (horizontal = new row,
+          vertical = within a row); the real photo rides the DragOverlay. */}
       <div className="px-1.5 pb-0 space-y-1.5">
-        {rows.map((row, ri) => (
-          <div key={ri} data-grouprow={ri} className="flex gap-1.5 items-stretch">
-            {row.map((id) => {
-              flatIdx++;
-              const idx = flatIdx;
-              const item = items[id];
-              if (!item) return null;
-              return (
-                <DraggablePhoto
-                  key={id}
-                  item={item}
-                  draggable={!locked}
-                  isActive={activeId === id}
-                  canSplit={idx > 0 && !group.skipped}
-                  onSplit={() => onSplit(idx)}
-                />
-              );
-            })}
-          </div>
-        ))}
+        {rows.map((row, ri) => {
+          // Dragged photo alone in a row → thin row with a horizontal indicator
+          if (activeId && row.length === 1 && row[0] === activeId && items[activeId]) {
+            flatIdx++;
+            return (
+              <div key={ri} data-grouprow={ri} className="flex items-center" style={{ height: 12 }}>
+                <DraggablePhoto item={items[activeId]} draggable={!locked} indicator="horizontal" />
+              </div>
+            );
+          }
+          return (
+            <div key={ri} data-grouprow={ri} className="flex gap-1.5 items-stretch">
+              {row.map((id) => {
+                flatIdx++;
+                const idx = flatIdx;
+                const item = items[id];
+                if (!item) return null;
+                return (
+                  <DraggablePhoto
+                    key={id}
+                    item={item}
+                    draggable={!locked}
+                    indicator={activeId === id ? "vertical" : null}
+                    canSplit={idx > 0 && !group.skipped}
+                    onSplit={() => onSplit(idx)}
+                  />
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
 
       {/* Metadata fields */}
@@ -1166,27 +1251,50 @@ function GroupCard({
 function DraggablePhoto({
   item,
   draggable,
-  isActive,
-  canSplit,
+  indicator = null,
+  canSplit = false,
   onSplit,
 }: {
   item: BulkItem;
   draggable: boolean;
-  isActive: boolean;
-  canSplit: boolean;
-  onSplit: () => void;
+  indicator?: "horizontal" | "vertical" | null;
+  canSplit?: boolean;
+  onSplit?: () => void;
 }) {
   const { attributes, listeners, setNodeRef } = useDraggable({
     id: item.id,
     disabled: !draggable,
   });
 
+  // While dragging, this photo previews as a blue insertion line; the real
+  // photo follows the cursor via the DragOverlay (matches the upload page).
+  if (indicator === "horizontal") {
+    return (
+      <div
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        className="flex-1 h-0.5 rounded-full bg-[#427ea3]"
+      />
+    );
+  }
+  if (indicator === "vertical") {
+    return (
+      <div
+        ref={setNodeRef}
+        data-item={item.id}
+        {...attributes}
+        {...listeners}
+        className="flex-shrink-0 w-0.5 self-stretch rounded-full bg-[#427ea3]"
+      />
+    );
+  }
+
   const style: React.CSSProperties = {
     flexGrow: item.aspect,
     flexShrink: 1,
     flexBasis: 0,
     aspectRatio: String(item.aspect),
-    opacity: isActive ? 0.4 : 1,
     touchAction: "none",
   };
 
