@@ -25,7 +25,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getMediaDate, type DateSource } from "@/lib/media/exif";
-import { groupByGap, GAP_THRESHOLDS } from "@/lib/media/grouping";
+import { groupByGap, nearestGroupWithin, GAP_THRESHOLDS } from "@/lib/media/grouping";
 import { defaultLayout } from "@/lib/media/layout";
 import { compressImage } from "@/lib/media/compress";
 import MetadataFields, {
@@ -170,6 +170,48 @@ function makeGroup(groupItems: BulkItem[]): BulkGroup {
   };
 }
 
+/**
+ * Add newly-ingested photos without disturbing the existing arrangement: each
+ * photo joins the eligible group holding the photo closest in time (within
+ * thresholdMs), inserted in date order. Photos matching no group are gap-grouped
+ * among themselves and appended. Never merges existing groups.
+ */
+function placeIntoGroups(
+  prevGroups: BulkGroup[],
+  newItems: BulkItem[],
+  dateOf: (id: string) => number,
+  thresholdMs: number,
+  canPlaceInto: (g: BulkGroup) => boolean
+): BulkGroup[] {
+  const groups = prevGroups.map((g) => ({ ...g }));
+  const leftovers: BulkItem[] = [];
+
+  for (const item of newItems) {
+    // Restrict to eligible groups, then map the winner back to its real index
+    const eligibleIdx: number[] = [];
+    const stamps: number[][] = [];
+    groups.forEach((g, gi) => {
+      if (canPlaceInto(g)) {
+        eligibleIdx.push(gi);
+        stamps.push(g.itemIds.map(dateOf));
+      }
+    });
+    const rel = nearestGroupWithin(stamps, item.date.getTime(), thresholdMs);
+    if (rel >= 0) {
+      const gi = eligibleIdx[rel];
+      const itemIds = [...groups[gi].itemIds, item.id].sort((a, b) => dateOf(a) - dateOf(b));
+      groups[gi] = { ...groups[gi], itemIds };
+    } else {
+      leftovers.push(item);
+    }
+  }
+
+  if (leftovers.length) {
+    groups.push(...groupByGap(leftovers, thresholdMs).map(makeGroup));
+  }
+  return groups;
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function BulkImportPage() {
@@ -273,15 +315,22 @@ export default function BulkImportPage() {
       const merged = { ...prev };
       for (const it of newItems) merged[it.id] = it;
 
+      const thresholdMs = GAP_THRESHOLDS[thresholdIdx].ms;
       if (!edited) {
         // No manual edits yet — regroup everything together
-        setGroups(toGroups(groupByGap(Object.values(merged), GAP_THRESHOLDS[thresholdIdx].ms)));
+        setGroups(toGroups(groupByGap(Object.values(merged), thresholdMs)));
       } else {
-        // Preserve manual work: group only the new items, append as new cards
-        setGroups((prevGroups) => [
-          ...prevGroups,
-          ...toGroups(groupByGap(newItems, GAP_THRESHOLDS[thresholdIdx].ms)),
-        ]);
+        // Manual edits exist: slot each new photo into its best time-matching
+        // existing group (preserving the arrangement); leftovers that match
+        // nothing get gap-grouped among themselves and appended.
+        const dateOf = (id: string) => merged[id]?.date.getTime() ?? 0;
+        const canPlaceInto = (g: BulkGroup) =>
+          !g.skipped &&
+          publishes[g.id]?.state !== "uploading" &&
+          publishes[g.id]?.state !== "done";
+        setGroups((prevGroups) =>
+          placeIntoGroups(prevGroups, newItems, dateOf, thresholdMs, canPlaceInto)
+        );
       }
       return merged;
     });

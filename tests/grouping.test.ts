@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { groupByGap, GAP_THRESHOLDS } from "../src/lib/media/grouping";
+import { groupByGap, nearestGroupWithin, GAP_THRESHOLDS } from "../src/lib/media/grouping";
 
 /**
  * Timestamp-gap grouping tests (Phase 9a).
@@ -99,5 +99,44 @@ describe("groupByGap", () => {
     );
     assert.equal(groups.length, 1);
     assert.equal(groups[0].length, 20);
+  });
+});
+
+describe("nearestGroupWithin", () => {
+  const ts = (iso: string) => new Date(iso).getTime();
+
+  it("returns -1 when there are no candidate groups", () => {
+    assert.equal(nearestGroupWithin([], ts("2019-07-04T12:00:00Z"), HOUR), -1);
+  });
+
+  it("places a duplicate (identical timestamp) into its matching group", () => {
+    // The reported bug: a re-added photo with the same time as a group of 4
+    const candidates = [
+      [ts("2019-07-04T09:00:00Z")], // unrelated morning group
+      Array.from({ length: 4 }, () => ts("2019-07-04T15:00:00Z")), // the group of 4
+    ];
+    assert.equal(nearestGroupWithin(candidates, ts("2019-07-04T15:00:00Z"), HOUR), 1);
+  });
+
+  it("returns -1 when nothing is within the threshold", () => {
+    const candidates = [[ts("2019-07-04T09:00:00Z")], [ts("2019-07-04T15:00:00Z")]];
+    assert.equal(nearestGroupWithin(candidates, ts("2019-07-04T20:00:00Z"), HOUR), -1);
+  });
+
+  it("picks the closest group when more than one is within threshold", () => {
+    // A photo between two manually-split groups joins the nearer one, not both
+    const candidates = [
+      [ts("2019-07-04T12:00:00Z")], // 40 min before
+      [ts("2019-07-04T12:50:00Z")], // 10 min after — closer
+    ];
+    assert.equal(nearestGroupWithin(candidates, ts("2019-07-04T12:40:00Z"), HOUR), 1);
+  });
+
+  it("matches against the nearest member within a group", () => {
+    const candidates = [
+      [ts("2019-07-04T08:00:00Z"), ts("2019-07-04T14:30:00Z")], // spread group
+    ];
+    // 14:45 is within an hour of the 14:30 member even though 08:00 is far
+    assert.equal(nearestGroupWithin(candidates, ts("2019-07-04T14:45:00Z"), HOUR), 0);
   });
 });
