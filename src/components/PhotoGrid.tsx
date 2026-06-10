@@ -121,8 +121,22 @@ export default function PhotoGrid({ media, layout, onImageClick }: PhotoGridProp
                     <FadeImage
                       src={item.url}
                       alt=""
-                      className="w-full h-full object-cover cursor-pointer"
-                      style={{ aspectRatio: count > 1 ? "4/3" : undefined }}
+                      className={
+                        count > 1
+                          ? "w-full h-full object-cover cursor-pointer"
+                          : "w-full h-auto object-cover cursor-pointer"
+                      }
+                      style={{
+                        // 1-photo rows need a definite height: iOS Safari
+                        // resolves the h-full chain through auto-height flex
+                        // parents to 0 and the image collapses entirely.
+                        aspectRatio:
+                          count > 1
+                            ? "4/3"
+                            : item.width && item.height
+                              ? `${item.width}/${item.height}`
+                              : undefined,
+                      }}
                     />
                   </DoubleTapHeart>
                 )}
