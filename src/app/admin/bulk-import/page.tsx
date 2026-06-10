@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getMediaDate, type DateSource } from "@/lib/media/exif";
 import { groupByGap, GAP_THRESHOLDS } from "@/lib/media/grouping";
 import { defaultLayout } from "@/lib/media/layout";
+import { compressImage } from "@/lib/media/compress";
 import MetadataFields, {
   useMetadataOptions,
   type MetadataOptions,
@@ -30,6 +31,12 @@ interface BulkGroup {
   selectedPeople: string[];
   selectedAlbumIds: string[];
   skipped: boolean;
+}
+
+interface GroupPublish {
+  state: "uploading" | "done" | "error";
+  error?: string;
+  slug?: string;
 }
 
 const THUMB_MAX_PX = 320;
@@ -131,6 +138,7 @@ export default function BulkImportPage() {
   const [thresholdIdx, setThresholdIdx] = useState(0);
   const [edited, setEdited] = useState(false);
   const [reading, setReading] = useState<{ done: number; total: number } | null>(null);
+  const [publishes, setPublishes] = useState<Record<string, GroupPublish>>({});
 
   const options = useMetadataOptions();
 
@@ -139,6 +147,11 @@ export default function BulkImportPage() {
 
   const itemCount = Object.keys(items).length;
   const activeGroupCount = groups.filter((g) => !g.skipped).length;
+  const isPublishing = Object.values(publishes).some((p) => p.state === "uploading");
+  const publishedCount = Object.values(publishes).filter((p) => p.state === "done").length;
+  const pendingGroupCount = groups.filter(
+    (g) => !g.skipped && publishes[g.id]?.state !== "done"
+  ).length;
 
   useEffect(() => {
     setMounted(true);
@@ -296,6 +309,74 @@ export default function BulkImportPage() {
     setGroups((prev) => prev.map((g) => ({ ...g, [field]: values })));
   }
 
+  // ─── Publish ───────────────────────────────────────────────────────────────
+
+  async function publishGroup(group: BulkGroup): Promise<void> {
+    setPublishes((prev) => ({ ...prev, [group.id]: { state: "uploading" } }));
+    try {
+      const groupItems = group.itemIds.map((id) => items[id]).filter(Boolean);
+
+      // Compress + presign + upload all photos in parallel
+      const uploadedItems = await Promise.all(
+        groupItems.map(async (item) => {
+          const compressed = await compressImage(item.file);
+          const presignRes = await fetch("/api/admin/upload/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contentType: compressed.type }),
+          });
+          if (!presignRes.ok) {
+            const data = await presignRes.json();
+            throw new Error(data.error || "Failed to get upload URL");
+          }
+          const { uploadUrl, r2Key, keyPrefix } = await presignRes.json();
+          const uploadRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": compressed.type },
+            body: compressed,
+          });
+          if (!uploadRes.ok) throw new Error("Failed to upload photo");
+          return { r2Key, keyPrefix, type: "photo" as const };
+        })
+      );
+
+      const completeRes = await fetch("/api/admin/upload/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: uploadedItems,
+          title: group.title.trim() || undefined,
+          date: group.date || undefined,
+          tags: group.selectedTags,
+          people: group.selectedPeople,
+          albumIds: group.selectedAlbumIds,
+        }),
+      });
+      const data = await completeRes.json();
+      if (!completeRes.ok) throw new Error(data.error || "Processing failed");
+
+      setPublishes((prev) => ({
+        ...prev,
+        [group.id]: { state: "done", slug: data.slug },
+      }));
+    } catch (err) {
+      setPublishes((prev) => ({
+        ...prev,
+        [group.id]: {
+          state: "error",
+          error: err instanceof Error ? err.message : "Upload failed",
+        },
+      }));
+    }
+  }
+
+  async function publishAll() {
+    const toPublish = groups.filter(
+      (g) => !g.skipped && publishes[g.id]?.state !== "done"
+    );
+    await runPool(toPublish, 2, async (group) => publishGroup(group));
+  }
+
   function clearAll() {
     if (!window.confirm("Discard all photos and groups?")) return;
     generationRef.current++;
@@ -306,6 +387,7 @@ export default function BulkImportPage() {
     setGroups([]);
     setEdited(false);
     setReading(null);
+    setPublishes({});
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -397,7 +479,28 @@ export default function BulkImportPage() {
           {itemCount === 0 ? "Choose photos" : "Add photos"}
         </label>
 
-        {itemCount > 0 && (
+        {pendingGroupCount > 0 && (
+          <button
+            onClick={publishAll}
+            disabled={isPublishing}
+            className="bg-[#3a8a50] text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#2f7342] transition-colors disabled:opacity-50 disabled:cursor-wait"
+          >
+            {isPublishing
+              ? `Publishing… (${publishedCount}/${activeGroupCount})`
+              : `Publish ${pendingGroupCount} ${pendingGroupCount === 1 ? "post" : "posts"}`}
+          </button>
+        )}
+
+        {pendingGroupCount === 0 && publishedCount > 0 && (
+          <a
+            href="/"
+            className="bg-[#2a2929] border border-[#3a8a50]/60 text-[#3a8a50] rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#3a8a50]/10 transition-colors"
+          >
+            {publishedCount} published — view feed
+          </a>
+        )}
+
+        {itemCount > 0 && !isPublishing && (
           <button
             onClick={clearAll}
             className="text-sm text-[#666] hover:text-[#d86d6d] transition-colors"
@@ -441,11 +544,13 @@ export default function BulkImportPage() {
               group={group}
               items={items}
               options={options}
+              publish={publishes[group.id]}
               canMergeUp={gi > 0}
               onMergeUp={() => mergeIntoPrevious(gi)}
               onSplit={(itemIdx) => splitGroup(gi, itemIdx)}
               onUpdate={(patch) => updateGroup(group.id, patch)}
               onApplyToAll={applyToAll}
+              onRetry={() => publishGroup(group)}
             />
           ))}
         </div>
@@ -460,15 +565,18 @@ function GroupCard({
   group,
   items,
   options,
+  publish,
   canMergeUp,
   onMergeUp,
   onSplit,
   onUpdate,
   onApplyToAll,
+  onRetry,
 }: {
   group: BulkGroup;
   items: Record<string, BulkItem>;
   options: MetadataOptions;
+  publish?: GroupPublish;
   canMergeUp: boolean;
   onMergeUp: () => void;
   onSplit: (itemIdx: number) => void;
@@ -477,6 +585,7 @@ function GroupCard({
     field: "selectedTags" | "selectedPeople" | "selectedAlbumIds",
     values: string[]
   ) => void;
+  onRetry: () => void;
 }) {
   const groupItems = useMemo(
     () => group.itemIds.map((id) => items[id]).filter(Boolean),
@@ -497,9 +606,14 @@ function GroupCard({
     group.selectedPeople.length > 0 ||
     group.selectedAlbumIds.length > 0;
 
+  const isDone = publish?.state === "done";
+  const isUploading = publish?.state === "uploading";
+  const isError = publish?.state === "error";
+  const isLocked = group.skipped || isDone || isUploading;
+
   return (
     <div
-      className={`bg-[#252424] rounded-xl overflow-hidden transition-opacity ${group.skipped ? "opacity-40" : ""}`}
+      className={`bg-[#252424] rounded-xl overflow-hidden transition-opacity ${group.skipped ? "opacity-40" : ""} ${isDone ? "ring-1 ring-[#3a8a50]/50" : ""}`}
       style={{ contentVisibility: "auto", containIntrinsicSize: "auto 480px" }}
     >
       {/* Header */}
@@ -510,7 +624,7 @@ function GroupCard({
             ? TIME_FMT.format(first.date)
             : `– ${DATE_FMT.format(last.date)}`}
         </span>
-        {first.dateSource !== "exif" && (
+        {first.dateSource !== "exif" && !isDone && (
           <span
             className="text-[#a08545] border border-[#a08545]/40 rounded px-1.5 py-px text-[10px]"
             title={
@@ -522,8 +636,14 @@ function GroupCard({
             ≈ {first.dateSource === "filename" ? "from filename" : "from file"}
           </span>
         )}
+        {isDone && (
+          <span className="text-[#3a8a50] text-[10px] font-medium">published</span>
+        )}
+        {isUploading && (
+          <span className="text-[#427ea3] text-[10px]">uploading…</span>
+        )}
         <span className="text-[#666] ml-auto tabular-nums">{groupItems.length}</span>
-        {canMergeUp && !group.skipped && (
+        {canMergeUp && !isLocked && (
           <button
             onClick={onMergeUp}
             title="Merge into previous group"
@@ -532,17 +652,19 @@ function GroupCard({
             ⤴
           </button>
         )}
-        <button
-          onClick={() => onUpdate({ skipped: !group.skipped })}
-          title={group.skipped ? "Include this group" : "Skip this group"}
-          className={`px-1.5 py-px rounded text-[10px] border transition-colors ${
-            group.skipped
-              ? "border-[#d86d6d]/60 text-[#d86d6d] hover:bg-[#d86d6d]/10"
-              : "border-[#3a3939] text-[#666] hover:text-[#d86d6d] hover:border-[#d86d6d]/60"
-          }`}
-        >
-          {group.skipped ? "skipped" : "skip"}
-        </button>
+        {!isDone && !isUploading && (
+          <button
+            onClick={() => onUpdate({ skipped: !group.skipped })}
+            title={group.skipped ? "Include this group" : "Skip this group"}
+            className={`px-1.5 py-px rounded text-[10px] border transition-colors ${
+              group.skipped
+                ? "border-[#d86d6d]/60 text-[#d86d6d] hover:bg-[#d86d6d]/10"
+                : "border-[#3a3939] text-[#666] hover:text-[#d86d6d] hover:border-[#d86d6d]/60"
+            }`}
+          >
+            {group.skipped ? "skipped" : "skip"}
+          </button>
+        )}
       </div>
 
       {/* Mini photo grid */}
@@ -608,11 +730,11 @@ function GroupCard({
           onPeopleChange={(v) => onUpdate({ selectedPeople: v })}
           selectedAlbumIds={group.selectedAlbumIds}
           onAlbumIdsChange={(v) => onUpdate({ selectedAlbumIds: v })}
-          disabled={group.skipped}
+          disabled={isLocked}
         />
 
         {/* Apply to all — only shown when there's something to propagate */}
-        {hasApplyTargets && !group.skipped && (
+        {hasApplyTargets && !isLocked && (
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {group.selectedTags.length > 0 && (
               <button
@@ -638,6 +760,21 @@ function GroupCard({
                 Apply albums to all
               </button>
             )}
+          </div>
+        )}
+
+        {/* Error + retry */}
+        {isError && (
+          <div className="flex items-center gap-2 pt-0.5">
+            <span className="text-xs text-[#d86d6d] flex-1 truncate" title={publish?.error}>
+              {publish?.error || "Upload failed"}
+            </span>
+            <button
+              onClick={onRetry}
+              className="text-[10px] px-2 py-1 rounded border border-[#d86d6d]/50 text-[#d86d6d] hover:bg-[#d86d6d]/10 transition-colors shrink-0"
+            >
+              Retry
+            </button>
           </div>
         )}
       </div>
