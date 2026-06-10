@@ -239,6 +239,11 @@ export default function BulkImportPage() {
   // Invalidates in-flight thumb work on clear/unmount
   const generationRef = useRef(0);
 
+  // Live mirror of items for synchronous reads inside async handlers (the
+  // closure snapshot of `items` is stale by the time an await resolves).
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
   const itemCount = Object.keys(items).length;
   const activeGroupCount = groups.filter((g) => !g.skipped).length;
   const isPublishing = Object.values(publishes).some((p) => p.state === "uploading");
@@ -311,29 +316,33 @@ export default function BulkImportPage() {
     });
     if (generationRef.current !== gen) return;
 
-    setItems((prev) => {
-      const merged = { ...prev };
-      for (const it of newItems) merged[it.id] = it;
+    // Build the next items map from the live mirror (not the stale closure),
+    // then commit. Grouping is done at the top level — never nest setGroups
+    // inside the setItems updater: React can re-invoke an updater (StrictMode /
+    // interrupted concurrent render) and a nested append would duplicate ids.
+    const merged = { ...itemsRef.current };
+    for (const it of newItems) merged[it.id] = it;
+    itemsRef.current = merged;
+    setItems(merged);
 
-      const thresholdMs = GAP_THRESHOLDS[thresholdIdx].ms;
-      if (!edited) {
-        // No manual edits yet — regroup everything together
-        setGroups(toGroups(groupByGap(Object.values(merged), thresholdMs)));
-      } else {
-        // Manual edits exist: slot each new photo into its best time-matching
-        // existing group (preserving the arrangement); leftovers that match
-        // nothing get gap-grouped among themselves and appended.
-        const dateOf = (id: string) => merged[id]?.date.getTime() ?? 0;
-        const canPlaceInto = (g: BulkGroup) =>
-          !g.skipped &&
-          publishes[g.id]?.state !== "uploading" &&
-          publishes[g.id]?.state !== "done";
-        setGroups((prevGroups) =>
-          placeIntoGroups(prevGroups, newItems, dateOf, thresholdMs, canPlaceInto)
-        );
-      }
-      return merged;
-    });
+    const thresholdMs = GAP_THRESHOLDS[thresholdIdx].ms;
+    const dateOf = (id: string) => merged[id]?.date.getTime() ?? 0;
+
+    if (!edited) {
+      // No manual edits yet — regroup everything together
+      setGroups(toGroups(groupByGap(Object.values(merged), thresholdMs)));
+    } else {
+      // Manual edits exist: slot each new photo into its best time-matching
+      // existing group (preserving the arrangement); leftovers that match
+      // nothing get gap-grouped among themselves and appended.
+      const canPlaceInto = (g: BulkGroup) =>
+        !g.skipped &&
+        publishes[g.id]?.state !== "uploading" &&
+        publishes[g.id]?.state !== "done";
+      setGroups((prevGroups) =>
+        placeIntoGroups(prevGroups, newItems, dateOf, thresholdMs, canPlaceInto)
+      );
+    }
     setReading(null);
 
     // Pass 2: thumbnails, progressively
