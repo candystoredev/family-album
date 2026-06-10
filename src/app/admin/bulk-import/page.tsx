@@ -5,28 +5,15 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  KeyboardSensor,
   useSensor,
   useSensors,
-  useDroppable,
-  pointerWithin,
-  closestCorners,
-  type CollisionDetection,
+  useDraggable,
   type DragStartEvent,
-  type DragOverEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  rectSortingStrategy,
-  useSortable,
-  arrayMove,
-  sortableKeyboardCoordinates,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { getMediaDate, type DateSource } from "@/lib/media/exif";
 import { groupByGap, nearestGroupWithin, GAP_THRESHOLDS } from "@/lib/media/grouping";
-import { defaultLayout } from "@/lib/media/layout";
+import { defaultLayoutCounts } from "@/lib/media/layout";
 import { compressImage } from "@/lib/media/compress";
 import MetadataFields, {
   useMetadataOptions,
@@ -49,7 +36,10 @@ interface BulkItem {
 
 interface BulkGroup {
   id: string;
+  /** Flat photo order — canonical membership. */
   itemIds: string[];
+  /** Row sizes (each 1–3); sums to itemIds.length. Partitions itemIds into rows. */
+  layout: number[];
   title: string;
   date: string;
   selectedTags: string[];
@@ -64,28 +54,21 @@ interface GroupPublish {
   slug?: string;
 }
 
+/** Where a dragged photo will land. */
+type DropTarget =
+  | { kind: "row"; groupId: string; rowIdx: number; colIdx: number; isNewRow: boolean }
+  | { kind: "newGroup" };
+
 const THUMB_MAX_PX = 400;
 const EXIF_CONCURRENCY = 8;
 const THUMB_CONCURRENCY = 4;
 /** Fallback aspect (landscape 4:3) shown until a photo's real ratio is known. */
 const DEFAULT_ASPECT = 4 / 3;
-
-/** Droppable id for the "drop here to start a new post" tile shown during drag. */
-const NEW_GROUP_ID = "__new_group__";
+/** Top/bottom band of a row that means "new row here" rather than "into this row". */
+const NEW_ROW_ZONE = 26;
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${++idCounter}`;
-
-/**
- * The new-group zone wins whenever the pointer is inside it; otherwise closest
- * corners drives both within-group reordering (nearest photo) and cross-group
- * moves (nearest card when hovering empty card space).
- */
-const collisionDetection: CollisionDetection = (args) => {
-  const newGroupHit = pointerWithin(args).find((c) => c.id === NEW_GROUP_ID);
-  if (newGroupHit) return [newGroupHit];
-  return closestCorners(args);
-};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -157,10 +140,33 @@ function toDatetimeLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Split a flat id list into rows per the given counts (with a safety tail). */
+function partition(ids: string[], counts: number[]): string[][] {
+  const rows: string[][] = [];
+  let i = 0;
+  for (const c of counts) {
+    if (i >= ids.length) break;
+    rows.push(ids.slice(i, i + c));
+    i += c;
+  }
+  if (i < ids.length) rows.push(ids.slice(i));
+  return rows;
+}
+
+const rowsOf = (g: BulkGroup): string[][] => partition(g.itemIds, g.layout);
+
+/** Rebuild a group's itemIds + layout from an explicit 2D row arrangement. */
+function withRows(g: BulkGroup, rows: string[][]): BulkGroup {
+  const clean = rows.filter((r) => r.length > 0);
+  return { ...g, itemIds: clean.flat(), layout: clean.map((r) => r.length) };
+}
+
 function makeGroup(groupItems: BulkItem[]): BulkGroup {
+  const itemIds = groupItems.map((it) => it.id);
   return {
     id: nextId("g"),
-    itemIds: groupItems.map((it) => it.id),
+    itemIds,
+    layout: defaultLayoutCounts(itemIds.length),
     title: "",
     date: toDatetimeLocal(groupItems[0].date),
     selectedTags: [],
@@ -170,11 +176,17 @@ function makeGroup(groupItems: BulkItem[]): BulkGroup {
   };
 }
 
+const isAutoLayout = (g: BulkGroup): boolean => {
+  const def = defaultLayoutCounts(g.itemIds.length);
+  return def.length === g.layout.length && def.every((c, i) => c === g.layout[i]);
+};
+
 /**
  * Add newly-ingested photos without disturbing the existing arrangement: each
  * photo joins the eligible group holding the photo closest in time (within
- * thresholdMs), inserted in date order. Photos matching no group are gap-grouped
- * among themselves and appended. Never merges existing groups.
+ * thresholdMs). Auto-layout groups re-flow to the default; manually-laid-out
+ * groups keep their rows and the photo is appended (last row if it has room,
+ * else a new row). Photos matching no group are gap-grouped and appended.
  */
 function placeIntoGroups(
   prevGroups: BulkGroup[],
@@ -187,7 +199,6 @@ function placeIntoGroups(
   const leftovers: BulkItem[] = [];
 
   for (const item of newItems) {
-    // Restrict to eligible groups, then map the winner back to its real index
     const eligibleIdx: number[] = [];
     const stamps: number[][] = [];
     groups.forEach((g, gi) => {
@@ -197,12 +208,22 @@ function placeIntoGroups(
       }
     });
     const rel = nearestGroupWithin(stamps, item.date.getTime(), thresholdMs);
-    if (rel >= 0) {
-      const gi = eligibleIdx[rel];
-      const itemIds = [...groups[gi].itemIds, item.id].sort((a, b) => dateOf(a) - dateOf(b));
-      groups[gi] = { ...groups[gi], itemIds };
-    } else {
+    if (rel < 0) {
       leftovers.push(item);
+      continue;
+    }
+    const gi = eligibleIdx[rel];
+    const g = groups[gi];
+    if (isAutoLayout(g)) {
+      const itemIds = [...g.itemIds, item.id].sort((a, b) => dateOf(a) - dateOf(b));
+      groups[gi] = { ...g, itemIds, layout: defaultLayoutCounts(itemIds.length) };
+    } else {
+      // Preserve the custom layout: tuck into the last row, else start a new one
+      const rows = rowsOf(g);
+      const last = rows[rows.length - 1];
+      if (last && last.length < 3) last.push(item.id);
+      else rows.push([item.id]);
+      groups[gi] = withRows(g, rows);
     }
   }
 
@@ -210,6 +231,45 @@ function placeIntoGroups(
     groups.push(...groupByGap(leftovers, thresholdMs).map(makeGroup));
   }
   return groups;
+}
+
+/**
+ * Live 2D preview while dragging: the active photo is removed from its current
+ * spot and shown where it would land. Pure — also used to commit on drop.
+ * For a new-group target the photo only rides the DragOverlay (the zone
+ * highlights), so it's stripped from its source here.
+ */
+function computeDisplay(
+  groups: BulkGroup[],
+  activeId: string | null,
+  target: DropTarget | null
+): { group: BulkGroup; rows: string[][] }[] {
+  const base = groups.map((g) => ({ group: g, rows: rowsOf(g) }));
+  if (!activeId || !target) return base;
+
+  const stripped = base
+    .map(({ group, rows }) => ({
+      group,
+      rows: rows.map((r) => r.filter((id) => id !== activeId)).filter((r) => r.length > 0),
+    }))
+    .filter((x) => x.rows.length > 0);
+
+  if (target.kind === "newGroup") return stripped;
+
+  return stripped.map((x) => {
+    if (x.group.id !== target.groupId) return x;
+    const rows = x.rows.map((r) => [...r]);
+    if (target.isNewRow) {
+      const at = Math.max(0, Math.min(target.rowIdx, rows.length));
+      rows.splice(at, 0, [activeId]);
+    } else if (target.rowIdx >= 0 && target.rowIdx < rows.length && rows[target.rowIdx].length < 3) {
+      const ci = Math.min(target.colIdx, rows[target.rowIdx].length);
+      rows[target.rowIdx].splice(ci, 0, activeId);
+    } else {
+      rows.push([activeId]);
+    }
+    return { group: x.group, rows };
+  });
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -227,13 +287,13 @@ export default function BulkImportPage() {
   const [reading, setReading] = useState<{ done: number; total: number } | null>(null);
   const [publishes, setPublishes] = useState<Record<string, GroupPublish>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
   const options = useMetadataOptions();
 
   const sensors = useSensors(
     // 8px activation distance so taps on split/skip buttons stay clicks, not drags
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
   // Invalidates in-flight thumb work on clear/unmount
@@ -244,6 +304,12 @@ export default function BulkImportPage() {
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
+  // Freshest drop target during a drag (debounced into state for rendering)
+  const pendingTargetRef = useRef<DropTarget | null>(null);
+  const targetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
+
   const itemCount = Object.keys(items).length;
   const activeGroupCount = groups.filter((g) => !g.skipped).length;
   const isPublishing = Object.values(publishes).some((p) => p.state === "uploading");
@@ -251,6 +317,11 @@ export default function BulkImportPage() {
   const pendingGroupCount = groups.filter(
     (g) => !g.skipped && publishes[g.id]?.state !== "done"
   ).length;
+
+  const isGroupLocked = (g: BulkGroup) =>
+    g.skipped ||
+    publishes[g.id]?.state === "uploading" ||
+    publishes[g.id]?.state === "done";
 
   useEffect(() => {
     setMounted(true);
@@ -310,9 +381,7 @@ export default function BulkImportPage() {
         thumbFailed: false,
         aspect: DEFAULT_ASPECT,
       };
-      setReading((prev) =>
-        prev ? { ...prev, done: prev.done + 1 } : prev
-      );
+      setReading((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
     });
     if (generationRef.current !== gen) return;
 
@@ -329,12 +398,8 @@ export default function BulkImportPage() {
     const dateOf = (id: string) => merged[id]?.date.getTime() ?? 0;
 
     if (!edited) {
-      // No manual edits yet — regroup everything together
       setGroups(toGroups(groupByGap(Object.values(merged), thresholdMs)));
     } else {
-      // Manual edits exist: slot each new photo into its best time-matching
-      // existing group (preserving the arrangement); leftovers that match
-      // nothing get gap-grouped among themselves and appended.
       const canPlaceInto = (g: BulkGroup) =>
         !g.skipped &&
         publishes[g.id]?.state !== "uploading" &&
@@ -377,50 +442,61 @@ export default function BulkImportPage() {
     setGroups(toGroups(groupByGap(Object.values(items), GAP_THRESHOLDS[idx].ms)));
   }
 
-  function mergeIntoPrevious(groupIdx: number) {
-    if (groupIdx === 0) return;
+  function mergeIntoPrevious(groupId: string) {
     setGroups((prev) => {
+      const gi = prev.findIndex((g) => g.id === groupId);
+      if (gi <= 0) return prev;
       const next = [...prev];
-      const target = next[groupIdx - 1];
-      const source = next[groupIdx];
+      const target = next[gi - 1];
+      const source = next[gi];
       const mergedIds = [...target.itemIds, ...source.itemIds].sort(
         (a, b) => items[a].date.getTime() - items[b].date.getTime()
       );
-      next[groupIdx - 1] = { ...target, itemIds: mergedIds };
-      next.splice(groupIdx, 1);
+      next[gi - 1] = {
+        ...target,
+        itemIds: mergedIds,
+        layout: defaultLayoutCounts(mergedIds.length),
+      };
+      next.splice(gi, 1);
       return next;
     });
     setEdited(true);
   }
 
-  /** Split a group so that the photo at itemIdx starts a new group. */
-  function splitGroup(groupIdx: number, itemIdx: number) {
+  /** Split a group so the photo at flat index `itemIdx` starts a new group. */
+  function splitGroup(groupId: string, itemIdx: number) {
     if (itemIdx === 0) return;
     setGroups((prev) => {
+      const gi = prev.findIndex((g) => g.id === groupId);
+      if (gi < 0) return prev;
       const next = [...prev];
-      const group = next[groupIdx];
-      const splitItem = items[group.itemIds[itemIdx]];
-      const first = { ...group, itemIds: group.itemIds.slice(0, itemIdx) };
+      const group = next[gi];
+      const firstIds = group.itemIds.slice(0, itemIdx);
+      const secondIds = group.itemIds.slice(itemIdx);
+      const first: BulkGroup = {
+        ...group,
+        itemIds: firstIds,
+        layout: defaultLayoutCounts(firstIds.length),
+      };
       const second: BulkGroup = {
         id: nextId("g"),
-        itemIds: group.itemIds.slice(itemIdx),
+        itemIds: secondIds,
+        layout: defaultLayoutCounts(secondIds.length),
         title: "",
-        date: toDatetimeLocal(splitItem.date),
+        date: toDatetimeLocal(items[secondIds[0]].date),
         selectedTags: [],
         selectedPeople: [],
         selectedAlbumIds: [],
         skipped: false,
       };
-      next.splice(groupIdx, 1, first, second);
+      next.splice(gi, 1, first, second);
       return next;
     });
     setEdited(true);
   }
 
   function updateGroup(groupId: string, patch: Partial<BulkGroup>) {
-    setGroups((prev) =>
-      prev.map((g) => (g.id === groupId ? { ...g, ...patch } : g))
-    );
+    setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, ...patch } : g)));
   }
 
   function applyToAll(
@@ -430,112 +506,158 @@ export default function BulkImportPage() {
     setGroups((prev) => prev.map((g) => ({ ...g, [field]: values })));
   }
 
-  // ─── Drag & drop (cross-group membership + order) ───────────────────────────
+  // ─── Drag & drop (row layout within a group + cross-group + new group) ───────
 
-  /** A group can't gain or lose photos while uploading, published, or skipped. */
-  const isGroupLocked = (g: BulkGroup) =>
-    g.skipped || publishes[g.id]?.state === "uploading" || publishes[g.id]?.state === "done";
-
-  /** Resolve any drag id (item, group, or new-group zone) to its container id. */
-  function containerOf(id: string): string | undefined {
-    if (id === NEW_GROUP_ID) return NEW_GROUP_ID;
-    if (groups.some((g) => g.id === id)) return id;
-    return groups.find((g) => g.itemIds.includes(id))?.id;
+  function scheduleTarget(t: DropTarget | null) {
+    pendingTargetRef.current = t;
+    if (targetTimerRef.current) clearTimeout(targetTimerRef.current);
+    targetTimerRef.current = setTimeout(() => {
+      setDropTarget(t);
+      targetTimerRef.current = null;
+    }, 60);
   }
 
+  // Hit-test the pointer against rendered groups/rows while dragging.
+  useEffect(() => {
+    if (!activeId) return;
+
+    function hitTest(clientX: number, clientY: number) {
+      const dragged = activeIdRef.current;
+      // New-group zone wins if the pointer is inside it
+      const ng = document.querySelector<HTMLElement>("[data-newgroup]");
+      if (ng) {
+        const r = ng.getBoundingClientRect();
+        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+          scheduleTarget({ kind: "newGroup" });
+          return;
+        }
+      }
+      const groupEls = Array.from(document.querySelectorAll<HTMLElement>("[data-group]"));
+      for (const gEl of groupEls) {
+        if (gEl.dataset.locked === "true") continue;
+        const gr = gEl.getBoundingClientRect();
+        if (clientX < gr.left || clientX > gr.right || clientY < gr.top || clientY > gr.bottom)
+          continue;
+        const groupId = gEl.dataset.group!;
+        const rowEls = Array.from(gEl.querySelectorAll<HTMLElement>("[data-grouprow]"));
+        if (rowEls.length === 0) {
+          scheduleTarget({ kind: "row", groupId, rowIdx: 0, colIdx: 0, isNewRow: true });
+          return;
+        }
+        const lastRect = rowEls[rowEls.length - 1].getBoundingClientRect();
+        if (clientY > lastRect.bottom) {
+          scheduleTarget({ kind: "row", groupId, rowIdx: rowEls.length, colIdx: 0, isNewRow: true });
+          return;
+        }
+        for (let ri = 0; ri < rowEls.length; ri++) {
+          const rr = rowEls[ri].getBoundingClientRect();
+          if (clientY < rr.top || clientY > rr.bottom) continue;
+          const zone = Math.min(NEW_ROW_ZONE, rr.height * 0.34);
+          if (clientY < rr.top + zone) {
+            scheduleTarget({ kind: "row", groupId, rowIdx: ri, colIdx: 0, isNewRow: true });
+            return;
+          }
+          if (clientY > rr.bottom - zone) {
+            scheduleTarget({ kind: "row", groupId, rowIdx: ri + 1, colIdx: 0, isNewRow: true });
+            return;
+          }
+          const itemEls = Array.from(
+            rowEls[ri].querySelectorAll<HTMLElement>("[data-item]")
+          ).filter((el) => el.dataset.item !== dragged);
+          let colIdx = itemEls.length;
+          for (let ci = 0; ci < itemEls.length; ci++) {
+            const ir = itemEls[ci].getBoundingClientRect();
+            if (clientX < ir.left + ir.width / 2) {
+              colIdx = ci;
+              break;
+            }
+          }
+          scheduleTarget({ kind: "row", groupId, rowIdx: ri, colIdx, isNewRow: false });
+          return;
+        }
+      }
+      scheduleTarget(null);
+    }
+
+    function onPointerMove(e: PointerEvent) {
+      hitTest(e.clientX, e.clientY);
+    }
+
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      if (targetTimerRef.current) {
+        clearTimeout(targetTimerRef.current);
+        targetTimerRef.current = null;
+      }
+    };
+  }, [activeId]);
+
   function handleDragStart(e: DragStartEvent) {
+    pendingTargetRef.current = null;
+    setDropTarget(null);
     setActiveId(String(e.active.id));
   }
 
-  function handleDragOver(e: DragOverEvent) {
-    const { active, over } = e;
-    if (!over) return;
-    const activeItemId = String(active.id);
-    const from = containerOf(activeItemId);
-    const overContainer = containerOf(String(over.id));
-    if (!from || !overContainer) return;
-    if (overContainer === NEW_GROUP_ID || overContainer === from) return;
-
-    // Live-move the photo into the hovered group so the preview tracks the cursor
-    setGroups((prev) => {
-      const src = prev.find((g) => g.itemIds.includes(activeItemId));
-      const tgt = prev.find((g) => g.id === overContainer);
-      if (!src || !tgt || src.id === tgt.id || isGroupLocked(tgt)) return prev;
-
-      const overId = String(over.id);
-      const insertAt =
-        overId === tgt.id ? tgt.itemIds.length : Math.max(0, tgt.itemIds.indexOf(overId));
-
-      return prev.map((g) => {
-        if (g.id === src.id)
-          return { ...g, itemIds: g.itemIds.filter((id) => id !== activeItemId) };
-        if (g.id === tgt.id) {
-          const ids = g.itemIds.filter((id) => id !== activeItemId);
-          ids.splice(insertAt, 0, activeItemId);
-          return { ...g, itemIds: ids };
-        }
-        return g;
-      });
-    });
-    setEdited(true);
-  }
-
   function handleDragEnd(e: DragEndEvent) {
-    const { active, over } = e;
+    if (targetTimerRef.current) {
+      clearTimeout(targetTimerRef.current);
+      targetTimerRef.current = null;
+    }
+    const itemId = String(e.active.id);
+    const target = pendingTargetRef.current;
     setActiveId(null);
-    if (!over) {
-      pruneEmptyGroups();
-      return;
-    }
-    const activeItemId = String(active.id);
-    const overId = String(over.id);
-    const overContainer = containerOf(overId);
-
-    if (overContainer === NEW_GROUP_ID) {
-      extractToNewGroup(activeItemId);
-      return;
-    }
-
-    // Same-container reorder (cross-container moves already happened in dragOver)
-    if (overContainer && overContainer === containerOf(activeItemId) && activeItemId !== overId) {
-      setGroups((prev) =>
-        prev.map((g) => {
-          if (g.id !== overContainer) return g;
-          const oldIdx = g.itemIds.indexOf(activeItemId);
-          const newIdx = g.itemIds.indexOf(overId);
-          if (oldIdx === -1 || newIdx === -1) return g;
-          return { ...g, itemIds: arrayMove(g.itemIds, oldIdx, newIdx) };
-        })
-      );
-      setEdited(true);
-    }
-    pruneEmptyGroups();
+    setDropTarget(null);
+    pendingTargetRef.current = null;
+    if (!target) return;
+    commitDrop(itemId, target);
   }
 
-  function pruneEmptyGroups() {
-    setGroups((prev) => prev.filter((g) => g.itemIds.length > 0));
+  function handleDragCancel() {
+    if (targetTimerRef.current) {
+      clearTimeout(targetTimerRef.current);
+      targetTimerRef.current = null;
+    }
+    setActiveId(null);
+    setDropTarget(null);
+    pendingTargetRef.current = null;
   }
 
-  /** Pull a photo out into its own new group at the end. No-op for solo photos. */
-  function extractToNewGroup(itemId: string) {
+  function commitDrop(itemId: string, target: DropTarget) {
     setGroups((prev) => {
       const src = prev.find((g) => g.itemIds.includes(itemId));
-      if (!src || src.itemIds.length === 1) return prev; // keep solo group + its metadata
-      const item = items[itemId];
-      const next = prev.map((g) =>
-        g.id === src.id ? { ...g, itemIds: g.itemIds.filter((id) => id !== itemId) } : g
-      );
-      next.push({
-        id: nextId("g"),
-        itemIds: [itemId],
-        title: "",
-        date: toDatetimeLocal(item.date),
-        selectedTags: [],
-        selectedPeople: [],
-        selectedAlbumIds: [],
-        skipped: false,
-      });
-      return next;
+      if (!src) return prev;
+
+      if (target.kind === "newGroup") {
+        if (src.itemIds.length === 1) return prev; // solo photo — keep its group + metadata
+        const stripped = prev
+          .map((g) =>
+            g.id === src.id
+              ? withRows(
+                  g,
+                  rowsOf(g).map((r) => r.filter((id) => id !== itemId))
+                )
+              : g
+          )
+          .filter((g) => g.itemIds.length > 0);
+        stripped.push({
+          id: nextId("g"),
+          itemIds: [itemId],
+          layout: [1],
+          title: "",
+          date: toDatetimeLocal(items[itemId].date),
+          selectedTags: [],
+          selectedPeople: [],
+          selectedAlbumIds: [],
+          skipped: false,
+        });
+        return stripped;
+      }
+
+      // Row target — rebuild every group from the live 2D preview
+      const display = computeDisplay(prev, itemId, target);
+      const byId = new Map(prev.map((g) => [g.id, g]));
+      return display.map(({ group, rows }) => withRows(byId.get(group.id) ?? group, rows));
     });
     setEdited(true);
   }
@@ -547,7 +669,6 @@ export default function BulkImportPage() {
     try {
       const groupItems = group.itemIds.map((id) => items[id]).filter(Boolean);
 
-      // Compress + presign + upload all photos in parallel
       const uploadedItems = await Promise.all(
         groupItems.map(async (item) => {
           const compressed = await compressImage(item.file);
@@ -581,6 +702,8 @@ export default function BulkImportPage() {
           tags: group.selectedTags,
           people: group.selectedPeople,
           albumIds: group.selectedAlbumIds,
+          // Honour the manual row layout the admin built
+          photosetLayout: group.itemIds.length > 1 ? group.layout.join("") : undefined,
         }),
       });
       const data = await completeRes.json();
@@ -622,6 +745,11 @@ export default function BulkImportPage() {
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────
+
+  const display = useMemo(
+    () => computeDisplay(groups, activeId, dropTarget),
+    [groups, activeId, dropTarget]
+  );
 
   if (!mounted) return <div className="min-h-screen bg-[#1d1c1c]" />;
 
@@ -675,7 +803,10 @@ export default function BulkImportPage() {
 
         {/* Gap threshold */}
         {itemCount > 0 && (
-          <div className="flex items-center gap-2" title={edited ? "Locked — you've edited groups manually" : "Photos further apart than this start a new post"}>
+          <div
+            className="flex items-center gap-2"
+            title={edited ? "Locked — you've edited groups manually" : "Photos further apart than this start a new post"}
+          >
             <span className="text-xs text-[#666]">
               {edited ? "Group gap 🔒" : "Group gap"}
             </span>
@@ -767,32 +898,46 @@ export default function BulkImportPage() {
       {groups.length > 0 && (
         <DndContext
           sensors={sensors}
-          collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
-          onDragCancel={() => setActiveId(null)}
+          onDragCancel={handleDragCancel}
         >
           <div
             className="p-6 grid gap-4 items-start"
             style={{ gridTemplateColumns: "repeat(var(--bulk-cols, 3), minmax(0, 1fr))" }}
           >
-            {groups.map((group, gi) => (
+            {display.map(({ group, rows }) => (
               <GroupCard
                 key={group.id}
                 group={group}
+                rows={rows}
                 items={items}
                 options={options}
                 publish={publishes[group.id]}
-                canMergeUp={gi > 0}
-                onMergeUp={() => mergeIntoPrevious(gi)}
-                onSplit={(itemIdx) => splitGroup(gi, itemIdx)}
+                locked={isGroupLocked(group)}
+                activeId={activeId}
+                canMergeUp={groups.findIndex((g) => g.id === group.id) > 0}
+                onMergeUp={() => mergeIntoPrevious(group.id)}
+                onSplit={(itemIdx) => splitGroup(group.id, itemIdx)}
                 onUpdate={(patch) => updateGroup(group.id, patch)}
                 onApplyToAll={applyToAll}
                 onRetry={() => publishGroup(group)}
               />
             ))}
-            {activeId && <NewGroupZone />}
+            {activeId && (
+              <div
+                data-newgroup
+                className={`flex items-center justify-center rounded-xl border-2 border-dashed text-center text-xs min-h-[120px] transition-colors ${
+                  dropTarget?.kind === "newGroup"
+                    ? "border-[#427ea3] bg-[#427ea3]/10 text-[#427ea3]"
+                    : "border-[#3a3939] text-[#666]"
+                }`}
+              >
+                Drop here to
+                <br />
+                start a new post
+              </div>
+            )}
           </div>
 
           <DragOverlay>
@@ -817,33 +962,16 @@ export default function BulkImportPage() {
   );
 }
 
-// ─── New-group drop zone (only mounted during a drag) ─────────────────────────
-
-function NewGroupZone() {
-  const { setNodeRef, isOver } = useDroppable({ id: NEW_GROUP_ID });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`flex items-center justify-center rounded-xl border-2 border-dashed text-center text-xs min-h-[120px] transition-colors ${
-        isOver
-          ? "border-[#427ea3] bg-[#427ea3]/10 text-[#427ea3]"
-          : "border-[#3a3939] text-[#666]"
-      }`}
-    >
-      Drop here to
-      <br />
-      start a new post
-    </div>
-  );
-}
-
 // ─── Group Card ──────────────────────────────────────────────────────────────
 
 function GroupCard({
   group,
+  rows,
   items,
   options,
   publish,
+  locked,
+  activeId,
   canMergeUp,
   onMergeUp,
   onSplit,
@@ -852,9 +980,12 @@ function GroupCard({
   onRetry,
 }: {
   group: BulkGroup;
+  rows: string[][];
   items: Record<string, BulkItem>;
   options: MetadataOptions;
   publish?: GroupPublish;
+  locked: boolean;
+  activeId: string | null;
   canMergeUp: boolean;
   onMergeUp: () => void;
   onSplit: (itemIdx: number) => void;
@@ -865,19 +996,15 @@ function GroupCard({
   ) => void;
   onRetry: () => void;
 }) {
-  const groupItems = useMemo(
-    () => group.itemIds.map((id) => items[id]).filter(Boolean),
-    [group.itemIds, items]
+  const flatItems = useMemo(
+    () => rows.flat().map((id) => items[id]).filter(Boolean),
+    [rows, items]
   );
-  const first = groupItems[0];
-  if (!first) return null;
+  const first = flatItems[0];
+  const last = flatItems[flatItems.length - 1];
+  if (!first || !last) return null;
 
-  const last = groupItems[groupItems.length - 1];
   const sameDay = first.date.toDateString() === last.date.toDateString();
-  const rows = defaultLayout(groupItems);
-
-  // Running index per photo so split knows the position within the group
-  let flatIdx = -1;
 
   const hasApplyTargets =
     group.selectedTags.length > 0 ||
@@ -887,17 +1014,24 @@ function GroupCard({
   const isDone = publish?.state === "done";
   const isUploading = publish?.state === "uploading";
   const isError = publish?.state === "error";
-  const isLocked = group.skipped || isDone || isUploading;
+
+  // Running flat index so the split affordance knows each photo's position
+  let flatIdx = -1;
 
   return (
-    <GroupDroppable groupId={group.id} disabled={isLocked} skipped={group.skipped} isDone={isDone}>
+    <div
+      data-group={group.id}
+      data-locked={locked ? "true" : "false"}
+      className={`bg-[#252424] rounded-xl overflow-hidden transition-all ${group.skipped ? "opacity-40" : ""} ${
+        isDone ? "ring-1 ring-[#3a8a50]/50" : ""
+      }`}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 480px" }}
+    >
       {/* Header */}
       <div className="px-3 py-2 flex items-center gap-2 text-xs">
         <span className="text-[#d3d3d3] font-medium">{DATE_FMT.format(first.date)}</span>
         <span className="text-[#666]">
-          {sameDay
-            ? TIME_FMT.format(first.date)
-            : `– ${DATE_FMT.format(last.date)}`}
+          {sameDay ? TIME_FMT.format(first.date) : `– ${DATE_FMT.format(last.date)}`}
         </span>
         {first.dateSource !== "exif" && !isDone && (
           <span
@@ -911,14 +1045,10 @@ function GroupCard({
             ≈ {first.dateSource === "filename" ? "from filename" : "from file"}
           </span>
         )}
-        {isDone && (
-          <span className="text-[#3a8a50] text-[10px] font-medium">published</span>
-        )}
-        {isUploading && (
-          <span className="text-[#427ea3] text-[10px]">uploading…</span>
-        )}
-        <span className="text-[#666] ml-auto tabular-nums">{groupItems.length}</span>
-        {canMergeUp && !isLocked && (
+        {isDone && <span className="text-[#3a8a50] text-[10px] font-medium">published</span>}
+        {isUploading && <span className="text-[#427ea3] text-[10px]">uploading…</span>}
+        <span className="text-[#666] ml-auto tabular-nums">{flatItems.length}</span>
+        {canMergeUp && !locked && (
           <button
             onClick={onMergeUp}
             title="Merge into previous group"
@@ -942,28 +1072,29 @@ function GroupCard({
         )}
       </div>
 
-      {/* Mini photo grid */}
-      <SortableContext items={group.itemIds} strategy={rectSortingStrategy}>
-        <div className="px-1.5 pb-0 space-y-1.5">
-          {rows.map((row, ri) => (
-            <div key={ri} className="flex gap-1.5 items-stretch">
-              {row.map((item) => {
-                flatIdx++;
-                const idx = flatIdx;
-                return (
-                  <SortablePhoto
-                    key={item.id}
-                    item={item}
-                    canSplit={idx > 0 && !group.skipped}
-                    draggable={!isLocked}
-                    onSplit={() => onSplit(idx)}
-                  />
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </SortableContext>
+      {/* Photo grid — rows reflect the post layout; drag photos to rearrange */}
+      <div className="px-1.5 pb-0 space-y-1.5">
+        {rows.map((row, ri) => (
+          <div key={ri} data-grouprow={ri} className="flex gap-1.5 items-stretch">
+            {row.map((id) => {
+              flatIdx++;
+              const idx = flatIdx;
+              const item = items[id];
+              if (!item) return null;
+              return (
+                <DraggablePhoto
+                  key={id}
+                  item={item}
+                  draggable={!locked}
+                  isActive={activeId === id}
+                  canSplit={idx > 0 && !group.skipped}
+                  onSplit={() => onSplit(idx)}
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
 
       {/* Metadata fields */}
       <div className="px-3 pt-3 pb-3 space-y-2.5">
@@ -980,11 +1111,10 @@ function GroupCard({
           onPeopleChange={(v) => onUpdate({ selectedPeople: v })}
           selectedAlbumIds={group.selectedAlbumIds}
           onAlbumIdsChange={(v) => onUpdate({ selectedAlbumIds: v })}
-          disabled={isLocked}
+          disabled={locked}
         />
 
-        {/* Apply to all — only shown when there's something to propagate */}
-        {hasApplyTargets && !isLocked && (
+        {hasApplyTargets && !locked && (
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {group.selectedTags.length > 0 && (
               <button
@@ -1013,7 +1143,6 @@ function GroupCard({
           </div>
         )}
 
-        {/* Error + retry */}
         {isError && (
           <div className="flex items-center gap-2 pt-0.5">
             <span className="text-xs text-[#d86d6d] flex-1 truncate" title={publish?.error}>
@@ -1028,72 +1157,43 @@ function GroupCard({
           </div>
         )}
       </div>
-    </GroupDroppable>
-  );
-}
-
-// ─── Group droppable wrapper ──────────────────────────────────────────────────
-
-function GroupDroppable({
-  groupId,
-  disabled,
-  skipped,
-  isDone,
-  children,
-}: {
-  groupId: string;
-  disabled: boolean;
-  skipped: boolean;
-  isDone: boolean;
-  children: React.ReactNode;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: groupId, disabled });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`bg-[#252424] rounded-xl overflow-hidden transition-all ${skipped ? "opacity-40" : ""} ${
-        isDone ? "ring-1 ring-[#3a8a50]/50" : ""
-      } ${isOver && !disabled ? "ring-2 ring-[#427ea3]" : ""}`}
-      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 480px" }}
-    >
-      {children}
     </div>
   );
 }
 
-// ─── Sortable photo ───────────────────────────────────────────────────────────
+// ─── Draggable photo ──────────────────────────────────────────────────────────
 
-function SortablePhoto({
+function DraggablePhoto({
   item,
-  canSplit,
   draggable,
+  isActive,
+  canSplit,
   onSplit,
 }: {
   item: BulkItem;
-  canSplit: boolean;
   draggable: boolean;
+  isActive: boolean;
+  canSplit: boolean;
   onSplit: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: item.id, disabled: !draggable });
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: item.id,
+    disabled: !draggable,
+  });
 
-  // Justified row: width ∝ aspect, aspect-ratio makes every photo in the row
-  // resolve to the same height — true proportions, no cropping, mixed
-  // orientations handled automatically.
   const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    touchAction: "none",
     flexGrow: item.aspect,
     flexShrink: 1,
     flexBasis: 0,
     aspectRatio: String(item.aspect),
+    opacity: isActive ? 0.4 : 1,
+    touchAction: "none",
   };
 
   return (
     <div
       ref={setNodeRef}
+      data-item={item.id}
       style={style}
       {...attributes}
       {...listeners}
@@ -1121,7 +1221,6 @@ function SortablePhoto({
         <div className="w-full h-full animate-pulse bg-[#2a2929]" />
       )}
 
-      {/* Split-before affordance — not on the first photo */}
       {canSplit && (
         <button
           onClick={onSplit}

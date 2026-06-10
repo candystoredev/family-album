@@ -197,14 +197,12 @@ Select many images at once → client reads EXIF dates → app auto-groups them 
   - Toolbar live count (`Publishing… (3/8)`) → "X published — view feed" link when all done
   - Metadata fields/controls lock while uploading or published; Clear all resets publish state
 
-- **9d — Cross-group drag-and-drop (polish)** ~~DONE~~ ✓
-  - Semantics: membership + linear order only — row layout inside a group stays auto-generated (`defaultLayout`)
-  - `@dnd-kit` multi-container: each card a `useDroppable` + `SortableContext`, each photo a `useSortable`; live `onDragOver` moves photos across groups so the preview tracks the cursor
-  - Collision: pointer-first for the new-group zone, `closestCorners` for everything else (reliable within-group reorder + cross-group add)
-  - New group: a dashed "drop here to start a new post" tile appears at the end of the grid during a drag; dropping a photo there extracts it into its own group (no-op for solo photos so metadata isn't lost)
-  - Removing the last photo from a group deletes the group (pruned on drag end)
-  - Locked groups (skipped / uploading / published) can't be dragged from or dropped into
-  - Did NOT port the upload form's custom pointer hit-testing — used the standard sortable pattern instead
+- **9d — Drag-and-drop: row layout + cross-group + new group** ~~DONE~~ ✓
+  - Full row-layout control within a group (ported the upload page's interaction): drag a photo to the top/bottom of a row (new-row zone) to restructure into 1+3, 1+2+1, etc.; drag into a row's middle to reorder. Group model is now `itemIds` + `layout` (row sizes); published posts send the manual `photosetLayout`.
+  - Cross-group: drag a photo onto another card to move it there.
+  - New group: a dashed "drop here to start a new post" tile appears during a drag; dropping a photo there extracts it into its own group (no-op for solo photos so metadata isn't lost).
+  - Implementation: `@dnd-kit` `useDraggable` + a global `pointermove` hit-test across all groups/rows + the new-group zone (synchronous, not rAF — works even when the tab is backgrounded), with a pure `computeDisplay` for live preview and commit. Replaced the initial `SortableContext` approach.
+  - Removing the last photo from a group deletes the group; locked groups (skipped / uploading / published) reject drags.
 
 - **9e — Zoom control (polish)**
   - Range slider in toolbar sets `--bulk-cols` (2–6), persisted in `localStorage`
