@@ -211,6 +211,13 @@ Decision: Bulk import drag-and-drop is group membership + linear order only; row
 Reason: The upload form's drag is custom pointer hit-testing against `[data-row]`/`[data-item]` (not `@dnd-kit` SortableContext, contrary to what the original plan assumed) — built for row-level placement that doesn't generalize to 30 cards. At bulk-review scale, only membership matters; the edit page already covers per-post layout.
 Alternatives Considered: Porting the custom row hit-test to multi-container; full SortableContext nesting with row semantics
 Impact: 9d uses the standard dnd-kit multi-container pattern (droppable cards, per-group `SortableContext`). `defaultLayout`/`generatePhotosetLayout` move to a shared `lib/media/layout.ts`.
+**SUPERSEDED (2026-06-10, below):** reversed once the limited layouts proved too constraining in real use.
+
+### 2026-06-10
+Decision: Bulk import DOES support per-group row layout — port the upload page's row-level drag (supersedes the prior "membership + linear order only" decision)
+Reason: In real use, auto-only layouts were too limiting (e.g. a 4-photo group is locked to 2×2 with no way to make a hero 1+3). The backend already accepts a custom `photosetLayout`, so the cost was front-end only.
+Alternatives Considered: Row-break toggle buttons; a preset layout picker (doesn't scale past a few photos); deferring to the edit page
+Impact: Group model became `itemIds` + `layout: number[]` (row sizes). Drag is `@dnd-kit` `useDraggable` + a **synchronous** global `pointermove` hit-test across all groups/rows + the new-group zone (rAF was unreliable — paused in backgrounded tabs), with a pure `computeDisplay` for live preview and commit. Replaced 9d's initial `SortableContext`/`useSortable` approach. Publish sends `layout.join("")` as `photosetLayout`.
 
 ### 2026-06-10
 Decision: 9d collision detection is pointer-first only for the new-group zone, `closestCorners` for everything else (not `rectIntersection` as originally planned); new groups created via a dedicated drop tile, not positional gaps between cards
