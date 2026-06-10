@@ -149,71 +149,82 @@ Responsive web throughout (not PWA). Each sub-slice builds on previous.
 
 ### Phase 9 — Bulk Import
 
-Desktop and tablet only (hard `md:` breakpoint gate; mobile redirected to `/admin/upload`). A catch-up import tool for adding large batches of photos at once — the primary use case is uploading historical photos that predate the Tumblr era or weren't captured in the migration.
+Desktop and tablet only (mobile shows a friendly fallback card linking to `/admin/upload`). A catch-up import tool for adding large batches of photos at once — the primary use case is uploading historical photos that predate the Tumblr era or weren't captured in the migration.
 
 #### Concept
-Select many images at once → app auto-groups them into suggested posts based on timestamp proximity → admin reviews and adjusts groups via drag-and-drop → fills in metadata per group → publishes all as separate posts in one action.
+Select many images at once → client reads EXIF dates → app auto-groups them into suggested posts based on timestamp proximity → admin reviews and adjusts groups (merge/split buttons first, drag-and-drop as polish) → fills in metadata per group → publishes all as separate posts in one action.
+
+#### Sub-phase ordering
+9-pre through 9c form a complete, usable tool (mis-groupings fixable via merge/split). 9d (cross-group drag) and 9e (zoom) are polish. Resequenced from the original plan so the end-to-end path ships first.
 
 #### Sub-phases
 
-- **9a — File ingest + auto-grouping**
-  - Multi-file picker (no hard cap; handle 50–200 images gracefully)
-  - Client-side EXIF extraction (`exifr` library — lightweight, no server round-trip)
-  - Sort all images by EXIF datetime (fallback: filename, then file modification time)
-  - Gap threshold: consecutive images more than 1 hour apart start a new group (threshold configurable in a constant, not exposed in UI v1)
-  - Groups rendered as "post cards" in a responsive CSS grid — each card shows a mini photo grid using the existing `PhotoGrid` layout logic
-  - No drag-and-drop yet; groups are static for review
-  - Verify: Select 40 photos spanning 3 days → groups split correctly at day boundaries. Single-photo group renders. 5-photo group shows correct grid.
+- **9-pre — Shared extraction (refactor, no new behavior)**
+  - `src/lib/media/compress.ts` — move `compressImage` out of the upload page
+  - `src/lib/media/exif.ts` — `exifr` wrapper: `getExifDate(file)` → `{ date, source }` with fallback chain: `DateTimeOriginal` → `CreateDate` → filename pattern (`YYYYMMDD` / `YYYY-MM-DD`) → `file.lastModified`
+  - `src/lib/media/layout.ts` — move `defaultLayout` (upload page) + `generatePhotosetLayout` (complete route) into one module; they encode the same rules and are currently duplicated
+  - `src/components/MetadataFields.tsx` — title/date/tags/people/albums field group extracted from the upload page (edit page can adopt later)
+  - **Fixes a standing bug while here**: client-side compression re-encodes via canvas, which strips EXIF — so for photos >1920px the server's EXIF date detection silently fails and posts get the upload date. Single upload now reads the EXIF date client-side and passes `date` to complete.
+  - Verify: single upload behavior unchanged except large photos now get correct EXIF dates. Unit tests for exif fallback chain + layout parity.
 
-- **9b — Cross-group drag-and-drop**
-  - Extend `@dnd-kit` (already in project) to support multiple sortable containers
-  - Drag any photo from one group card to another group card
-  - Drag a photo to the gap between cards → creates a new single-photo group at that position
-  - Removing all photos from a group → group is deleted automatically
-  - Within-group reorder also supported (same pattern as existing upload form)
-  - Verify: Move photo from group A to group B → both cards update. Drag to gap → new group created. Remove last photo from group → group disappears.
+- **9a — Ingest + auto-grouping + merge/split**
+  - `/admin/bulk-import` page, multi-file picker (no hard cap; 50–200 images must stay smooth)
+  - Two-pass ingest: (1) EXIF date pass — header-only reads via `exifr`, progress text ("Reading photo 120/200…"), groups render immediately with shimmer placeholders; (2) thumbnail pass — previews generated progressively (`createImageBitmap(file, { resizeWidth: 320 })` → canvas → blob URL), small worker queue (~4 concurrent)
+  - **Memory rules**: never render an object URL of the original file — previews are ≤320px generated blobs; `content-visibility: auto` + `contain-intrinsic-size` on cards so offscreen cards don't render
+  - Grouping: pure function `groupByGap(items, thresholdMs)` in `src/lib/media/grouping.ts`, unit-tested
+  - Threshold control: segmented "1 hr / 6 hrs / 1 day" in the toolbar — regroups live (pure recompute, instant); locks with a note after the first manual group edit so it can't destroy manual work
+  - Group cards in CSS grid (`grid-template-columns: repeat(var(--bulk-cols), 1fr)`, default 3); mini photo grid per card via shared `defaultLayout`
+  - **Merge/split**: each card has a "merge into previous group" button; hovering between two photos inside a card shows a "split here" divider — these two cover the common mis-grouping cases without any drag-and-drop
+  - Date-source badge on cards whose date came from filename/mtime fallback (tiny icon + tooltip) — trust signal for old scanned photos
+  - `beforeunload` confirm guard whenever unpublished work exists
+  - Verify: 40 photos spanning 3 days → groups split at day boundaries. Threshold change regroups live. Merge then split round-trips. EXIF-less file lands via mtime with badge. 200-photo selection: no tab jank, memory stays flat while scrolling.
 
-- **9c — Zoom control**
-  - Range slider (bottom toolbar or top-right) controls the number of columns in the card grid
-  - Maps range to CSS custom property `--bulk-cols` (values 2–6; fewer columns = larger cards)
-  - **Trackpad pinch**: listen for `wheel` events with `ctrlKey: true` (browser fires these for pinch gestures on trackpad); `deltaY` adjusts `--bulk-cols` with a small damping factor to avoid jumpy response
-  - **Touchscreen pinch**: `touchstart` / `touchmove` with 2 touches; track distance between `touches[0]` and `touches[1]`; compare to baseline distance to derive scale delta → map to column step changes
-  - Card content (photo grid, metadata fields) scales proportionally; at minimum zoom (6 cols), metadata inputs collapse to a single-line summary; at maximum zoom (2 cols), full metadata form is visible
-  - Slider position persists in `localStorage` across sessions
-  - Verify: Slider drag changes card size smoothly. Two-finger pinch on trackpad zooms. Pinch on iPad zooms. Content collapses/expands correctly at extremes.
+- **9b — Per-group metadata editing**
+  - Each card: title, date (pre-filled from group's earliest EXIF date), tags, people, albums — via shared `MetadataFields`
+  - "Apply to all" shortcut for tags, people, and albums
+  - "Skip this group" toggle per card — excluded from publish without deleting from view
+  - Toolbar summary: "12 posts · 47 photos · 2 skipped"
+  - Verify: Set title on one card. Apply tags to all. Toggle skip → excluded from count. Date pre-filled from first image EXIF.
 
-- **9d — Per-group metadata editing**
-  - Each card: title, date (pre-filled from EXIF), tags, people, albums — same field components as existing upload form
-  - "Apply to all" shortcut for tags/albums (common case: all photos from an event share tags)
-  - Card has a "Skip this group" toggle to exclude it from the publish batch without deleting it from view
-  - Group count + photo count summary in toolbar ("12 posts, 47 photos")
-  - Verify: Set title on one card. Apply tags to all. Toggle skip on a card → excluded from count. Date pre-filled from first image EXIF.
-
-- **9e — Batch publish**
-  - Toolbar "Publish all" button (disabled until at least one group has completed R2 uploads)
-  - Upload phase runs first: presign → direct R2 upload per photo, with concurrency capped at 5 simultaneous uploads across all groups to avoid saturating the connection
-  - Per-card progress ring during upload phase
-  - Publish phase: call `/api/admin/upload/complete` per group, max 3 concurrent, in order
-  - Per-card status: Uploading → Processing → Published → (error state with retry)
+- **9c — Batch publish**
+  - Per-group pipeline, no global barrier: compress (lazily, at upload time — never eagerly for 200 files) → presign → direct R2 PUT → when the group's files are done → `/api/admin/upload/complete` with the group's metadata, explicit `date`, and auto `photosetLayout`. Finished groups publish while slower ones still upload.
+  - Global concurrency caps: 5 simultaneous file PUTs, 3 simultaneous complete calls
+  - **Always pass the group's `date` explicitly** — compression strips EXIF, so the server cannot recover it
+  - Per-card status: progress ring → Uploading → Processing → Published / error with retry (retry re-runs only that group's failed steps)
   - On full completion: summary toast ("12 posts published") + link to feed
   - Skipped groups are not published
   - Existing presign and complete endpoints are reused without modification
-  - Verify: Publish 10 groups → all appear in feed with correct media. Skipped group absent. Failed group shows retry button. Progress rings update in real time.
+  - Verify: Publish 10 groups → all appear in feed with correct media **and correct EXIF dates (not today's date)**. Skipped group absent. Failed group shows retry; other groups unaffected. Progress rings update in real time.
+
+- **9d — Cross-group drag-and-drop (polish)**
+  - Semantics: **membership + linear order only** — row layout inside a group is always auto-generated (`defaultLayout`); per-post layout fiddling remains the edit page's job
+  - Standard `@dnd-kit` multi-container pattern: each card a droppable, photos draggable, `rectIntersection` collision; thin droppable gaps between cards create a new group at that position
+  - **Do not port the upload form's drag code** — it is custom pointer hit-testing against `[data-row]`/`[data-item]` (not `SortableContext`), built for row-level placement that bulk import doesn't need
+  - Removing the last photo from a group deletes the group
+  - Verify: Move photo A→B → both cards update. Drag to gap → new group. Remove last photo → group disappears.
+
+- **9e — Zoom control (polish)**
+  - Range slider in toolbar sets `--bulk-cols` (2–6), persisted in `localStorage`
+  - **Trackpad pinch**: `wheel` events with `ctrlKey: true`; `deltaY` accumulates and steps `--bulk-cols`; `preventDefault()` scoped to the bulk import page
+  - **Touchscreen pinch**: 2-touch distance delta → column step changes
+  - Card content adapts via **container queries** (Tailwind v4 `@container`): below ~280px card width, metadata collapses to a one-line summary; full form at wide widths. One markup, no JS branching on column count.
+  - Verify: Slider drag resizes smoothly. Trackpad and iPad pinch both work without browser zoom. Content collapses/expands at extremes.
 
 #### Technical notes
 - No content-based image grouping in v1 — timestamp proximity only. ML-based clustering (scene similarity, face grouping) is a future enhancement if demand exists.
 - EXIF parsing is entirely client-side — no server round-trip before upload, no Vercel function involved.
-- R2 uploads are direct presigned PUT (same as existing upload flow) — Vercel function timeout is not a constraint here.
-- The zoom pinch listener should call `preventDefault()` on `wheel` events with `ctrlKey` to suppress the browser's own page zoom — only within the bulk import page, not globally.
-- `@dnd-kit`'s multi-container support (`DndContext` wrapping multiple `SortableContext` instances) is the right primitive. Each group card is its own `SortableContext`; photos can be dragged between them via `onDragOver` container detection.
+- R2 uploads are direct presigned PUT (same as existing upload flow) — Vercel function timeout is not a constraint for file transfer. Complete calls process whole groups server-side; the 1-hour gap rarely produces giant groups, but if a group exceeds ~20 photos, show a soft hint to split it.
+- Memory is the scaling constraint, not network: 200 full-resolution image decodes would consume GBs of RAM. All previews are small generated thumbnails; originals are only read at compress-and-upload time.
 
 #### Verify (full phase)
-- Mobile: navigating to `/admin/bulk-import` on a phone redirects to `/admin/upload`
+- Mobile: `/admin/bulk-import` on a phone shows the fallback card linking to `/admin/upload`
 - Select 80 photos spanning a long weekend → groups are sensible, no photos missing
+- Adjust threshold → regroups live; after a manual merge, threshold control locks
 - Pinch-zoom on trackpad and iPad both work without triggering browser zoom
 - Drag photo between groups, drag to gap (new group), remove last photo (group gone)
-- Publish 15 groups → all 15 posts appear in feed, thumbnails correct, tags/people assigned
+- Publish 15 groups → all 15 posts in feed, thumbnails correct, tags/people assigned, dates match EXIF
 - One upload failure → retry works, other groups unaffected
+- Close tab with unpublished work → browser confirm appears
 
 ---
 

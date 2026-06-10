@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { downloadFromR2, uploadToR2 } from "@/lib/r2";
 import { db } from "@/lib/db";
+import { generatePhotosetLayout } from "@/lib/media/layout";
 
 const THUMB_WIDTH = 400;
 
@@ -328,36 +329,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/** Generate a photoset layout string matching the app's grid logic */
-function generatePhotosetLayout(count: number): string {
-  if (count === 1) return "1";
-  if (count === 2) return "2";
-  if (count === 3) return "21";
-  if (count === 4) return "22";
-
-  // For 5+: rows of 2-3
-  const rows: number[] = [];
-  let remaining = count;
-  while (remaining > 0) {
-    if (remaining >= 5) {
-      rows.push(3);
-      remaining -= 3;
-    } else if (remaining === 4) {
-      rows.push(2);
-      rows.push(2);
-      remaining = 0;
-    } else if (remaining === 3) {
-      rows.push(3);
-      remaining = 0;
-    } else if (remaining === 2) {
-      rows.push(2);
-      remaining = 0;
-    } else {
-      rows.push(1);
-      remaining = 0;
-    }
-  }
-  return rows.join("");
 }
