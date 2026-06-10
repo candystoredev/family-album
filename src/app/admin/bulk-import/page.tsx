@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getMediaDate, type DateSource } from "@/lib/media/exif";
 import { groupByGap, GAP_THRESHOLDS } from "@/lib/media/grouping";
 import { defaultLayout } from "@/lib/media/layout";
+import MetadataFields, {
+  useMetadataOptions,
+  type MetadataOptions,
+} from "@/components/MetadataFields";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +24,12 @@ interface BulkItem {
 interface BulkGroup {
   id: string;
   itemIds: string[];
+  title: string;
+  date: string;
+  selectedTags: string[];
+  selectedPeople: string[];
+  selectedAlbumIds: string[];
+  skipped: boolean;
 }
 
 const THUMB_MAX_PX = 320;
@@ -90,6 +100,24 @@ const TIME_FMT = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
+function toDatetimeLocal(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function makeGroup(groupItems: BulkItem[]): BulkGroup {
+  return {
+    id: nextId("g"),
+    itemIds: groupItems.map((it) => it.id),
+    title: "",
+    date: toDatetimeLocal(groupItems[0].date),
+    selectedTags: [],
+    selectedPeople: [],
+    selectedAlbumIds: [],
+    skipped: false,
+  };
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function BulkImportPage() {
@@ -104,10 +132,13 @@ export default function BulkImportPage() {
   const [edited, setEdited] = useState(false);
   const [reading, setReading] = useState<{ done: number; total: number } | null>(null);
 
+  const options = useMetadataOptions();
+
   // Invalidates in-flight thumb work on clear/unmount
   const generationRef = useRef(0);
 
   const itemCount = Object.keys(items).length;
+  const activeGroupCount = groups.filter((g) => !g.skipped).length;
 
   useEffect(() => {
     setMounted(true);
@@ -137,7 +168,7 @@ export default function BulkImportPage() {
   }, []);
 
   function toGroups(grouped: BulkItem[][]): BulkGroup[] {
-    return grouped.map((g) => ({ id: nextId("g"), itemIds: g.map((it) => it.id) }));
+    return grouped.map(makeGroup);
   }
 
   // ─── Ingest ────────────────────────────────────────────────────────────────
@@ -234,12 +265,35 @@ export default function BulkImportPage() {
     setGroups((prev) => {
       const next = [...prev];
       const group = next[groupIdx];
+      const splitItem = items[group.itemIds[itemIdx]];
       const first = { ...group, itemIds: group.itemIds.slice(0, itemIdx) };
-      const second = { id: nextId("g"), itemIds: group.itemIds.slice(itemIdx) };
+      const second: BulkGroup = {
+        id: nextId("g"),
+        itemIds: group.itemIds.slice(itemIdx),
+        title: "",
+        date: toDatetimeLocal(splitItem.date),
+        selectedTags: [],
+        selectedPeople: [],
+        selectedAlbumIds: [],
+        skipped: false,
+      };
       next.splice(groupIdx, 1, first, second);
       return next;
     });
     setEdited(true);
+  }
+
+  function updateGroup(groupId: string, patch: Partial<BulkGroup>) {
+    setGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, ...patch } : g))
+    );
+  }
+
+  function applyToAll(
+    field: "selectedTags" | "selectedPeople" | "selectedAlbumIds",
+    values: string[]
+  ) {
+    setGroups((prev) => prev.map((g) => ({ ...g, [field]: values })));
   }
 
   function clearAll() {
@@ -290,8 +344,11 @@ export default function BulkImportPage() {
 
         {itemCount > 0 && (
           <span className="text-sm text-[#888] tabular-nums">
-            {groups.length} {groups.length === 1 ? "post" : "posts"} · {itemCount}{" "}
+            {activeGroupCount} {activeGroupCount === 1 ? "post" : "posts"} · {itemCount}{" "}
             {itemCount === 1 ? "photo" : "photos"}
+            {activeGroupCount < groups.length && (
+              <span className="text-[#555]"> · {groups.length - activeGroupCount} skipped</span>
+            )}
           </span>
         )}
 
@@ -375,7 +432,7 @@ export default function BulkImportPage() {
       {/* Group cards */}
       {groups.length > 0 && (
         <div
-          className="p-6 grid gap-4"
+          className="p-6 grid gap-4 items-start"
           style={{ gridTemplateColumns: "repeat(var(--bulk-cols, 3), minmax(0, 1fr))" }}
         >
           {groups.map((group, gi) => (
@@ -383,9 +440,12 @@ export default function BulkImportPage() {
               key={group.id}
               group={group}
               items={items}
+              options={options}
               canMergeUp={gi > 0}
               onMergeUp={() => mergeIntoPrevious(gi)}
               onSplit={(itemIdx) => splitGroup(gi, itemIdx)}
+              onUpdate={(patch) => updateGroup(group.id, patch)}
+              onApplyToAll={applyToAll}
             />
           ))}
         </div>
@@ -399,15 +459,24 @@ export default function BulkImportPage() {
 function GroupCard({
   group,
   items,
+  options,
   canMergeUp,
   onMergeUp,
   onSplit,
+  onUpdate,
+  onApplyToAll,
 }: {
   group: BulkGroup;
   items: Record<string, BulkItem>;
+  options: MetadataOptions;
   canMergeUp: boolean;
   onMergeUp: () => void;
   onSplit: (itemIdx: number) => void;
+  onUpdate: (patch: Partial<BulkGroup>) => void;
+  onApplyToAll: (
+    field: "selectedTags" | "selectedPeople" | "selectedAlbumIds",
+    values: string[]
+  ) => void;
 }) {
   const groupItems = useMemo(
     () => group.itemIds.map((id) => items[id]).filter(Boolean),
@@ -423,10 +492,15 @@ function GroupCard({
   // Running index per photo so split knows the position within the group
   let flatIdx = -1;
 
+  const hasApplyTargets =
+    group.selectedTags.length > 0 ||
+    group.selectedPeople.length > 0 ||
+    group.selectedAlbumIds.length > 0;
+
   return (
     <div
-      className="bg-[#252424] rounded-xl overflow-hidden"
-      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 320px" }}
+      className={`bg-[#252424] rounded-xl overflow-hidden transition-opacity ${group.skipped ? "opacity-40" : ""}`}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 480px" }}
     >
       {/* Header */}
       <div className="px-3 py-2 flex items-center gap-2 text-xs">
@@ -449,7 +523,7 @@ function GroupCard({
           </span>
         )}
         <span className="text-[#666] ml-auto tabular-nums">{groupItems.length}</span>
-        {canMergeUp && (
+        {canMergeUp && !group.skipped && (
           <button
             onClick={onMergeUp}
             title="Merge into previous group"
@@ -458,10 +532,21 @@ function GroupCard({
             ⤴
           </button>
         )}
+        <button
+          onClick={() => onUpdate({ skipped: !group.skipped })}
+          title={group.skipped ? "Include this group" : "Skip this group"}
+          className={`px-1.5 py-px rounded text-[10px] border transition-colors ${
+            group.skipped
+              ? "border-[#d86d6d]/60 text-[#d86d6d] hover:bg-[#d86d6d]/10"
+              : "border-[#3a3939] text-[#666] hover:text-[#d86d6d] hover:border-[#d86d6d]/60"
+          }`}
+        >
+          {group.skipped ? "skipped" : "skip"}
+        </button>
       </div>
 
       {/* Mini photo grid */}
-      <div className="p-1.5 pt-0 space-y-1.5">
+      <div className="px-1.5 pb-0 space-y-1.5">
         {rows.map((row, ri) => (
           <div key={ri} className="flex gap-1.5" style={{ height: 90 }}>
             {row.map((item) => {
@@ -492,7 +577,7 @@ function GroupCard({
                   )}
 
                   {/* Split-before affordance — not on the first photo */}
-                  {idx > 0 && (
+                  {idx > 0 && !group.skipped && (
                     <button
                       onClick={() => onSplit(idx)}
                       title="Split into a new post starting here"
@@ -506,6 +591,55 @@ function GroupCard({
             })}
           </div>
         ))}
+      </div>
+
+      {/* Metadata fields */}
+      <div className="px-3 pt-3 pb-3 space-y-2.5">
+        <MetadataFields
+          options={options}
+          title={group.title}
+          onTitleChange={(v) => onUpdate({ title: v })}
+          date={group.date}
+          onDateChange={(v) => onUpdate({ date: v })}
+          dateLabel="Date"
+          selectedTags={group.selectedTags}
+          onTagsChange={(v) => onUpdate({ selectedTags: v })}
+          selectedPeople={group.selectedPeople}
+          onPeopleChange={(v) => onUpdate({ selectedPeople: v })}
+          selectedAlbumIds={group.selectedAlbumIds}
+          onAlbumIdsChange={(v) => onUpdate({ selectedAlbumIds: v })}
+          disabled={group.skipped}
+        />
+
+        {/* Apply to all — only shown when there's something to propagate */}
+        {hasApplyTargets && !group.skipped && (
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {group.selectedTags.length > 0 && (
+              <button
+                onClick={() => onApplyToAll("selectedTags", group.selectedTags)}
+                className="text-[10px] px-2 py-1 rounded border border-[#3a3939] text-[#666] hover:text-[#427ea3] hover:border-[#427ea3]/50 transition-colors"
+              >
+                Apply tags to all
+              </button>
+            )}
+            {group.selectedPeople.length > 0 && (
+              <button
+                onClick={() => onApplyToAll("selectedPeople", group.selectedPeople)}
+                className="text-[10px] px-2 py-1 rounded border border-[#3a3939] text-[#666] hover:text-[#427ea3] hover:border-[#427ea3]/50 transition-colors"
+              >
+                Apply people to all
+              </button>
+            )}
+            {group.selectedAlbumIds.length > 0 && (
+              <button
+                onClick={() => onApplyToAll("selectedAlbumIds", group.selectedAlbumIds)}
+                className="text-[10px] px-2 py-1 rounded border border-[#3a3939] text-[#666] hover:text-[#427ea3] hover:border-[#427ea3]/50 transition-colors"
+              >
+                Apply albums to all
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
