@@ -28,3 +28,28 @@ export function groupByGap<T extends DatedItem>(items: T[], thresholdMs: number)
   if (current.length > 0) groups.push(current);
   return groups;
 }
+
+/**
+ * Pick the candidate group closest in time to `dateMs` and within thresholdMs.
+ * Each candidate is the list of its members' timestamps (ms). Returns the
+ * winning candidate's index, or -1 if none has a member within the threshold.
+ * Used to slot a newly-added photo into the right existing group. Pure.
+ */
+export function nearestGroupWithin(
+  candidates: number[][],
+  dateMs: number,
+  thresholdMs: number
+): number {
+  let bestIdx = -1;
+  let bestDist = Infinity;
+  for (let gi = 0; gi < candidates.length; gi++) {
+    for (const t of candidates[gi]) {
+      const dist = Math.abs(t - dateMs);
+      if (dist <= thresholdMs && dist < bestDist) {
+        bestDist = dist;
+        bestIdx = gi;
+      }
+    }
+  }
+  return bestIdx;
+}
