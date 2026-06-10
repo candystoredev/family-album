@@ -40,9 +40,11 @@ interface BulkItem {
   file: File;
   date: Date;
   dateSource: DateSource;
-  /** ≤320px preview blob URL — null until generated, stays null if undecodable */
+  /** ≤400px preview blob URL — null until generated, stays null if undecodable */
   thumb: string | null;
   thumbFailed: boolean;
+  /** width / height of the (orientation-corrected) photo; drives justified rows */
+  aspect: number;
 }
 
 interface BulkGroup {
@@ -62,9 +64,11 @@ interface GroupPublish {
   slug?: string;
 }
 
-const THUMB_MAX_PX = 320;
+const THUMB_MAX_PX = 400;
 const EXIF_CONCURRENCY = 8;
 const THUMB_CONCURRENCY = 4;
+/** Fallback aspect (landscape 4:3) shown until a photo's real ratio is known. */
+const DEFAULT_ASPECT = 4 / 3;
 
 /** Droppable id for the "drop here to start a new post" tile shown during drag. */
 const NEW_GROUP_ID = "__new_group__";
@@ -103,21 +107,25 @@ async function runPool<T>(
 }
 
 /**
- * Small preview thumbnail. Decodes at reduced size where the browser supports
- * it so 200 originals never sit in memory at once.
+ * Small preview thumbnail + the photo's true aspect ratio. Decodes at reduced
+ * size where the browser supports it so 200 originals never sit in memory at
+ * once. `imageOrientation: "from-image"` applies EXIF rotation so portraits
+ * read as portraits (matches the server's sharp `.rotate()`).
  */
-async function makeThumb(file: File): Promise<string | null> {
+async function makeThumb(file: File): Promise<{ url: string; aspect: number } | null> {
   try {
     let bitmap: ImageBitmap;
     try {
       bitmap = await createImageBitmap(file, {
         resizeWidth: THUMB_MAX_PX,
         resizeQuality: "low",
+        imageOrientation: "from-image",
       });
     } catch {
       // Older Safari: no resize options — decode full, scale on canvas
-      bitmap = await createImageBitmap(file);
+      bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
     }
+    const aspect = bitmap.height > 0 ? bitmap.width / bitmap.height : DEFAULT_ASPECT;
     const scale = Math.min(1, THUMB_MAX_PX / bitmap.width);
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -125,9 +133,9 @@ async function makeThumb(file: File): Promise<string | null> {
     canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
     const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob(res, "image/jpeg", 0.7)
+      canvas.toBlob(res, "image/jpeg", 0.72)
     );
-    return blob ? URL.createObjectURL(blob) : null;
+    return blob ? { url: URL.createObjectURL(blob), aspect } : null;
   } catch {
     // Undecodable in this browser (e.g. HEIC in Chrome) — placeholder tile
     return null;
@@ -251,6 +259,7 @@ export default function BulkImportPage() {
         dateSource: source,
         thumb: null,
         thumbFailed: false,
+        aspect: DEFAULT_ASPECT,
       };
       setReading((prev) =>
         prev ? { ...prev, done: prev.done + 1 } : prev
@@ -279,14 +288,22 @@ export default function BulkImportPage() {
     // Pass 2: thumbnails, progressively
     runPool(newItems, THUMB_CONCURRENCY, async (item) => {
       if (generationRef.current !== gen) return;
-      const thumb = await makeThumb(item.file);
+      const result = await makeThumb(item.file);
       if (generationRef.current !== gen) {
-        if (thumb) URL.revokeObjectURL(thumb);
+        if (result) URL.revokeObjectURL(result.url);
         return;
       }
       setItems((prev) =>
         prev[item.id]
-          ? { ...prev, [item.id]: { ...prev[item.id], thumb, thumbFailed: !thumb } }
+          ? {
+              ...prev,
+              [item.id]: {
+                ...prev[item.id],
+                thumb: result?.url ?? null,
+                thumbFailed: !result,
+                aspect: result?.aspect ?? prev[item.id].aspect,
+              },
+            }
           : prev
       );
     });
@@ -869,7 +886,7 @@ function GroupCard({
       <SortableContext items={group.itemIds} strategy={rectSortingStrategy}>
         <div className="px-1.5 pb-0 space-y-1.5">
           {rows.map((row, ri) => (
-            <div key={ri} className="flex gap-1.5" style={{ height: 90 }}>
+            <div key={ri} className="flex gap-1.5 items-stretch">
               {row.map((item) => {
                 flatIdx++;
                 const idx = flatIdx;
@@ -1000,11 +1017,18 @@ function SortablePhoto({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.id, disabled: !draggable });
 
+  // Justified row: width ∝ aspect, aspect-ratio makes every photo in the row
+  // resolve to the same height — true proportions, no cropping, mixed
+  // orientations handled automatically.
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
     touchAction: "none",
+    flexGrow: item.aspect,
+    flexShrink: 1,
+    flexBasis: 0,
+    aspectRatio: String(item.aspect),
   };
 
   return (
@@ -1013,7 +1037,7 @@ function SortablePhoto({
       style={style}
       {...attributes}
       {...listeners}
-      className={`relative flex-1 min-w-0 rounded-md overflow-hidden bg-[#141313] group/photo ${
+      className={`relative min-w-0 rounded-md overflow-hidden bg-[#141313] group/photo ${
         draggable ? "cursor-grab active:cursor-grabbing" : ""
       }`}
     >
