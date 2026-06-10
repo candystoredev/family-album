@@ -197,12 +197,14 @@ Select many images at once → client reads EXIF dates → app auto-groups them 
   - Toolbar live count (`Publishing… (3/8)`) → "X published — view feed" link when all done
   - Metadata fields/controls lock while uploading or published; Clear all resets publish state
 
-- **9d — Cross-group drag-and-drop (polish)**
-  - Semantics: **membership + linear order only** — row layout inside a group is always auto-generated (`defaultLayout`); per-post layout fiddling remains the edit page's job
-  - Standard `@dnd-kit` multi-container pattern: each card a droppable, photos draggable, `rectIntersection` collision; thin droppable gaps between cards create a new group at that position
-  - **Do not port the upload form's drag code** — it is custom pointer hit-testing against `[data-row]`/`[data-item]` (not `SortableContext`), built for row-level placement that bulk import doesn't need
-  - Removing the last photo from a group deletes the group
-  - Verify: Move photo A→B → both cards update. Drag to gap → new group. Remove last photo → group disappears.
+- **9d — Cross-group drag-and-drop (polish)** ~~DONE~~ ✓
+  - Semantics: membership + linear order only — row layout inside a group stays auto-generated (`defaultLayout`)
+  - `@dnd-kit` multi-container: each card a `useDroppable` + `SortableContext`, each photo a `useSortable`; live `onDragOver` moves photos across groups so the preview tracks the cursor
+  - Collision: pointer-first for the new-group zone, `closestCorners` for everything else (reliable within-group reorder + cross-group add)
+  - New group: a dashed "drop here to start a new post" tile appears at the end of the grid during a drag; dropping a photo there extracts it into its own group (no-op for solo photos so metadata isn't lost)
+  - Removing the last photo from a group deletes the group (pruned on drag end)
+  - Locked groups (skipped / uploading / published) can't be dragged from or dropped into
+  - Did NOT port the upload form's custom pointer hit-testing — used the standard sortable pattern instead
 
 - **9e — Zoom control (polish)**
   - Range slider in toolbar sets `--bulk-cols` (2–6), persisted in `localStorage`
