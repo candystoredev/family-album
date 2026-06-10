@@ -214,15 +214,17 @@ export default function BulkImportPage() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  // Unsaved-work guard
+  // Unsaved-work guard — warn on refresh/close while there's unpublished work.
+  // (No persistence: a confirmed reload still discards the in-memory batch.)
   useEffect(() => {
-    if (itemCount === 0) return;
+    if (pendingGroupCount === 0) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      e.returnValue = ""; // Chrome/Firefox require returnValue to show the prompt
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [itemCount]);
+  }, [pendingGroupCount]);
 
   // Revoke thumbs on unmount
   useEffect(() => {
