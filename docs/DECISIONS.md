@@ -200,6 +200,42 @@ Reason: `wheel` with `ctrlKey` is the standard browser signal for trackpad pinch
 Alternatives Considered: CSS `transform: scale()` on cards (breaks drag-and-drop hit targets); third-party gesture library
 Impact: Must call `preventDefault()` on `wheel`+`ctrlKey` within the bulk import page to suppress browser zoom; scoped to that page only.
 
+### 2026-06-10
+Decision: Sub-phases resequenced — merge/split buttons ship in 9a, cross-group drag-and-drop deferred to 9d (polish)
+Reason: Gap-threshold misfires are almost always "two groups should be one" or "one group should be two." A merge button and a split divider fix both with zero dnd complexity, so a complete end-to-end tool ships after three sub-phases instead of five.
+Alternatives Considered: Original order (dnd in 9b before metadata/publish)
+Impact: 9-pre→9c is the MVP; 9d/9e are independent polish that can slip without blocking use.
+
+### 2026-06-10
+Decision: Bulk import drag-and-drop is group membership + linear order only; row layout inside groups is always auto-generated
+Reason: The upload form's drag is custom pointer hit-testing against `[data-row]`/`[data-item]` (not `@dnd-kit` SortableContext, contrary to what the original plan assumed) — built for row-level placement that doesn't generalize to 30 cards. At bulk-review scale, only membership matters; the edit page already covers per-post layout.
+Alternatives Considered: Porting the custom row hit-test to multi-container; full SortableContext nesting with row semantics
+Impact: 9d uses the standard dnd-kit multi-container pattern (droppable cards, `rectIntersection`). `defaultLayout`/`generatePhotosetLayout` move to a shared `lib/media/layout.ts`.
+
+### 2026-06-10
+Decision: Previews are ≤320px generated thumbnails (`createImageBitmap` with `resizeWidth`); original files are never rendered into the DOM
+Reason: 200 full-resolution object-URL decodes consume GBs of RAM and kill the tab. Memory, not network, is the scaling constraint for bulk import.
+Alternatives Considered: Object URLs of originals (current upload-form pattern — fine at 1–10 files, fatal at 200)
+Impact: Two-pass ingest (EXIF first, thumbs progressively); `content-visibility: auto` on cards.
+
+### 2026-06-10
+Decision: Compression runs lazily at upload time (pipelined per group); the group's date is always passed explicitly to the complete endpoint
+Reason: Eagerly compressing 200 files on selection freezes the tab. Separately, canvas re-encoding strips EXIF, so server-side date detection cannot work on compressed uploads — this is a standing bug in the single upload form (photos >1920px silently get the upload date). Client-side EXIF extraction (needed for grouping anyway) fixes both.
+Alternatives Considered: Eager compression on file selection; preserving EXIF through re-encode (no clean browser API)
+Impact: 9-pre extracts a shared `lib/media/exif.ts` and fixes the single-upload date bug as a side effect. Publish pipeline is per-group with no global upload/publish barrier (caps: 5 PUTs, 3 completes).
+
+### 2026-06-10
+Decision: Grouping threshold is a live segmented control (1 hr / 6 hrs / 1 day) that locks after the first manual group edit
+Reason: Regrouping is a pure recompute — letting the admin watch groups reflow beats a hardcoded constant and eliminates most manual merge/split work. Locking after manual edits prevents the control from destroying them.
+Alternatives Considered: Hardcoded 1-hour constant (original plan); free-form threshold input
+Impact: `groupByGap(items, thresholdMs)` is a pure, unit-tested function in `lib/media/grouping.ts`.
+
+### 2026-06-10
+Decision: Zoom-responsive card content via CSS container queries (Tailwind v4 `@container`), not JS branching on column count
+Reason: Card layout should respond to the card's own width — one markup serves every zoom level, and the slider/pinch only ever touches `--bulk-cols`.
+Alternatives Considered: Conditional rendering keyed on the column-count state
+Impact: Metadata collapse threshold lives in CSS (~280px card width).
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)

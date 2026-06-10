@@ -12,6 +12,10 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import { compressImage } from "@/lib/media/compress";
+import { getMediaDate } from "@/lib/media/exif";
+import { defaultLayout } from "@/lib/media/layout";
+import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -23,22 +27,8 @@ interface MediaFile {
   preview: string;
   type: "photo" | "video";
   posterDataUrl?: string;
-}
-
-interface TagOption {
-  id: string;
-  name: string;
-  slug: string;
-}
-interface PersonOption {
-  id: string;
-  name: string;
-  slug: string;
-}
-interface AlbumOption {
-  id: string;
-  title: string;
-  slug: string;
+  /** Capture date from the original file's EXIF (compression strips EXIF). */
+  exifDate?: Date;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -50,35 +40,6 @@ function nextFileId() {
 
 function isVideoFile(file: File) {
   return file.type.startsWith("video/");
-}
-
-/** Resize + JPEG-compress a photo client-side before upload. Falls back to original on error. */
-async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  return new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const { naturalWidth: w, naturalHeight: h } = img;
-      if (w <= maxPx && h <= maxPx) { resolve(file); return; }
-      const scale = maxPx / Math.max(w, h);
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(w * scale);
-      canvas.height = Math.round(h * scale);
-      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) { resolve(file); return; }
-          resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
-        },
-        "image/jpeg",
-        quality
-      );
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
-    img.src = url;
-  });
 }
 
 /** How many px at the top/bottom of a row trigger "new row" vs "merge into row" */
@@ -145,23 +106,6 @@ function playHapticClick(ctx: AudioContext) {
   } catch { /* ignore */ }
 }
 
-/** Convert a flat array into the default 2D row layout. */
-function defaultLayout(files: MediaFile[]): MediaFile[][] {
-  if (files.length === 0) return [];
-  if (files.length <= 3) return [files];
-  if (files.length === 4) return [[files[0], files[1]], [files[2], files[3]]];
-  const rows: MediaFile[][] = [];
-  let i = 0;
-  while (i < files.length) {
-    const rem = files.length - i;
-    if (rem <= 3) { rows.push(files.slice(i)); break; }
-    if (rem === 4) { rows.push(files.slice(i, i + 2), files.slice(i + 2)); break; }
-    rows.push(files.slice(i, i + 3));
-    i += 3;
-  }
-  return rows;
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function UploadPage() {
@@ -177,14 +121,10 @@ export default function UploadPage() {
   const [date, setDate] = useState("");
 
   // Tags / People / Albums
-  const [allTags, setAllTags] = useState<TagOption[]>([]);
-  const [allPeople, setAllPeople] = useState<PersonOption[]>([]);
-  const [allAlbums, setAllAlbums] = useState<AlbumOption[]>([]);
+  const metadataOptions = useMetadataOptions();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<string[]>([]);
-  const [newTag, setNewTag] = useState("");
-  const [newPerson, setNewPerson] = useState("");
 
   // Upload state
   const [state, setState] = useState<UploadState>("idle");
@@ -214,22 +154,6 @@ export default function UploadPage() {
   // calculated zone; insertAt state only updates after 80ms of stability
   const pendingInsertRef = useRef<{ rowIdx: number; colIdx: number; isNewRow?: boolean } | null>(null);
   const insertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Load tags/people/albums on mount
-  useEffect(() => {
-    fetch("/api/admin/tags")
-      .then((r) => r.json())
-      .then(setAllTags)
-      .catch(() => {});
-    fetch("/api/admin/people")
-      .then((r) => r.json())
-      .then(setAllPeople)
-      .catch(() => {});
-    fetch("/api/admin/albums")
-      .then((r) => r.json())
-      .then(setAllAlbums)
-      .catch(() => {});
-  }, []);
 
   // Hit-test pointer position against rows/items during drag.
   // NEW_ROW_ZONE px at top/bottom of each row = "new row" zone; middle = merge.
@@ -312,12 +236,16 @@ export default function UploadPage() {
     const mediaFiles: MediaFile[] = await Promise.all(
       newFiles.map(async (f) => {
         const isVideo = isVideoFile(f);
+        // EXIF must be read from the original — compression re-encodes via
+        // canvas and strips it, which is why the server can't do this.
+        const mediaDate = isVideo ? null : await getMediaDate(f);
         const processed = isVideo ? f : await compressImage(f);
         return {
           id: nextFileId(),
           file: processed,
           preview: URL.createObjectURL(processed),
           type: isVideo ? ("video" as const) : ("photo" as const),
+          exifDate: mediaDate?.source === "exif" ? mediaDate.date : undefined,
         };
       })
     );
@@ -421,36 +349,6 @@ export default function UploadPage() {
     setInsertAt(null);
   }
 
-  // ─── Tag/People helpers ─────────────────────────────────────────────────────
-
-  function addTag(name: string) {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    if (!selectedTags.includes(trimmed)) setSelectedTags((prev) => [...prev, trimmed]);
-    setNewTag("");
-  }
-
-  function removeTag(name: string) {
-    setSelectedTags((prev) => prev.filter((t) => t !== name));
-  }
-
-  function addPerson(name: string) {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    if (!selectedPeople.includes(trimmed)) setSelectedPeople((prev) => [...prev, trimmed]);
-    setNewPerson("");
-  }
-
-  function removePerson(name: string) {
-    setSelectedPeople((prev) => prev.filter((p) => p !== name));
-  }
-
-  function toggleAlbum(id: string) {
-    setSelectedAlbumIds((prev) =>
-      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
-    );
-  }
-
   // ─── Upload ─────────────────────────────────────────────────────────────────
 
   async function handleUpload() {
@@ -485,13 +383,16 @@ export default function UploadPage() {
       const photosetLayout = rows.map((r) => r.length).join("");
 
       setProgress("Finalizing...");
+      // Manual date wins; otherwise the first file's client-extracted EXIF
+      // date (uploaded files have EXIF stripped by compression)
+      const exifDateIso = flatFiles.find((f) => f.exifDate)?.exifDate?.toISOString();
       const completeRes = await fetch("/api/admin/upload/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: uploadedItems,
           title: title.trim() || undefined,
-          date: date || undefined,
+          date: date || exifDateIso || undefined,
           tags: selectedTags,
           people: selectedPeople,
           albumIds: selectedAlbumIds,
@@ -519,8 +420,6 @@ export default function UploadPage() {
     setSelectedTags([]);
     setSelectedPeople([]);
     setSelectedAlbumIds([]);
-    setNewTag("");
-    setNewPerson("");
     setState("idle");
     setProgress("");
     setError("");
@@ -529,22 +428,6 @@ export default function UploadPage() {
   }
 
   const disabled = state === "uploading" || state === "success";
-
-  // ─── Filtered suggestions ──────────────────────────────────────────────────
-
-  const tagSuggestions = allTags.filter(
-    (t) =>
-      !selectedTags.includes(t.name) &&
-      t.name.toLowerCase().includes(newTag.toLowerCase()) &&
-      newTag.length > 0
-  );
-
-  const peopleSuggestions = allPeople.filter(
-    (p) =>
-      !selectedPeople.includes(p.name) &&
-      p.name.toLowerCase().includes(newPerson.toLowerCase()) &&
-      newPerson.length > 0
-  );
 
   const activeFile = activeId ? flatFiles.find((f) => f.id === activeId) ?? null : null;
 
@@ -675,158 +558,21 @@ export default function UploadPage() {
               </p>
             )}
 
-            {/* Title */}
-            <input
-              type="text"
-              placeholder="Title (optional)"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+            {/* Title / date / tags / people / albums */}
+            <MetadataFields
+              options={metadataOptions}
+              title={title}
+              onTitleChange={setTitle}
+              date={date}
+              onDateChange={setDate}
+              selectedTags={selectedTags}
+              onTagsChange={setSelectedTags}
+              selectedPeople={selectedPeople}
+              onPeopleChange={setSelectedPeople}
+              selectedAlbumIds={selectedAlbumIds}
+              onAlbumIdsChange={setSelectedAlbumIds}
               disabled={disabled}
-              className="w-full bg-[#2a2929] rounded-lg px-4 py-3 text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3] disabled:opacity-50"
             />
-
-            {/* Date override */}
-            <div>
-              <label className="block text-xs text-[#888] mb-1">
-                Date (auto-detected from photo EXIF if left empty)
-              </label>
-              <input
-                type="datetime-local"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                disabled={disabled}
-                className="w-full bg-[#2a2929] rounded-lg px-4 py-3 text-[#d3d3d3] outline-none focus:ring-1 focus:ring-[#427ea3] disabled:opacity-50"
-              />
-            </div>
-
-            {/* Tags */}
-            <div>
-              <label className="block text-xs text-[#888] mb-1">Tags</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {selectedTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-[#2a2929] rounded text-sm text-[#a0a0a0]"
-                  >
-                    #{tag}
-                    {!disabled && (
-                      <button
-                        onClick={() => removeTag(tag)}
-                        className="text-[#666] hover:text-[#d86d6d] ml-0.5"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                ))}
-              </div>
-              {!disabled && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Add tag..."
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newTag.trim()) {
-                        e.preventDefault();
-                        addTag(newTag);
-                      }
-                    }}
-                    className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3]"
-                  />
-                  {tagSuggestions.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-[#2a2929] rounded-lg border border-[#3a3939] max-h-40 overflow-y-auto">
-                      {tagSuggestions.map((t) => (
-                        <button
-                          key={t.id}
-                          onClick={() => addTag(t.name)}
-                          className="w-full text-left px-4 py-2 text-sm text-[#a0a0a0] hover:bg-[#333] hover:text-[#d3d3d3]"
-                        >
-                          #{t.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* People */}
-            <div>
-              <label className="block text-xs text-[#888] mb-1">People</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {selectedPeople.map((person) => (
-                  <span
-                    key={person}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-[#2a2929] rounded text-sm text-[#a0a0a0]"
-                  >
-                    @{person}
-                    {!disabled && (
-                      <button
-                        onClick={() => removePerson(person)}
-                        className="text-[#666] hover:text-[#d86d6d] ml-0.5"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                ))}
-              </div>
-              {!disabled && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Add person..."
-                    value={newPerson}
-                    onChange={(e) => setNewPerson(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newPerson.trim()) {
-                        e.preventDefault();
-                        addPerson(newPerson);
-                      }
-                    }}
-                    className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3]"
-                  />
-                  {peopleSuggestions.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-[#2a2929] rounded-lg border border-[#3a3939] max-h-40 overflow-y-auto">
-                      {peopleSuggestions.map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => addPerson(p.name)}
-                          className="w-full text-left px-4 py-2 text-sm text-[#a0a0a0] hover:bg-[#333] hover:text-[#d3d3d3]"
-                        >
-                          @{p.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Albums */}
-            {allAlbums.length > 0 && (
-              <div>
-                <label className="block text-xs text-[#888] mb-1">Albums</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {allAlbums.map((album) => (
-                    <button
-                      key={album.id}
-                      onClick={() => !disabled && toggleAlbum(album.id)}
-                      disabled={disabled}
-                      className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                        selectedAlbumIds.includes(album.id)
-                          ? "bg-[#427ea3] text-white"
-                          : "bg-[#2a2929] text-[#a0a0a0] hover:bg-[#333]"
-                      } disabled:opacity-50`}
-                    >
-                      {album.title}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Upload button */}
             {state === "idle" && (
