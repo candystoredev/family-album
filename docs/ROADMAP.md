@@ -204,12 +204,15 @@ Select many images at once → client reads EXIF dates → app auto-groups them 
   - Implementation: `@dnd-kit` `useDraggable` + a global `pointermove` hit-test across all groups/rows + the new-group zone (synchronous, not rAF — works even when the tab is backgrounded), with a pure `computeDisplay` for live preview and commit. Replaced the initial `SortableContext` approach.
   - Removing the last photo from a group deletes the group; locked groups (skipped / uploading / published) reject drags.
 
-- **9e — Zoom control (polish)**
-  - Range slider in toolbar sets `--bulk-cols` (2–6), persisted in `localStorage`
-  - **Trackpad pinch**: `wheel` events with `ctrlKey: true`; `deltaY` accumulates and steps `--bulk-cols`; `preventDefault()` scoped to the bulk import page
-  - **Touchscreen pinch**: 2-touch distance delta → column step changes
-  - Card content adapts via **container queries** (Tailwind v4 `@container`): below ~280px card width, metadata collapses to a one-line summary; full form at wide widths. One markup, no JS branching on column count.
-  - Verify: Slider drag resizes smoothly. Trackpad and iPad pinch both work without browser zoom. Content collapses/expands at extremes.
+- **9e — Zoom / posts-per-row (polish)** ~~DONE~~ ✓
+  - The grid is `repeat(auto-fill, minmax(min(cardMin, 100%), 1fr))` — it now fills the full screen width (an ultrawide shows many posts per row instead of being capped at 3)
+  - Toolbar zoom control: −/slider/+ adjusts `cardMin` (smaller cards = more per row), persisted in `localStorage`
+  - Trackpad/Ctrl-wheel pinch zoom, scoped to the grid via a non-passive `wheel` listener (suppresses browser zoom)
+  - Container queries for collapsing metadata at small card widths: deferred (not needed yet — the form stays usable down to ~170px)
+
+- **9d.1 — Drag feel polish (match the upload page)** ~~DONE~~ ✓
+  - The dragged photo previews as a blue insertion line — horizontal for a new row, vertical for within-row — while the real photo rides the `DragOverlay` (exactly the upload page's behavior). The thin line means almost no reflow, killing the old jumpiness.
+  - Drop target debounced 80ms so hovering near a zone boundary doesn't oscillate.
 
 #### Technical notes
 - No content-based image grouping in v1 — timestamp proximity only. ML-based clustering (scene similarity, face grouping) is a future enhancement if demand exists.
