@@ -11,6 +11,8 @@ export interface PersonOption {
   id: string;
   name: string;
   slug: string;
+  /** How many posts tag this person — used to order the quick-pick chips. */
+  count?: number;
 }
 export interface AlbumOption {
   id: string;
@@ -97,6 +99,14 @@ export default function MetadataFields({
     setNewPerson("");
   }
 
+  function togglePerson(name: string) {
+    onPeopleChange(
+      selectedPeople.includes(name)
+        ? selectedPeople.filter((p) => p !== name)
+        : [...selectedPeople, name]
+    );
+  }
+
   function toggleAlbum(id: string) {
     onAlbumIdsChange(
       selectedAlbumIds.includes(id)
@@ -112,12 +122,19 @@ export default function MetadataFields({
       newTag.length > 0
   );
 
-  const peopleSuggestions = allPeople.filter(
-    (p) =>
-      !selectedPeople.includes(p.name) &&
-      p.name.toLowerCase().includes(newPerson.toLowerCase()) &&
-      newPerson.length > 0
+  // People quick-pick: known people (already most-used-first from the API)
+  // plus any ad-hoc selected names not in the list, filtered by the input.
+  const peopleFilter = newPerson.trim().toLowerCase();
+  const knownPeopleNames = allPeople.map((p) => p.name);
+  const adHocSelected = selectedPeople.filter((n) => !knownPeopleNames.includes(n));
+  const peopleChips = [...knownPeopleNames, ...adHocSelected].filter(
+    (n) => !peopleFilter || n.toLowerCase().includes(peopleFilter)
   );
+  const canAddNewPerson =
+    peopleFilter.length > 0 &&
+    ![...knownPeopleNames, ...selectedPeople].some(
+      (n) => n.toLowerCase() === peopleFilter
+    );
 
   return (
     <>
@@ -196,57 +213,54 @@ export default function MetadataFields({
         )}
       </div>
 
-      {/* People */}
+      {/* People — quick-pick chips, most-used first; tap to toggle */}
       <div>
         <label className="block text-xs text-[#888] mb-1">People</label>
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {selectedPeople.map((person) => (
-            <span
-              key={person}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-[#2a2929] rounded text-sm text-[#a0a0a0]"
-            >
-              @{person}
-              {!disabled && (
-                <button
-                  onClick={() => onPeopleChange(selectedPeople.filter((p) => p !== person))}
-                  className="text-[#666] hover:text-[#d86d6d] ml-0.5"
-                >
-                  ×
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
         {!disabled && (
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Add person..."
-              value={newPerson}
-              onChange={(e) => setNewPerson(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newPerson.trim()) {
-                  e.preventDefault();
-                  addPerson(newPerson);
-                }
-              }}
-              className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3]"
-            />
-            {peopleSuggestions.length > 0 && (
-              <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-[#2a2929] rounded-lg border border-[#3a3939] max-h-40 overflow-y-auto">
-                {peopleSuggestions.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => addPerson(p.name)}
-                    className="w-full text-left px-4 py-2 text-sm text-[#a0a0a0] hover:bg-[#333] hover:text-[#d3d3d3]"
-                  >
-                    @{p.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <input
+            type="text"
+            placeholder="Filter or add a person…"
+            value={newPerson}
+            onChange={(e) => setNewPerson(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newPerson.trim()) {
+                e.preventDefault();
+                addPerson(newPerson);
+              }
+            }}
+            className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3] mb-2"
+          />
         )}
+        <div className="flex flex-wrap gap-1.5">
+          {peopleChips.map((name) => {
+            const sel = selectedPeople.includes(name);
+            return (
+              <button
+                key={name}
+                onClick={() => !disabled && togglePerson(name)}
+                disabled={disabled}
+                className={`px-2.5 py-1 rounded-full text-sm transition-colors disabled:opacity-50 ${
+                  sel
+                    ? "bg-[#427ea3] text-white"
+                    : "bg-[#2a2929] text-[#a0a0a0] hover:bg-[#333]"
+                }`}
+              >
+                {sel ? "✓ " : ""}@{name}
+              </button>
+            );
+          })}
+          {!disabled && canAddNewPerson && (
+            <button
+              onClick={() => addPerson(newPerson)}
+              className="px-2.5 py-1 rounded-full text-sm border border-dashed border-[#427ea3]/60 text-[#427ea3] hover:bg-[#427ea3]/10 transition-colors"
+            >
+              + Add &ldquo;{newPerson.trim()}&rdquo;
+            </button>
+          )}
+          {peopleChips.length === 0 && !canAddNewPerson && (
+            <span className="text-xs text-[#555] py-1">No people yet — type a name to add one.</span>
+          )}
+        </div>
       </div>
 
       {/* Albums */}

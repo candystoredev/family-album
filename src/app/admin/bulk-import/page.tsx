@@ -836,14 +836,14 @@ export default function BulkImportPage() {
     <div className="min-h-screen bg-[#1d1c1c] text-[#d3d3d3]">
       {/* Toolbar */}
       <div className="sticky top-0 z-20 bg-[#1d1c1c]/95 backdrop-blur border-b border-[#2a2929] px-6 py-3 flex items-center gap-4 flex-wrap">
+        <h1 className="text-lg font-semibold mr-2">Bulk Import</h1>
         <a
           href="/"
-          title="Back to the feed"
-          className="text-[#888] hover:text-[#d3d3d3] transition-colors -ml-1 text-lg leading-none"
+          title="Leave bulk import (you'll be warned if there's unpublished work)"
+          className="text-sm text-[#888] hover:text-[#d3d3d3] border border-[#3a3939] hover:border-[#555] rounded-lg px-3 py-1.5 transition-colors"
         >
-          ←
+          Cancel
         </a>
-        <h1 className="text-lg font-semibold mr-2">Bulk Import</h1>
 
         {itemCount > 0 && (
           <span className="text-sm text-[#888] tabular-nums">
