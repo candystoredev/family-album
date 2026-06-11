@@ -19,6 +19,12 @@ export const metadata: Metadata = {
     title: "The Hoecks",
     statusBarStyle: "black-translucent",
   },
+  // Next 15's appleWebApp.capable emits the modern `mobile-web-app-capable`
+  // name, but iOS only enters standalone mode for the legacy Apple tag — so
+  // set it explicitly here.
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
 };
 
 // Auto-derived from the deployed commit so it's always accurate — no manual
