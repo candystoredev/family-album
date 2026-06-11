@@ -127,9 +127,18 @@ export default function Lightbox({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, goNext, goPrev]);
 
-  // Lock body scroll and request fullscreen when open
+  // Lock body scroll and request fullscreen when open.
+  // overflow:hidden alone doesn't stop touch scrolling on iOS — the page
+  // behind keeps moving (visible above the lightbox in standalone mode).
+  // Fixing the body in place is the reliable lock; restore scroll on close.
   useEffect(() => {
-    document.body.style.overflow = "hidden";
+    const scrollY = window.scrollY;
+    const { style } = document.body;
+    style.overflow = "hidden";
+    style.position = "fixed";
+    style.top = `-${scrollY}px`;
+    style.left = "0";
+    style.right = "0";
 
     // Request fullscreen to hide browser chrome (desktop browsers)
     // iOS Safari doesn't support fullscreen on non-video elements — skip it entirely
@@ -146,7 +155,12 @@ export default function Lightbox({
     }
 
     return () => {
-      document.body.style.overflow = "";
+      style.overflow = "";
+      style.position = "";
+      style.top = "";
+      style.left = "";
+      style.right = "";
+      window.scrollTo(0, scrollY);
       try {
         if (document.fullscreenElement) {
           const result = document.exitFullscreen?.() ?? (document as any).webkitExitFullscreen?.();
@@ -158,8 +172,28 @@ export default function Lightbox({
     };
   }, []);
 
-  // Touch handlers for swipe
+  // Touch handlers for swipe.
+  // A two-finger pinch must never read as a swipe: only touches[0] is
+  // tracked, so the first finger of a pinch looks exactly like a horizontal
+  // drag and would shove the image around / flip to the next photo. Once a
+  // second finger lands, the whole gesture is dead until every finger lifts
+  // and a fresh single-finger touch begins. Same while the page is
+  // pinch-zoomed in — single-finger drags then pan the zoom, not navigate.
+  const pinching = useRef(false);
+
+  function isPinchZoomed() {
+    return (window.visualViewport?.scale ?? 1) > 1.05;
+  }
+
   function onTouchStart(e: React.TouchEvent) {
+    if (e.touches.length > 1 || isPinchZoomed()) {
+      pinching.current = true;
+      touchMoved.current = true;
+      setSwiping(false);
+      setOffsetX(0);
+      return;
+    }
+    pinching.current = false;
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchDeltaX.current = 0;
@@ -168,6 +202,16 @@ export default function Lightbox({
   }
 
   function onTouchMove(e: React.TouchEvent) {
+    if (e.touches.length > 1 && !pinching.current) {
+      // Second finger landed mid-drag — abandon the swipe and snap back
+      pinching.current = true;
+      touchMoved.current = true;
+      setSwiping(false);
+      setOffsetX(0);
+      return;
+    }
+    if (pinching.current || isPinchZoomed()) return;
+
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = e.touches[0].clientY - touchStartY.current;
     touchDeltaX.current = dx;
@@ -183,6 +227,10 @@ export default function Lightbox({
   }
 
   function onTouchEnd() {
+    if (pinching.current) {
+      touchDeltaX.current = 0;
+      return;
+    }
     setSwiping(false);
     const threshold = 60;
     const dx = touchDeltaX.current;
@@ -221,7 +269,10 @@ export default function Lightbox({
       onTouchEnd={onTouchEnd}
     >
       {/* Top bar — overlays image */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3">
+      <div
+        className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 0.75rem)" }}
+      >
         {count > 1 && (
           <span className="text-white/60 text-sm">
             {index + 1} / {count}
@@ -335,7 +386,10 @@ export default function Lightbox({
 
       {/* Bottom dot indicators for multi-photo */}
       {count > 1 && (
-        <div className="absolute bottom-0 left-0 right-0 z-20 flex justify-center gap-1.5 py-4">
+        <div
+          className="absolute bottom-0 left-0 right-0 z-20 flex justify-center gap-1.5 py-4"
+          style={{ paddingBottom: "max(env(safe-area-inset-bottom), 1rem)" }}
+        >
           {media.map((_, i) => (
             <button
               key={i}

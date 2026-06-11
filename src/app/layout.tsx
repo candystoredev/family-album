@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import ArchiveMenu from "@/components/ArchiveMenu";
@@ -25,6 +25,15 @@ export const metadata: Metadata = {
   other: {
     "apple-mobile-web-app-capable": "yes",
   },
+};
+
+// viewportFit cover extends the layout viewport under the iOS status bar in
+// standalone mode — without it, fixed inset-0 overlays (the lightbox) stop
+// short of the screen top and the page shows through. Body safe-area padding
+// in globals.css keeps normal content below the notch.
+export const viewport: Viewport = {
+  themeColor: "#1d1c1c",
+  viewportFit: "cover",
 };
 
 // Auto-derived from the deployed commit so it's always accurate — no manual

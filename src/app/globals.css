@@ -3,6 +3,9 @@
 body {
   background-color: #1d1c1c;
   color: #d3d3d3;
+  /* Keep content below the notch/status bar now that viewport-fit=cover
+     extends the layout viewport edge-to-edge (see layout.tsx viewport). */
+  padding-top: env(safe-area-inset-top);
 }
 
 /* Migrated post bodies contain HTML — style inline elements */
