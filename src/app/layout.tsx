@@ -50,12 +50,9 @@ export default async function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`min-h-screen bg-[#1d1c1c] text-[#d3d3d3] antialiased ${sourceSans.className}`}>
-        <div className="w-full bg-green-500 text-black text-center text-xs py-1 font-medium">
-          Under construction! :) &nbsp;Version: {BUILD_VERSION}
-        </div>
         {children}
         <AutoRefresh buildVersion={BUILD_VERSION} />
-        <ArchiveMenu isAdmin={session?.role === "admin"} isLoggedIn={!!session} />
+        <ArchiveMenu isAdmin={session?.role === "admin"} isLoggedIn={!!session} buildVersion={BUILD_VERSION} />
       </body>
     </html>
   );

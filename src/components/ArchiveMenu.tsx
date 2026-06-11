@@ -36,9 +36,10 @@ const SIDEBAR_FITS_BREAKPOINT = 1460;
 interface ArchiveMenuProps {
   isAdmin: boolean;
   isLoggedIn: boolean;
+  buildVersion: string;
 }
 
-export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
+export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: ArchiveMenuProps) {
   const [open, setOpen] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
   const [data, setData] = useState<ArchiveData | null>(null);
@@ -180,6 +181,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
   // Shared sidebar content
   const sidebarContent = (
     <div className="px-6 pt-8 pb-32 flex flex-col min-h-full">
+      <p className="text-[#555] text-[11px] mb-6 font-mono">{buildVersion}</p>
       {/* Search */}
       <form onSubmit={handleSearch} className="mb-8">
         <div className="relative">
