@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import ArchiveMenu from "@/components/ArchiveMenu";
+import AutoRefresh from "@/components/AutoRefresh";
 import { getSession } from "@/lib/auth";
 
 const sourceSans = Source_Sans_3({
@@ -13,6 +14,11 @@ export const metadata: Metadata = {
   title: "The Hoecks",
   description: "Family Photo Album",
   robots: { index: false, follow: false },
+  appleWebApp: {
+    capable: true,
+    title: "The Hoecks",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 // Auto-derived from the deployed commit so it's always accurate — no manual
@@ -33,6 +39,7 @@ export default async function RootLayout({
           Under construction! :) &nbsp;Version: {BUILD_VERSION}
         </div>
         {children}
+        <AutoRefresh buildVersion={BUILD_VERSION} />
         <ArchiveMenu isAdmin={session?.role === "admin"} isLoggedIn={!!session} />
       </body>
     </html>
