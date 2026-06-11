@@ -62,6 +62,14 @@ async function getSharedPost(token: string) {
     thumbnailUrl: m.thumbnail_r2_key
       ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
       : `${r2PublicUrl}/${m.r2_key}`,
+    // og:image must be a still — a video file URL renders no preview at all,
+    // so videos contribute their poster frame or nothing.
+    ogImageUrl:
+      m.type === "video"
+        ? m.thumbnail_r2_key
+          ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
+          : null
+        : `${r2PublicUrl}/${m.r2_key}`,
     width: m.width,
     height: m.height,
   }));
@@ -85,6 +93,7 @@ export async function generateMetadata({
     month: "long",
     day: "numeric",
   });
+  const ogImage = post.media.map((m) => m.ogImageUrl).find(Boolean);
 
   return {
     title: post.title ? `${post.title} — The Hoecks` : "The Hoecks",
@@ -92,7 +101,7 @@ export async function generateMetadata({
     openGraph: {
       title: post.title || "The Hoecks",
       description: `Posted ${date}`,
-      images: post.media.length > 0 ? [{ url: post.media[0].url }] : [],
+      images: ogImage ? [{ url: ogImage }] : [],
       url: `${siteUrl}/share/${token}`,
       siteName: "The Hoecks",
       type: "article",
