@@ -214,6 +214,11 @@ Select many images at once → client reads EXIF dates → app auto-groups them 
   - The dragged photo previews as a blue insertion line — horizontal for a new row, vertical for within-row — while the real photo rides the `DragOverlay` (exactly the upload page's behavior). The thin line means almost no reflow, killing the old jumpiness.
   - Drop target debounced 80ms so hovering near a zone boundary doesn't oscillate.
 
+- **9d.3 — Drag a photo out to a new post (green between-cards line)** ~~DONE~~ ✓
+  - Dragging a photo *out* of its card (into the gap/space between or beside cards) now creates a new post at that position. A **green line between the cards** shows where the new post will land — the counterpart to the blue line that restructures rows *inside* a post.
+  - Dropping over another card still adds the photo to that post (blue line). Dropping a group's only photo onto a new-post target is a no-op (keeps its metadata).
+  - Replaced the single dashed "start a new post" tile (append-only, easy to miss) with positional green-line insertion anywhere between cards.
+
 - **9d.2 — Drag targeting + lone-photo fill + sidebar** ~~DONE~~ ✓
   - "New top row" is now a large, reliable target: the whole header band above row 0 (plus the top ~45% of it) maps to a new top row, so you don't slip into the card above. Same generous treatment for the bottom row and between-row gaps. The same "above the first row → new top row" fix was applied to the upload page.
   - A lone photo in a row now fills the full card width (taller for portraits) instead of deriving a narrow width from its height — gives confidence the post will render right.
