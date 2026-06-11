@@ -214,6 +214,10 @@ Select many images at once → client reads EXIF dates → app auto-groups them 
   - The dragged photo previews as a blue insertion line — horizontal for a new row, vertical for within-row — while the real photo rides the `DragOverlay` (exactly the upload page's behavior). The thin line means almost no reflow, killing the old jumpiness.
   - Drop target debounced 80ms so hovering near a zone boundary doesn't oscillate.
 
+- **9c.1 — Per-card publish** ~~DONE~~ ✓
+  - Each card has its own Publish button: post one group when it's ready, without touching the rest. On success the card shows "Published ✓" for a beat, then clears itself (thumbs revoked, items freed) — workspace empties as you go. Errors keep the card with a Retry.
+  - Publish-all progress uses a stable denominator (done + remaining) since finished cards remove themselves.
+
 - **9d.3 — Drag a photo out to a new post (green between-cards line)** ~~DONE~~ ✓
   - Dragging a photo *out* of its card (into the gap/space between or beside cards) now creates a new post at that position. A **green line between the cards** shows where the new post will land — the counterpart to the blue line that restructures rows *inside* a post.
   - Dropping over another card still adds the photo to that post (blue line). Dropping a group's only photo onto a new-post target is a no-op (keeps its metadata).
