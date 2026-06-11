@@ -753,10 +753,31 @@ export default function BulkImportPage() {
 
   // ─── Publish ───────────────────────────────────────────────────────────────
 
+  /**
+   * After a successful publish, the card lingers briefly showing "published",
+   * then clears itself to free workspace. Only that group's state is touched —
+   * every other card (selection, edits, scroll) stays exactly as it was.
+   */
+  function removePublishedGroup(groupId: string) {
+    setGroups((prev) => {
+      const g = prev.find((x) => x.id === groupId);
+      if (!g) return prev;
+      const merged = { ...itemsRef.current };
+      for (const id of g.itemIds) {
+        const it = merged[id];
+        if (it?.thumb) URL.revokeObjectURL(it.thumb);
+        delete merged[id];
+      }
+      itemsRef.current = merged;
+      setItems(merged);
+      return prev.filter((x) => x.id !== groupId);
+    });
+  }
+
   async function publishGroup(group: BulkGroup): Promise<void> {
     setPublishes((prev) => ({ ...prev, [group.id]: { state: "uploading" } }));
     try {
-      const groupItems = group.itemIds.map((id) => items[id]).filter(Boolean);
+      const groupItems = group.itemIds.map((id) => itemsRef.current[id]).filter(Boolean);
 
       const uploadedItems = await Promise.all(
         groupItems.map(async (item) => {
@@ -802,6 +823,8 @@ export default function BulkImportPage() {
         ...prev,
         [group.id]: { state: "done", slug: data.slug },
       }));
+      // Show "published ✓" for a beat, then clear the card to free workspace
+      setTimeout(() => removePublishedGroup(group.id), 1500);
     } catch (err) {
       setPublishes((prev) => ({
         ...prev,
@@ -976,7 +999,8 @@ export default function BulkImportPage() {
             className="bg-[#3a8a50] text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#2f7342] transition-colors disabled:opacity-50 disabled:cursor-wait"
           >
             {isPublishing
-              ? `Publishing… (${publishedCount}/${activeGroupCount})`
+              // Stable denominator even as published cards clear themselves
+              ? `Publishing… (${publishedCount}/${publishedCount + pendingGroupCount})`
               : `Publish ${pendingGroupCount} ${pendingGroupCount === 1 ? "post" : "posts"}`}
           </button>
         )}
@@ -1052,7 +1076,7 @@ export default function BulkImportPage() {
                 onSplit={(itemIdx) => splitGroup(group.id, itemIdx)}
                 onUpdate={(patch) => updateGroup(group.id, patch)}
                 onApplyToAll={applyToAll}
-                onRetry={() => publishGroup(group)}
+                onPublish={() => publishGroup(group)}
               />
             ))}
           </div>
@@ -1107,7 +1131,7 @@ function GroupCard({
   onSplit,
   onUpdate,
   onApplyToAll,
-  onRetry,
+  onPublish,
 }: {
   group: BulkGroup;
   rows: string[][];
@@ -1124,7 +1148,7 @@ function GroupCard({
     field: "selectedTags" | "selectedPeople" | "selectedAlbumIds",
     values: string[]
   ) => void;
-  onRetry: () => void;
+  onPublish: () => void;
 }) {
   const flatItems = useMemo(
     () => rows.flat().map((id) => items[id]).filter(Boolean),
@@ -1293,12 +1317,29 @@ function GroupCard({
               {publish?.error || "Upload failed"}
             </span>
             <button
-              onClick={onRetry}
+              onClick={onPublish}
               className="text-[10px] px-2 py-1 rounded border border-[#d86d6d]/50 text-[#d86d6d] hover:bg-[#d86d6d]/10 transition-colors shrink-0"
             >
               Retry
             </button>
           </div>
+        )}
+
+        {/* Per-card publish — post just this group; the card clears on success */}
+        {!group.skipped && !isError && (
+          <button
+            onClick={onPublish}
+            disabled={isUploading || isDone}
+            className={`w-full rounded-lg py-2 text-sm font-semibold transition-colors ${
+              isDone
+                ? "bg-[#3a8a50]/20 text-[#3a8a50] cursor-default"
+                : isUploading
+                  ? "bg-[#2a2929] text-[#427ea3] cursor-wait"
+                  : "bg-[#3a8a50] text-white hover:bg-[#2f7342]"
+            }`}
+          >
+            {isDone ? "Published ✓" : isUploading ? "Publishing…" : "Publish"}
+          </button>
         )}
       </div>
     </div>
