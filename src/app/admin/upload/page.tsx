@@ -185,6 +185,14 @@ export default function UploadPage() {
         return;
       }
 
+      // Pointer above the first row (or in its top band) → new top row.
+      // Makes "drag to the top to start a new top row" an easy, large target.
+      const firstRect = rowEls[0].getBoundingClientRect();
+      if (e.clientY < firstRect.top + NEW_ROW_ZONE) {
+        scheduleInsert({ rowIdx: 0, colIdx: 0, isNewRow: true });
+        return;
+      }
+
       for (let ri = 0; ri < rowEls.length; ri++) {
         const rowRect = rowEls[ri].getBoundingClientRect();
         if (e.clientY < rowRect.top || e.clientY > rowRect.bottom) continue;

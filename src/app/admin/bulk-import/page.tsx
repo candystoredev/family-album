@@ -581,20 +581,41 @@ export default function BulkImportPage() {
           scheduleTarget({ kind: "row", groupId, rowIdx: 0, colIdx: 0, isNewRow: true });
           return;
         }
-        const lastRect = rowEls[rowEls.length - 1].getBoundingClientRect();
-        if (clientY > lastRect.bottom) {
+        const rects = rowEls.map((el) => el.getBoundingClientRect());
+        const first = rects[0];
+        const last = rects[rects.length - 1];
+
+        // Generous top region — the whole header band above row 0 plus the top
+        // ~45% of row 0 → "new top row". Anything above the card belongs to the
+        // card above, so a top row is easy to hit without slipping into it.
+        const topBand = Math.min(NEW_ROW_ZONE, first.height * 0.45);
+        if (clientY <= first.top + topBand) {
+          scheduleTarget({ kind: "row", groupId, rowIdx: 0, colIdx: 0, isNewRow: true });
+          return;
+        }
+        // Generous bottom region — bottom ~45% of the last row and everything
+        // below it (metadata area) → "new bottom row".
+        const botBand = Math.min(NEW_ROW_ZONE, last.height * 0.45);
+        if (clientY >= last.bottom - botBand) {
           scheduleTarget({ kind: "row", groupId, rowIdx: rowEls.length, colIdx: 0, isNewRow: true });
           return;
         }
+
+        // Interior: find the row under the pointer (or the gap above it)
         for (let ri = 0; ri < rowEls.length; ri++) {
-          const rr = rowEls[ri].getBoundingClientRect();
-          if (clientY < rr.top || clientY > rr.bottom) continue;
-          const zone = Math.min(NEW_ROW_ZONE, rr.height * 0.4);
-          if (clientY < rr.top + zone) {
+          const rr = rects[ri];
+          // Gap between the previous row and this one → new row here
+          if (ri > 0 && clientY < rr.top && clientY > rects[ri - 1].bottom) {
             scheduleTarget({ kind: "row", groupId, rowIdx: ri, colIdx: 0, isNewRow: true });
             return;
           }
-          if (clientY > rr.bottom - zone) {
+          if (clientY < rr.top || clientY > rr.bottom) continue;
+          const zone = Math.min(NEW_ROW_ZONE, rr.height * 0.3);
+          if (ri > 0 && clientY < rr.top + zone) {
+            scheduleTarget({ kind: "row", groupId, rowIdx: ri, colIdx: 0, isNewRow: true });
+            return;
+          }
+          if (ri < rowEls.length - 1 && clientY > rr.bottom - zone) {
             scheduleTarget({ kind: "row", groupId, rowIdx: ri + 1, colIdx: 0, isNewRow: true });
             return;
           }
@@ -815,6 +836,13 @@ export default function BulkImportPage() {
     <div className="min-h-screen bg-[#1d1c1c] text-[#d3d3d3]">
       {/* Toolbar */}
       <div className="sticky top-0 z-20 bg-[#1d1c1c]/95 backdrop-blur border-b border-[#2a2929] px-6 py-3 flex items-center gap-4 flex-wrap">
+        <a
+          href="/"
+          title="Back to the feed"
+          className="text-[#888] hover:text-[#d3d3d3] transition-colors -ml-1 text-lg leading-none"
+        >
+          ←
+        </a>
         <h1 className="text-lg font-semibold mr-2">Bulk Import</h1>
 
         {itemCount > 0 && (
@@ -1170,6 +1198,7 @@ function GroupCard({
                     key={id}
                     item={item}
                     draggable={!locked}
+                    alone={row.length === 1}
                     indicator={activeId === id ? "vertical" : null}
                     canSplit={idx > 0 && !group.skipped}
                     onSplit={() => onSplit(idx)}
@@ -1251,12 +1280,14 @@ function GroupCard({
 function DraggablePhoto({
   item,
   draggable,
+  alone = false,
   indicator = null,
   canSplit = false,
   onSplit,
 }: {
   item: BulkItem;
   draggable: boolean;
+  alone?: boolean;
   indicator?: "horizontal" | "vertical" | null;
   canSplit?: boolean;
   onSplit?: () => void;
@@ -1290,13 +1321,18 @@ function DraggablePhoto({
     );
   }
 
-  const style: React.CSSProperties = {
-    flexGrow: item.aspect,
-    flexShrink: 1,
-    flexBasis: 0,
-    aspectRatio: String(item.aspect),
-    touchAction: "none",
-  };
+  // A lone photo fills the card width (taller for portraits); photos sharing a
+  // row are justified (width ∝ aspect, equal heights). align stretch + aspect
+  // makes a single flex item derive width from height, so force full width.
+  const style: React.CSSProperties = alone
+    ? { flex: "none", width: "100%", aspectRatio: String(item.aspect), touchAction: "none" }
+    : {
+        flexGrow: item.aspect,
+        flexShrink: 1,
+        flexBasis: 0,
+        aspectRatio: String(item.aspect),
+        touchAction: "none",
+      };
 
   return (
     <div

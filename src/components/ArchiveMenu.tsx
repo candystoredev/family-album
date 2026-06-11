@@ -57,8 +57,10 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn }: ArchiveMenuProps) {
   // Hide on login, upload, and share pages (share page visible to admins only)
   const isLoginPage = pathname === "/login";
   const isUploadPage = pathname === "/admin/upload";
+  const isBulkImportPage = pathname === "/admin/bulk-import";
   const isSharePage = pathname.startsWith("/share/") && !isAdmin;
-  const isHiddenPage = isLoginPage || isUploadPage || isSharePage;
+  // Admin authoring tools own the full screen — the slide-out would overlap them
+  const isHiddenPage = isLoginPage || isUploadPage || isBulkImportPage || isSharePage;
 
   // Track desktop vs mobile
   useEffect(() => {
