@@ -50,38 +50,6 @@ async function extractExifDate(buffer: Buffer): Promise<Date | null> {
   }
 }
 
-async function findOrCreateTag(name: string): Promise<string> {
-  const slug = slugify(name);
-  const existing = await db.execute({
-    sql: "SELECT id FROM tags WHERE slug = ?",
-    args: [slug],
-  });
-  if (existing.rows.length > 0) return existing.rows[0].id as string;
-
-  const id = nanoid();
-  await db.execute({
-    sql: "INSERT INTO tags (id, name, slug) VALUES (?, ?, ?)",
-    args: [id, name.trim(), slug],
-  });
-  return id;
-}
-
-async function findOrCreatePerson(name: string): Promise<string> {
-  const slug = slugify(name);
-  const existing = await db.execute({
-    sql: "SELECT id FROM people WHERE slug = ?",
-    args: [slug],
-  });
-  if (existing.rows.length > 0) return existing.rows[0].id as string;
-
-  const id = nanoid();
-  await db.execute({
-    sql: "INSERT INTO people (id, name, slug) VALUES (?, ?, ?)",
-    args: [id, name.trim(), slug],
-  });
-  return id;
-}
-
 interface MediaItem {
   r2Key: string;
   keyPrefix: string;
@@ -161,8 +129,20 @@ export async function POST(request: NextRequest) {
         const buffer = await downloadFromR2(item.r2Key);
         const exifDate = await extractExifDate(buffer);
 
+        // Client uploads are already ≤1920px JPEGs with orientation baked in
+        // (canvas re-encode) — re-encoding those again just burns time and
+        // quality. Only re-encode when rotation or format conversion is needed.
+        const meta = await sharp(buffer).metadata();
+        const alreadyProcessed =
+          meta.format === "jpeg" && (!meta.orientation || meta.orientation === 1);
+
         const [processed, thumbBuffer] = await Promise.all([
-          sharp(buffer).rotate().jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
+          alreadyProcessed
+            ? Promise.resolve({
+                data: buffer,
+                info: { width: meta.width ?? 0, height: meta.height ?? 0 },
+              })
+            : sharp(buffer).rotate().jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
           sharp(buffer).rotate().resize(THUMB_WIDTH, null, { withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
         ]);
 
@@ -243,75 +223,86 @@ export async function POST(request: NextRequest) {
       : `photo-${postDate.getFullYear()}-${String(postDate.getMonth() + 1).padStart(2, "0")}-${String(postDate.getDate()).padStart(2, "0")}`;
     const slug = await uniqueSlug(slugBase);
 
-    // Insert post
-    await db.execute({
-      sql: `INSERT INTO posts (id, slug, title, body, date, type, photoset_layout, created_at, updated_at)
-            VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
-      args: [postId, slug, postTitle, dateStr, postType, photosetLayout],
-    });
+    // Sequential db.execute calls each cost a Turso HTTP roundtrip — for a
+    // 4-photo post that was ~12 of them, the bulk of publish latency. Resolve
+    // tag/person ids in two batched roundtrips, then write everything
+    // (post + media + links + FTS) in one atomic batch.
+    const cleanTags = tagNames.filter((n) => n.trim()).map((n) => n.trim());
+    const cleanPeople = peopleNames.filter((n) => n.trim()).map((n) => n.trim());
+    const cleanAlbumIds = albumIds.filter((a) => a.trim());
 
-    // Insert media records
-    for (const m of mediaRecords) {
-      await db.execute({
-        sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          m.id,
-          postId,
-          m.r2Key,
-          m.thumbKey || null,
-          m.type,
-          m.width || null,
-          m.height || null,
-          m.fileSize || null,
-          m.displayOrder,
-          m.type === "video" ? "video/mp4" : "image/jpeg",
-        ],
-      });
-    }
+    const ensureStmts = [
+      ...cleanTags.map((name) => ({
+        sql: "INSERT OR IGNORE INTO tags (id, name, slug) VALUES (?, ?, ?)",
+        args: [nanoid(), name, slugify(name)],
+      })),
+      ...cleanPeople.map((name) => ({
+        sql: "INSERT OR IGNORE INTO people (id, name, slug) VALUES (?, ?, ?)",
+        args: [nanoid(), name, slugify(name)],
+      })),
+    ];
+    if (ensureStmts.length > 0) await db.batch(ensureStmts, "write");
 
-    // Tags
     const tagIds: string[] = [];
-    for (const name of tagNames) {
-      if (!name.trim()) continue;
-      const tagId = await findOrCreateTag(name);
-      tagIds.push(tagId);
-      await db.execute({
-        sql: "INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)",
-        args: [postId, tagId],
+    if (cleanTags.length > 0) {
+      const res = await db.execute({
+        sql: `SELECT id FROM tags WHERE slug IN (${cleanTags.map(() => "?").join(",")})`,
+        args: cleanTags.map(slugify),
       });
+      tagIds.push(...res.rows.map((r) => r.id as string));
     }
-
-    // People
     const personIds: string[] = [];
-    for (const name of peopleNames) {
-      if (!name.trim()) continue;
-      const personId = await findOrCreatePerson(name);
-      personIds.push(personId);
-      await db.execute({
-        sql: "INSERT OR IGNORE INTO post_people (post_id, person_id) VALUES (?, ?)",
-        args: [postId, personId],
+    if (cleanPeople.length > 0) {
+      const res = await db.execute({
+        sql: `SELECT id FROM people WHERE slug IN (${cleanPeople.map(() => "?").join(",")})`,
+        args: cleanPeople.map(slugify),
       });
+      personIds.push(...res.rows.map((r) => r.id as string));
     }
 
-    // Albums
-    for (const albumId of albumIds) {
-      if (!albumId.trim()) continue;
-      await db.execute({
-        sql: "INSERT OR IGNORE INTO post_albums (post_id, album_id) VALUES (?, ?)",
-        args: [postId, albumId],
-      });
-    }
-
-    // Build FTS data
-    const tagNamesForFts = tagNames.filter((n) => n.trim()).join(" ");
-    const peopleNamesForFts = peopleNames.filter((n) => n.trim()).join(" ");
-
-    await db.execute({
-      sql: `INSERT INTO posts_fts(post_id, title, body, tags, people)
-            VALUES (?, ?, '', ?, ?)`,
-      args: [postId, postTitle || "", tagNamesForFts, peopleNamesForFts],
-    });
+    await db.batch(
+      [
+        {
+          sql: `INSERT INTO posts (id, slug, title, body, date, type, photoset_layout, created_at, updated_at)
+                VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
+          args: [postId, slug, postTitle, dateStr, postType, photosetLayout],
+        },
+        ...mediaRecords.map((m) => ({
+          sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            m.id,
+            postId,
+            m.r2Key,
+            m.thumbKey || null,
+            m.type,
+            m.width || null,
+            m.height || null,
+            m.fileSize || null,
+            m.displayOrder,
+            m.type === "video" ? "video/mp4" : "image/jpeg",
+          ],
+        })),
+        ...tagIds.map((tagId) => ({
+          sql: "INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)",
+          args: [postId, tagId],
+        })),
+        ...personIds.map((personId) => ({
+          sql: "INSERT OR IGNORE INTO post_people (post_id, person_id) VALUES (?, ?)",
+          args: [postId, personId],
+        })),
+        ...cleanAlbumIds.map((albumId) => ({
+          sql: "INSERT OR IGNORE INTO post_albums (post_id, album_id) VALUES (?, ?)",
+          args: [postId, albumId],
+        })),
+        {
+          sql: `INSERT INTO posts_fts(post_id, title, body, tags, people)
+                VALUES (?, ?, '', ?, ?)`,
+          args: [postId, postTitle || "", cleanTags.join(" "), cleanPeople.join(" ")],
+        },
+      ],
+      "write"
+    );
 
     return NextResponse.json({
       success: true,
