@@ -32,6 +32,9 @@ interface BulkItem {
   thumbFailed: boolean;
   /** width / height of the (orientation-corrected) photo; drives justified rows */
   aspect: number;
+  /** Upload-ready file, compressed in the background after ingest so clicking
+   *  Publish skips straight to the network. Falls back to on-demand. */
+  compressed?: File;
 }
 
 interface BulkGroup {
@@ -68,6 +71,8 @@ type DropTarget =
 const THUMB_MAX_PX = 400;
 const EXIF_CONCURRENCY = 8;
 const THUMB_CONCURRENCY = 4;
+/** Background pre-compression after thumbnails — low so the UI stays smooth. */
+const COMPRESS_CONCURRENCY = 2;
 /** Fallback aspect (landscape 4:3) shown until a photo's real ratio is known. */
 const DEFAULT_ASPECT = 4 / 3;
 /** Top/bottom band of a row that means "new row here" rather than "into this row". */
@@ -474,7 +479,20 @@ export default function BulkImportPage() {
             }
           : prev
       );
-    });
+    }).then(() =>
+      // Pass 3: pre-compress for upload while the admin reviews, so Publish
+      // goes straight to the network. Compressed JPEGs are a few hundred KB
+      // each; the browser spills large blobs to disk, so memory stays sane.
+      runPool(newItems, COMPRESS_CONCURRENCY, async (item) => {
+        if (generationRef.current !== gen) return;
+        if (itemsRef.current[item.id]?.compressed) return;
+        const compressed = await compressImage(item.file);
+        if (generationRef.current !== gen) return;
+        setItems((prev) =>
+          prev[item.id] ? { ...prev, [item.id]: { ...prev[item.id], compressed } } : prev
+        );
+      })
+    );
   }
 
   // ─── Group operations ──────────────────────────────────────────────────────
@@ -781,7 +799,9 @@ export default function BulkImportPage() {
 
       const uploadedItems = await Promise.all(
         groupItems.map(async (item) => {
-          const compressed = await compressImage(item.file);
+          // Usually pre-compressed in the background; compress here only if
+          // Publish was clicked before the background pass reached this photo
+          const compressed = item.compressed ?? (await compressImage(item.file));
           const presignRes = await fetch("/api/admin/upload/presign", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -824,7 +844,7 @@ export default function BulkImportPage() {
         [group.id]: { state: "done", slug: data.slug },
       }));
       // Show "published ✓" for a beat, then clear the card to free workspace
-      setTimeout(() => removePublishedGroup(group.id), 1500);
+      setTimeout(() => removePublishedGroup(group.id), 600);
     } catch (err) {
       setPublishes((prev) => ({
         ...prev,
