@@ -57,7 +57,13 @@ interface GroupPublish {
 /** Where a dragged photo will land. */
 type DropTarget =
   | { kind: "row"; groupId: string; rowIdx: number; colIdx: number; isNewRow: boolean }
-  | { kind: "newGroup" };
+  // A new post inserted before `beforeId` (or appended when null). `line` is the
+  // green between-cards indicator geometry, in viewport coords.
+  | {
+      kind: "newGroup";
+      beforeId: string | null;
+      line: { x: number; top: number; height: number };
+    };
 
 const THUMB_MAX_PX = 400;
 const EXIF_CONCURRENCY = 8;
@@ -560,15 +566,6 @@ export default function BulkImportPage() {
 
     function hitTest(clientX: number, clientY: number) {
       const dragged = activeIdRef.current;
-      // New-group zone wins if the pointer is inside it
-      const ng = document.querySelector<HTMLElement>("[data-newgroup]");
-      if (ng) {
-        const r = ng.getBoundingClientRect();
-        if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
-          scheduleTarget({ kind: "newGroup" });
-          return;
-        }
-      }
       const groupEls = Array.from(document.querySelectorAll<HTMLElement>("[data-group]"));
       for (const gEl of groupEls) {
         if (gEl.dataset.locked === "true") continue;
@@ -634,7 +631,35 @@ export default function BulkImportPage() {
           return;
         }
       }
-      scheduleTarget(null);
+
+      // Pointer is not over any card — dragged "out" → new post. Show a green
+      // line in the gap nearest the pointer; drop creates a post there.
+      const cards = groupEls.map((el) => ({ id: el.dataset.group!, rect: el.getBoundingClientRect() }));
+      if (cards.length === 0) {
+        scheduleTarget(null);
+        return;
+      }
+      let best = cards[0];
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      cards.forEach((c, i) => {
+        const dx = Math.max(c.rect.left - clientX, 0, clientX - c.rect.right);
+        const dy = Math.max(c.rect.top - clientY, 0, clientY - c.rect.bottom);
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) {
+          bestDist = d;
+          best = c;
+          bestIdx = i;
+        }
+      });
+      const after = clientX >= (best.rect.left + best.rect.right) / 2;
+      const beforeId = after ? cards[bestIdx + 1]?.id ?? null : best.id;
+      const x = after ? best.rect.right + 8 : best.rect.left - 8;
+      scheduleTarget({
+        kind: "newGroup",
+        beforeId,
+        line: { x, top: best.rect.top, height: best.rect.height },
+      });
     }
 
     function onPointerMove(e: PointerEvent) {
@@ -698,7 +723,7 @@ export default function BulkImportPage() {
               : g
           )
           .filter((g) => g.itemIds.length > 0);
-        stripped.push({
+        const newGroup: BulkGroup = {
           id: nextId("g"),
           itemIds: [itemId],
           layout: [1],
@@ -708,7 +733,13 @@ export default function BulkImportPage() {
           selectedPeople: [],
           selectedAlbumIds: [],
           skipped: false,
-        });
+        };
+        // Insert at the green-line position (before `beforeId`, or append)
+        const at = target.beforeId
+          ? stripped.findIndex((g) => g.id === target.beforeId)
+          : -1;
+        if (at < 0) stripped.push(newGroup);
+        else stripped.splice(at, 0, newGroup);
         return stripped;
       }
 
@@ -1024,21 +1055,20 @@ export default function BulkImportPage() {
                 onRetry={() => publishGroup(group)}
               />
             ))}
-            {activeId && (
-              <div
-                data-newgroup
-                className={`flex items-center justify-center rounded-xl border-2 border-dashed text-center text-xs min-h-[120px] transition-colors ${
-                  dropTarget?.kind === "newGroup"
-                    ? "border-[#427ea3] bg-[#427ea3]/10 text-[#427ea3]"
-                    : "border-[#3a3939] text-[#666]"
-                }`}
-              >
-                Drop here to
-                <br />
-                start a new post
-              </div>
-            )}
           </div>
+
+          {/* Green between-cards line — drop here to make a NEW post.
+              (Blue lines, inside a card, restructure the post's rows.) */}
+          {dropTarget?.kind === "newGroup" && (
+            <div
+              className="pointer-events-none fixed z-40 w-[3px] -ml-[1.5px] rounded-full bg-[#3a8a50] shadow-[0_0_8px_rgba(58,138,80,0.7)]"
+              style={{
+                left: dropTarget.line.x,
+                top: dropTarget.line.top,
+                height: dropTarget.line.height,
+              }}
+            />
+          )}
 
           <DragOverlay>
             {activeId && items[activeId] ? (
