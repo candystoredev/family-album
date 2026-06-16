@@ -9,6 +9,8 @@ const PUBLIC_PATHS = [
   "/login",
   "/api/init",
   "/api/auth/login",
+  // Cron-triggered daily push — authenticated in-route via CRON_SECRET.
+  "/api/notifications/daily",
   "/robots.txt",
   "/share",
 ];

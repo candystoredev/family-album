@@ -103,6 +103,18 @@ const statements = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
 
+  // Push notification subscriptions — one row per device that opted in.
+  // Stores the Web Push subscription, not any personal contact info.
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_success_at TEXT
+  )`,
+
   // Indexes
   `CREATE INDEX IF NOT EXISTS idx_posts_date ON posts(date DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)`,
@@ -112,6 +124,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_post_albums_album_id ON post_albums(album_id)`,
   `CREATE INDEX IF NOT EXISTS idx_invite_links_token ON invite_links(token)`,
   `CREATE INDEX IF NOT EXISTS idx_post_share_links_token ON post_share_links(token)`,
+  `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint ON push_subscriptions(endpoint)`,
 
 ];
 

@@ -3,6 +3,7 @@ import { Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import ArchiveMenu from "@/components/ArchiveMenu";
 import AutoRefresh from "@/components/AutoRefresh";
+import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import { getSession } from "@/lib/auth";
 
 const sourceSans = Source_Sans_3({
@@ -13,6 +14,7 @@ const sourceSans = Source_Sans_3({
 export const metadata: Metadata = {
   title: "The Hoecks",
   description: "Family Photo Album",
+  manifest: "/manifest.webmanifest",
   robots: { index: false, follow: false },
   appleWebApp: {
     capable: true,
@@ -52,6 +54,7 @@ export default async function RootLayout({
       <body className={`min-h-screen bg-[#1d1c1c] text-[#d3d3d3] antialiased ${sourceSans.className}`}>
         {children}
         <AutoRefresh buildVersion={BUILD_VERSION} />
+        <ServiceWorkerRegister />
         <ArchiveMenu isAdmin={session?.role === "admin"} isLoggedIn={!!session} buildVersion={BUILD_VERSION} />
       </body>
     </html>

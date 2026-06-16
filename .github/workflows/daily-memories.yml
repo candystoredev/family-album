@@ -1,0 +1,23 @@
+name: Daily memory notifications
+
+# Runs hourly. The endpoint itself only sends when the current hour (in the
+# configured timezone) matches the admin-chosen send hour, and never twice in a
+# day — so an editable send time works without changing this schedule.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger daily notification
+        run: |
+          curl -sS -X POST "${SITE_URL}/api/notifications/daily" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -w "\nHTTP %{http_code}\n" \
+            --fail-with-body
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

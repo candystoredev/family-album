@@ -18,6 +18,11 @@ export async function POST(request: Request) {
       site_title: "The Hoecks",
       site_description: "Family Photo Album",
       imessage_recipients: "",
+      // Daily "On this day" push notifications
+      daily_notifications_enabled: "1",
+      notify_send_hour: "8", // local hour (0-23) in notify_timezone
+      notify_timezone: "America/New_York",
+      notify_last_sent_date: "", // YYYY-MM-DD guard against duplicate sends
     };
 
     for (const [key, value] of Object.entries(defaults)) {
