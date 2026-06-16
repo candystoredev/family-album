@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { ensurePushSchema } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export async function POST(req: NextRequest) {
 
   if (!endpoint) return NextResponse.json({ error: "Missing endpoint" }, { status: 400 });
 
+  await ensurePushSchema();
   await db.execute({
     sql: "DELETE FROM push_subscriptions WHERE endpoint = ?",
     args: [endpoint],

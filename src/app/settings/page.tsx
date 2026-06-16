@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { db } from "@/lib/db";
+import { ensurePushSchema } from "@/lib/schema";
 import SettingsClient from "@/components/SettingsClient";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export default async function SettingsPage() {
   let deviceCount = 0;
   if (isAdmin) {
     adminSettings = await getSettings(ADMIN_SETTING_KEYS);
+    await ensurePushSchema();
     const countResult = await db.execute("SELECT COUNT(*) as n FROM push_subscriptions");
     deviceCount = Number((countResult.rows[0] as unknown as { n: number }).n ?? 0);
   }

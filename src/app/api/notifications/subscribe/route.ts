@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { ensurePushSchema } from "@/lib/schema";
 import { nanoid } from "nanoid";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export async function POST(req: NextRequest) {
   }
 
   const label = (body.label || "").slice(0, 100) || null;
+
+  await ensurePushSchema();
 
   // Upsert on endpoint so re-subscribing the same device refreshes its keys
   // instead of creating duplicates.

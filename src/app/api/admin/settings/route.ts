@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ensurePushSchema } from "@/lib/schema";
 import { getSettings, setSetting } from "@/lib/settings";
 import bcrypt from "bcryptjs";
 
@@ -19,6 +20,7 @@ const EDITABLE_KEYS = [
 export async function GET() {
   const settings = await getSettings([...EDITABLE_KEYS]);
   // Count subscribed devices so admins can see reach at a glance.
+  await ensurePushSchema();
   const countResult = await db.execute("SELECT COUNT(*) as n FROM push_subscriptions");
   const deviceCount = Number((countResult.rows[0] as unknown as { n: number }).n ?? 0);
   return NextResponse.json({ settings, deviceCount });

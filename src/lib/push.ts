@@ -1,5 +1,6 @@
 import webpush from "web-push";
 import { db } from "./db";
+import { ensurePushSchema } from "./schema";
 import type { OnThisDayPost } from "./onThisDay";
 
 let configured = false;
@@ -44,6 +45,7 @@ export async function sendPushToAll(
   if (!ensureConfigured()) {
     throw new Error("VAPID keys not configured (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)");
   }
+  await ensurePushSchema();
 
   const result = await db.execute(
     "SELECT id, endpoint, p256dh, auth FROM push_subscriptions"
@@ -95,6 +97,7 @@ export async function sendPushToEndpoint(
   if (!ensureConfigured()) {
     throw new Error("VAPID keys not configured");
   }
+  await ensurePushSchema();
   const result = await db.execute({
     sql: "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE endpoint = ?",
     args: [endpoint],

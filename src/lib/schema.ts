@@ -172,8 +172,31 @@ export async function rebuildFtsIndex() {
   });
 }
 
-export async function initializeSchema() {
-  for (const sql of statements) {
+let pushSchemaReady = false;
+
+/**
+ * Lazily ensure the push_subscriptions table exists. Called by the notification
+ * endpoints so the feature works on an already-deployed database without having
+ * to re-run /api/init. Idempotent and guarded to run at most once per process.
+ */
+export async function ensurePushSchema() {
+  if (pushSchemaReady) return;
+  await db.execute(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_success_at TEXT
+  )`);
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint ON push_subscriptions(endpoint)`
+  );
+  pushSchemaReady = true;
+}
+
+export async function initializeSchema() {  for (const sql of statements) {
     await db.execute(sql);
   }
   for (const sql of migrations) {
