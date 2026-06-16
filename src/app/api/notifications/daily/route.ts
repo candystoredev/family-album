@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { getMemoriesForDate } from "@/lib/onThisDay";
 import { buildDailyPayload, sendPushToAll } from "@/lib/push";
 import { getSettings, setSetting } from "@/lib/settings";
@@ -7,18 +8,25 @@ import { zonedNow } from "@/lib/datetime";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function isAuthorized(req: NextRequest): boolean {
+async function isAuthorized(req: NextRequest): Promise<boolean> {
+  // Cron / API callers authenticate with a bearer token.
   const auth = req.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ")) return false;
-  const token = auth.slice(7);
-  return (
-    (!!process.env.CRON_SECRET && token === process.env.CRON_SECRET) ||
-    (!!process.env.ADMIN_API_TOKEN && token === process.env.ADMIN_API_TOKEN)
-  );
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.slice(7);
+    if (
+      (!!process.env.CRON_SECRET && token === process.env.CRON_SECRET) ||
+      (!!process.env.ADMIN_API_TOKEN && token === process.env.ADMIN_API_TOKEN)
+    ) {
+      return true;
+    }
+  }
+  // The admin "Send now" button authenticates with the logged-in session.
+  const session = await getSession();
+  return session?.role === "admin";
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) {
+  if (!(await isAuthorized(req))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await sendPushToEndpoint(endpoint, {
-      title: "📸 The Hoecks",
+      title: "The Hoecks",
       body: "Notifications are working! You'll get a daily memory each morning.",
       url: "/today",
       icon: "/icon-192.png",

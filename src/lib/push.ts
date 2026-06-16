@@ -148,7 +148,7 @@ export function buildDailyPayload(memories: OnThisDayPost[]): PushPayload | null
   const image = hero.thumbnailUrl || heroMedia?.url || undefined;
 
   return {
-    title: `📸 ${yearsLabel}`,
+    title: yearsLabel,
     body,
     image,
     url: "/today",
