@@ -345,6 +345,12 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
               </a>
             </div>
           )}
+          <Link
+            href="/settings"
+            className="block text-sm text-[#888] hover:text-[#d3d3d3] transition-colors"
+          >
+            Settings
+          </Link>
           <button
             onClick={handleLogout}
             className="block text-sm text-[#666] hover:text-[#d3d3d3] transition-colors"

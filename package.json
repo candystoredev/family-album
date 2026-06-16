@@ -25,7 +25,8 @@
     "next": "^15",
     "react": "^19",
     "react-dom": "^19",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -34,6 +35,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/sharp": "^0.31.1",
+    "@types/web-push": "^3.6.4",
     "tailwindcss": "^4",
     "tsx": "^4",
     "typescript": "^5"

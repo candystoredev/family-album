@@ -103,6 +103,18 @@ const statements = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
 
+  // Push notification subscriptions — one row per device that opted in.
+  // Stores the Web Push subscription, not any personal contact info.
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_success_at TEXT
+  )`,
+
   // Indexes
   `CREATE INDEX IF NOT EXISTS idx_posts_date ON posts(date DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug)`,
@@ -112,6 +124,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_post_albums_album_id ON post_albums(album_id)`,
   `CREATE INDEX IF NOT EXISTS idx_invite_links_token ON invite_links(token)`,
   `CREATE INDEX IF NOT EXISTS idx_post_share_links_token ON post_share_links(token)`,
+  `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint ON push_subscriptions(endpoint)`,
 
 ];
 
@@ -159,8 +172,31 @@ export async function rebuildFtsIndex() {
   });
 }
 
-export async function initializeSchema() {
-  for (const sql of statements) {
+let pushSchemaReady = false;
+
+/**
+ * Lazily ensure the push_subscriptions table exists. Called by the notification
+ * endpoints so the feature works on an already-deployed database without having
+ * to re-run /api/init. Idempotent and guarded to run at most once per process.
+ */
+export async function ensurePushSchema() {
+  if (pushSchemaReady) return;
+  await db.execute(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_success_at TEXT
+  )`);
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint ON push_subscriptions(endpoint)`
+  );
+  pushSchemaReady = true;
+}
+
+export async function initializeSchema() {  for (const sql of statements) {
     await db.execute(sql);
   }
   for (const sql of migrations) {
