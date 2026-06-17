@@ -41,21 +41,35 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || "/today";
-  const targetUrl = new URL(target, self.location.origin).href;
+  const path = (event.notification.data && event.notification.data.url) || "/today";
+  const targetUrl = new URL(path, self.location.origin).href;
 
   event.waitUntil(
-    self.clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then((clientList) => {
-        // Reuse an existing window if the PWA is already open.
-        for (const client of clientList) {
-          if ("focus" in client) {
-            client.navigate(targetUrl);
-            return client.focus();
+    (async () => {
+      const clientList = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+
+      // If a window is already open, focus it and ask the app to route to the
+      // memory page itself. iOS standalone PWAs ignore WindowClient.navigate(),
+      // so we postMessage and let the in-page router handle the navigation —
+      // otherwise the tap just focuses whatever page the user was already on.
+      for (const client of clientList) {
+        client.postMessage({ type: "notification-navigate", url: path });
+        if ("navigate" in client) {
+          // Belt-and-suspenders for platforms where it does work.
+          try {
+            await client.navigate(targetUrl);
+          } catch {
+            /* ignored — postMessage path covers it */
           }
         }
-        if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
-      })
+        if ("focus" in client) return client.focus();
+      }
+
+      // Otherwise open a fresh window straight to the memory page.
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })()
   );
 });
