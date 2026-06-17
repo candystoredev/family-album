@@ -1,11 +1,12 @@
 name: Daily memory notifications
 
-# Runs hourly. The endpoint itself only sends when the current hour (in the
-# configured timezone) matches the admin-chosen send hour, and never twice in a
-# day — so an editable send time works without changing this schedule.
+# Runs every 30 minutes. The endpoint sends once per day, on the first run at
+# or after the admin-chosen send hour (in the configured timezone) — so an
+# editable send time works without changing this schedule, and a run that
+# GitHub skips (scheduled runs are best-effort) self-heals on the next one.
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch: # allow manual trigger from the Actions tab
 
 jobs:

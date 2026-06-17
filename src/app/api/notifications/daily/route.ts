@@ -49,11 +49,15 @@ export async function POST(req: NextRequest) {
   const now = zonedNow(timezone);
 
   if (!force) {
-    if (now.hour !== sendHour) {
-      return NextResponse.json({ skipped: `not send hour (now ${now.hour}, want ${sendHour})` });
-    }
+    // Send once per day, on the first run at or after the configured local
+    // hour. GitHub Actions schedules are best-effort and often skip the exact
+    // hour, so "due and not yet sent" (rather than an exact-hour match) lets a
+    // missed run self-heal on the next one instead of losing the whole day.
     if (settings.notify_last_sent_date === now.date) {
       return NextResponse.json({ skipped: "already sent today" });
+    }
+    if (now.hour < sendHour) {
+      return NextResponse.json({ skipped: `before send hour (now ${now.hour}, want ${sendHour})` });
     }
   }
 
