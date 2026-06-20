@@ -441,27 +441,139 @@ export default function UploadPage() {
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
-  return (
-    <div className="min-h-screen bg-[#1d1c1c] text-[#d3d3d3] px-4 py-8">
-      <div className="max-w-lg mx-auto">
-        <h1 className="text-xl font-semibold mb-6">Upload</h1>
+  const isEmpty = flatFiles.length === 0;
 
-        {/* File picker */}
-        <label className="block border-2 border-dashed border-[#3a3939] rounded-xl p-8 text-center cursor-pointer hover:border-[#427ea3] transition-colors mb-4">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-            disabled={disabled}
-          />
-          <div className="text-[#888] space-y-1">
-            <div className="text-3xl">+</div>
-            <div className="text-sm">
-              {flatFiles.length === 0 ? "Tap to choose photos or videos" : "Add more files"}
+  return (
+    <div className="relative paper-grain min-h-screen bg-[#1a1918] text-[#c9c4ba] px-4 pt-14 pb-4 flex flex-col">
+      {/* Single file input, shared by the empty-state drop zone and the "add more" picker */}
+      <input
+        id="upload-input"
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm"
+        multiple
+        className="hidden"
+        onChange={handleFileChange}
+        disabled={disabled}
+      />
+
+      {/* ── Empty state ── */}
+      {isEmpty && (
+        <div className="relative max-w-lg mx-auto w-full flex flex-col flex-1 min-h-0">
+          <div className="text-center">
+            <h1 className="font-serif text-[32px] font-semibold tracking-[-0.01em] text-[#efeae1] mb-1.5">
+              Upload
+            </h1>
+            <p className="text-[15px] text-[#8a8378]">Add new moments to the family archive.</p>
+          </div>
+
+          {/* Fanned photo-card stack */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-[26px] py-6">
+            <div className="relative w-[172px] h-[128px]">
+              <div
+                className="absolute left-2 top-[18px] w-[122px] h-[94px] rounded-[13px] border border-[#2b2722]"
+                style={{
+                  background: "repeating-linear-gradient(135deg,#272320 0 8px,#201d1b 8px 16px)",
+                  transform: "rotate(-9deg)",
+                  boxShadow: "0 10px 22px rgba(0,0,0,0.34)",
+                }}
+              />
+              <div
+                className="absolute right-2 top-4 w-[122px] h-[94px] rounded-[13px] border border-[#2b2722]"
+                style={{
+                  background: "repeating-linear-gradient(135deg,#272320 0 8px,#201d1b 8px 16px)",
+                  transform: "rotate(9deg)",
+                  boxShadow: "0 10px 22px rgba(0,0,0,0.34)",
+                }}
+              />
+              <div
+                className="absolute left-1/2 top-[14px] -translate-x-1/2 w-[122px] h-24 rounded-[13px] flex items-center justify-center"
+                style={{
+                  background: "repeating-linear-gradient(135deg,#2b2722 0 8px,#221f1c 8px 16px)",
+                  border: "1px solid rgba(194,164,103,0.36)",
+                  boxShadow: "0 14px 28px rgba(0,0,0,0.42)",
+                }}
+              >
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="#9a8758" strokeWidth="1.6" />
+                  <circle cx="8.5" cy="10" r="1.7" fill="#9a8758" />
+                  <path d="M5 17l4.5-4 3 2.5L16 12l3 3" stroke="#9a8758" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
             </div>
+            <div className="text-center max-w-[280px]">
+              <div className="font-serif text-[21px] font-semibold text-[#f0ebe2] mb-2">
+                Your album is waiting
+              </div>
+              <p className="text-[14.5px] leading-[1.55] text-[#8a8378]">
+                Add photos or videos and they&apos;ll quietly file themselves into the right year by date.
+              </p>
+            </div>
+          </div>
+
+          {/* Sticky footer: tactile drop zone + back */}
+          <div className="sticky bottom-0 mt-2 pt-3 pb-6 bg-[#1a1918]">
+            <label
+              htmlFor="upload-input"
+              className="group relative flex items-center gap-4 overflow-hidden rounded-[20px] bg-[#201d1a] px-5 py-[22px] cursor-pointer transition-colors hover:bg-[#252118]"
+              style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 14px 32px rgba(0,0,0,0.32)" }}
+            >
+              <span
+                className="pointer-events-none absolute inset-2 rounded-[13px]"
+                style={{ border: "1.5px dashed rgba(194,164,103,0.42)" }}
+              />
+              <span
+                className="relative flex-none w-14 h-14 rounded-2xl flex items-center justify-center"
+                style={{
+                  background: "rgba(194,164,103,0.14)",
+                  border: "1px solid rgba(194,164,103,0.36)",
+                  boxShadow: "0 8px 22px rgba(122,96,42,0.2)",
+                }}
+              >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 16V5m0 0L7.5 9.5M12 5l4.5 4.5" stroke="#c2a467" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5 15v3a2 2 0 002 2h10a2 2 0 002-2v-3" stroke="#c2a467" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </span>
+              <span className="relative flex-1">
+                <span className="block font-serif text-[18px] font-semibold text-[#f0ebe2] mb-[3px]">
+                  Tap to choose photos or videos
+                </span>
+                <span className="block text-[13px] text-[#7d7468]">
+                  or drag them straight in · JPG, PNG, MOV, MP4
+                </span>
+              </span>
+              <svg width="9" height="16" viewBox="0 0 9 16" fill="none" className="relative flex-none">
+                <path d="M1 1l6 7-6 7" stroke="#a9925f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </label>
+            <a
+              href="/"
+              className="flex items-center gap-[7px] min-h-[44px] mt-1.5 pl-1 text-[15px] font-medium text-[#938b82] hover:text-[#c9c4ba] transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Back
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* ── Editing state (files chosen) ── */}
+      {!isEmpty && (
+      <div className="relative max-w-lg mx-auto w-full">
+        <h1 className="font-serif text-[28px] font-semibold tracking-[-0.01em] text-[#efeae1] mb-6">Upload</h1>
+
+        {/* Add more files */}
+        <label
+          htmlFor="upload-input"
+          className="block rounded-xl p-6 text-center cursor-pointer transition-colors mb-4 bg-[#201d1a]"
+          style={{ border: "1.5px dashed rgba(194,164,103,0.42)" }}
+        >
+          <div className="text-[#a39e93] space-y-1">
+            <div className="text-2xl text-[#c2a467]">+</div>
+            <div className="text-sm">Add more files</div>
           </div>
         </label>
 
@@ -586,7 +698,7 @@ export default function UploadPage() {
             {state === "idle" && (
               <button
                 onClick={handleUpload}
-                className="w-full bg-[#427ea3] text-white rounded-lg py-3 font-semibold hover:bg-[#3a6f91] transition-colors"
+                className="w-full bg-[#c2a467] text-[#1a1715] rounded-lg py-3 font-bold hover:bg-[#d2b577] transition-colors"
               >
                 Upload {flatFiles.length} {flatFiles.length === 1 ? "file" : "files"}
               </button>
@@ -639,11 +751,12 @@ export default function UploadPage() {
 
         {/* Back link */}
         <div className="mt-8 text-center">
-          <a href="/" className="text-sm text-[#888] hover:text-[#427ea3] transition-colors">
+          <a href="/" className="text-sm text-[#938b82] hover:text-[#c2a467] transition-colors">
             Back to feed
           </a>
         </div>
       </div>
+      )}
 
       {/* Trash FAB — discard in-progress post */}
       {rows.length > 0 && !disabled && (

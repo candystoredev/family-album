@@ -1,11 +1,54 @@
 @import "tailwindcss";
 
+/* Map the next/font CSS variables to Tailwind v4 font utilities so
+   `font-serif` resolves to Source Serif 4 and `font-sans` to Source Sans 3. */
+@theme {
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+  --font-serif: var(--font-serif), Georgia, "Times New Roman", serif;
+}
+
 body {
-  background-color: #1d1c1c;
-  color: #d3d3d3;
+  background-color: #1a1918;
+  color: #c9c4ba;
   /* Keep content below the notch/status bar now that viewport-fit=cover
      extends the layout viewport edge-to-edge (see layout.tsx viewport). */
   padding-top: env(safe-area-inset-top);
+}
+
+/* ── Chrome glow-up: gold focus ring on text inputs / selects / search ──
+   Matches the keepsake-archive design (gold accent #c2a467). Scoped to the
+   chrome surfaces via the .gold-focus class so the rest of the app is unaffected. */
+.gold-focus:focus {
+  outline: none;
+  border-color: rgba(194, 164, 103, 0.6);
+  box-shadow: 0 0 0 3px rgba(194, 164, 103, 0.16);
+}
+
+/* Native <select> dropdown list styling (option list can't be Tailwind-themed) */
+.gold-focus option {
+  background: #161413;
+  color: #ece8e1;
+}
+
+/* Spinner used by the Settings "loading" pushState */
+@keyframes hk-spin {
+  to { transform: rotate(360deg); }
+}
+.animate-hk-spin {
+  animation: hk-spin 0.8s linear infinite;
+}
+
+/* Faint paper grain — overlay on chrome screens for tactility.
+   Inline feTurbulence, no dependency. Pointer-events none; soft-light blend. */
+.paper-grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.045;
+  mix-blend-mode: soft-light;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* Migrated post bodies contain HTML — style inline elements */

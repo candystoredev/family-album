@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useTimelineStyle } from "@/lib/useTimelineStyle";
 
-const MONTH_ABBREVS = [
-  "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+const MONTH_NAMES = [
+  "", "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
 
 interface ArchiveYear {
@@ -39,16 +40,37 @@ interface ArchiveMenuProps {
   buildVersion: string;
 }
 
+// ─── Inline icons ─────────────────────────────────────────────────────────────
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+      <path d="M21 21l-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChevronRight({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 9 16" fill="none" className={className}>
+      <path d="M1 1l6 7-6 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: ArchiveMenuProps) {
   const [open, setOpen] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
   const [data, setData] = useState<ArchiveData | null>(null);
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
+  const [railYear, setRailYear] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDesktop, setIsDesktop] = useState(false);
   const [sidebarFits, setSidebarFits] = useState(false);
   const [sidebarHovered, setSidebarHovered] = useState(false);
+  const [timelineStyle] = useTimelineStyle();
   const lastScrollY = useRef(0);
   const accumulatedDelta = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -127,6 +149,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         setData(json);
         if (json.years.length > 0) {
           setExpandedYear(json.years[0].year);
+          setRailYear(json.years[0].year);
         }
       }
     } finally {
@@ -178,30 +201,50 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
   if (isHiddenPage) return null;
 
-  // Shared sidebar content
+  const yearRange =
+    data && data.years.length > 0
+      ? `${data.years[data.years.length - 1].year} — ${data.years[0].year}`
+      : "";
+
+  const railMonths =
+    (railYear != null && data?.years.find((y) => y.year === railYear)?.months) || [];
+
+  // ─── Shared sidebar content ───
   const sidebarContent = (
-    <div className="px-6 pt-8 pb-32 flex flex-col min-h-full">
-      <p className="text-[#555] text-[11px] mb-6 font-mono">{buildVersion}</p>
+    <div className="relative px-[22px] pt-14 pb-32 flex flex-col min-h-full">
+      {/* Brand header — gold serif monogram + wordmark (replaces build string) */}
+      <div className="flex items-center gap-[14px] mb-[26px]">
+        <span
+          className="flex-none w-12 h-12 rounded-xl flex items-center justify-center font-serif font-semibold text-[28px] leading-none text-[#c2a467] bg-[#151312]"
+          style={{
+            border: "1px solid rgba(194,164,103,0.42)",
+            boxShadow:
+              "inset 0 0 0 1px rgba(194,164,103,0.08), inset 0 1px 0 rgba(255,255,255,0.05)",
+          }}
+        >
+          H
+        </span>
+        <div className="flex-1">
+          <div className="font-serif text-[23px] font-semibold tracking-[-0.01em] text-[#efeae1]">
+            The Hoecks
+          </div>
+          <div className="text-[10.5px] font-bold tracking-[0.22em] uppercase text-[#8a774d] mt-1">
+            Family Archive
+          </div>
+        </div>
+      </div>
+
       {/* Search */}
-      <form onSubmit={handleSearch} className="mb-8">
+      <form onSubmit={handleSearch} className="mb-[30px]">
         <div className="relative">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="M21 21l-4.35-4.35" />
-          </svg>
+          <SearchIcon className="absolute left-[15px] top-1/2 -translate-y-1/2 w-[17px] h-[17px] text-[#857f73] pointer-events-none" />
           <input
             ref={isDesktop ? undefined : searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search..."
-            className="w-full bg-[#252424] text-[#d3d3d3] text-sm rounded-lg pl-10 pr-4 py-2.5 border border-[#333] focus:border-[#427ea3] focus:outline-none transition-colors placeholder:text-[#555]"
+            placeholder="Search the album…"
+            className="gold-focus w-full h-[50px] bg-[#151312] text-[#ece8e1] text-base rounded-[13px] pl-11 pr-4 border border-[#322e29] transition-shadow placeholder:text-[#6c675d]"
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
@@ -209,7 +252,12 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         </div>
       </form>
 
-      {/* The Latest — smooth scroll if already on home */}
+      {/* ALBUMS */}
+      <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d] mb-[13px]">
+        Albums
+      </h3>
+
+      {/* The Latest — masthead */}
       <a
         href="/"
         onClick={(e) => {
@@ -218,145 +266,267 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
             window.scrollTo({ top: 0, behavior: "smooth" });
           }
         }}
-        className="block text-[#d3d3d3] text-2xl font-semibold tracking-wide hover:text-white transition-colors mb-10"
+        className="flex items-center gap-[14px] px-[15px] py-[17px] rounded-[14px] bg-[#201d19] mb-[10px] transition-colors"
+        style={{
+          border: "1px solid rgba(194,164,103,0.26)",
+          boxShadow: "0 10px 26px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)",
+        }}
       >
-        The Latest
+        <span
+          className="flex-none w-11 h-11 rounded-[11px] flex items-center justify-center"
+          style={{
+            background: "rgba(194,164,103,0.12)",
+            border: "1px solid rgba(194,164,103,0.30)",
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M12 3l1.7 5.1 5.3.2-4.2 3.3 1.5 5.1L12 14.9 7.7 17l1.5-5.1L5 8.6l5.3-.2L12 3z" fill="#c2a467" />
+          </svg>
+        </span>
+        <span className="flex-1">
+          <span className="block font-serif text-[22px] font-semibold text-[#f1ece3]">
+            The Latest
+          </span>
+          <span className="block text-[11px] font-bold tracking-[0.14em] uppercase text-[#9a8758] mt-[3px]">
+            Newest moments first
+          </span>
+        </span>
+        <ChevronRight className="w-[9px] h-4 text-[#a9925f]" />
       </a>
 
-      {/* Favorites link */}
+      {/* Favorites */}
       <Link
         href="/favorites"
-        className="flex items-center gap-2 text-[#888] text-sm hover:text-white transition-colors mb-8"
+        className="flex items-center gap-[14px] px-[15px] py-[14px] rounded-[13px] bg-[#1c1a18] border border-[#2b2722] min-h-[56px] mb-[30px] transition-colors hover:bg-[#211e1b]"
       >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-red-500/60">
-          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-        </svg>
-        Favorites
+        <span
+          className="flex-none w-11 h-11 rounded-[11px] flex items-center justify-center"
+          style={{
+            background: "rgba(217,101,95,0.10)",
+            border: "1px solid rgba(217,101,95,0.22)",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24">
+            <path d="M12 21s-7.5-4.6-10-9.2C.4 8.7 1.6 5 5 5c2 0 3.2 1.2 4 2.4C9.8 6.2 11 5 13 5c3.4 0 4.6 3.7 3 6.8C19.5 16.4 12 21 12 21z" fill="#d9655f" />
+          </svg>
+        </span>
+        <span className="flex-1 text-[17px] font-semibold text-[#e5e0d6]">Favorites</span>
+        <ChevronRight className="w-[9px] h-4 text-[#524e45]" />
       </Link>
 
       {loading && !data && (
         <div className="flex justify-center py-8">
-          <div className="w-5 h-5 border-2 border-[#333] border-t-[#427ea3] rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-[#322e29] border-t-[#c2a467] rounded-full animate-spin" />
         </div>
       )}
 
       {data && (
         <>
-          {/* Featured (Albums) */}
+          {/* FEATURED (Albums) */}
           {data.albums.length > 0 && (
-            <section className="mb-10">
-              <h3 className="text-[#666] text-sm uppercase tracking-widest mb-4">
+            <section className="mb-8">
+              <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d] mb-[13px]">
                 Featured
               </h3>
-              <div className="space-y-3 pl-2">
-                {data.albums.map((album) => (
+              <div className="grid grid-cols-2 gap-3">
+                {data.albums.slice(0, 4).map((album) => (
                   <Link
                     key={album.slug}
                     href={`/albums/${album.slug}`}
-                    className="block text-[#d3d3d3] text-lg font-medium hover:text-white transition-colors"
+                    className="rounded-[13px] overflow-hidden bg-[#1c1a18] border border-[#2b2722] transition-colors hover:border-[rgba(194,164,103,0.3)]"
                   >
-                    {album.title}
+                    <div
+                      className="h-[92px] flex items-center justify-center"
+                      style={{
+                        background:
+                          "repeating-linear-gradient(135deg,#272320 0 9px,#201d1b 9px 18px)",
+                      }}
+                    >
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                        <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="#5a534a" strokeWidth="1.6" />
+                        <circle cx="8.5" cy="10" r="1.6" fill="#5a534a" />
+                        <path d="M5 17l4.5-4 3 2.5L16 12l3 3" stroke="#5a534a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                    <div className="px-[13px] py-[11px]">
+                      <div className="font-serif text-[15px] font-semibold text-[#ddd7cc] truncate">
+                        {album.title}
+                      </div>
+                    </div>
                   </Link>
                 ))}
               </div>
             </section>
           )}
 
-          {/* Timeline */}
-          <div className="space-y-1">
-            {data.years.map(({ year, months }) => {
-              const isExpanded = expandedYear === year;
-              return (
-                <div key={year}>
-                  <button
-                    onClick={() =>
-                      setExpandedYear(isExpanded ? null : year)
-                    }
-                    className="w-full flex items-center justify-between py-2 text-[#d3d3d3] text-xl font-light tracking-wide hover:text-white transition-colors"
-                  >
-                    <span>{year}</span>
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      className={`w-4 h-4 text-[#555] transition-transform duration-200 ${
-                        isExpanded ? "rotate-180" : ""
+          {/* TIMELINE */}
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d]">
+              Timeline
+            </span>
+            <span className="flex-1 h-0 border-b border-[#2b2722]" />
+            {yearRange && (
+              <span className="text-[10.5px] font-semibold tracking-[0.1em] text-[#56524a] tabular-nums">
+                {yearRange}
+              </span>
+            )}
+          </div>
+
+          {/* Classic list (default) — desktop always uses classic */}
+          {(timelineStyle === "classic" || isDesktop) && (
+            <div>
+              {data.years.map(({ year, months }) => {
+                const isExpanded = expandedYear === year;
+                return (
+                  <div key={year} className="border-b border-[#232020]">
+                    <button
+                      onClick={() => setExpandedYear(isExpanded ? null : year)}
+                      className="w-full flex items-center gap-[14px] py-[14px] px-[2px] min-h-[58px] transition-opacity hover:opacity-90"
+                    >
+                      <span className="font-serif text-[27px] font-medium text-[#d8d3c8] tracking-[0.01em] tabular-nums min-w-[76px] text-left">
+                        {year}
+                      </span>
+                      <span className="flex-1 h-0 border-b border-[#2b2722]" />
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        className={`w-[13px] h-[13px] text-[#8a774d] transition-transform duration-200 ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                      >
+                        <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+
+                    <div
+                      className={`overflow-hidden transition-all duration-300 ease-out ${
+                        isExpanded ? "max-h-[640px] opacity-100" : "max-h-0 opacity-0"
                       }`}
                     >
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </button>
-
-                  <div
-                    className={`overflow-hidden transition-all duration-200 ease-out ${
-                      isExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
-                    }`}
-                  >
-                    <div className="pl-3 pb-3 space-y-1">
-                      {months.map((m) => (
-                        <Link
-                          key={m.month}
-                          href={`/archive/${year}/${m.month}`}
-                          className="flex items-center justify-between py-1.5 group"
-                        >
-                          <span className="text-[#a0a0a0] text-base font-medium group-hover:text-white transition-colors">
-                            {MONTH_ABBREVS[m.month]}
-                            <span className="font-light text-[#555] ml-1.5">
-                              {year}
+                      <div className="ml-2 mb-3 pt-0.5">
+                        {months.map((m) => (
+                          <Link
+                            key={m.month}
+                            href={`/archive/${year}/${m.month}`}
+                            className="flex items-center gap-3 py-2 pl-[18px] pr-3 rounded-lg min-h-[40px] transition-colors hover:bg-[#211e1b]"
+                          >
+                            <span className="text-[15px] font-medium text-[#c2bdb3]">
+                              {MONTH_NAMES[m.month]}
                             </span>
-                          </span>
-                          <span className="text-[#444] text-xs tabular-nums">
-                            {m.count}
-                          </span>
-                        </Link>
-                      ))}
+                          </Link>
+                        ))}
+                      </div>
                     </div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Year rail — any year one tap away (mobile only) */}
+          {timelineStyle === "rail" && !isDesktop && (
+            <div className="flex gap-4 mt-1.5">
+              <div className="flex-1 min-w-0">
+                <div className="font-serif text-[30px] font-semibold text-[#cfae6f] mt-0.5 mb-2 tabular-nums">
+                  {railYear}
                 </div>
-              );
-            })}
-          </div>
+                {railMonths.map((m) => (
+                  <Link
+                    key={m.month}
+                    href={`/archive/${railYear}/${m.month}`}
+                    className="flex items-center px-3 py-[9px] rounded-[9px] min-h-[42px] transition-colors hover:bg-[#211e1b]"
+                  >
+                    <span className="text-base font-medium text-[#c2bdb3]">
+                      {MONTH_NAMES[m.month]}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+              <div className="flex-none w-[54px] flex flex-col gap-0.5 border-l border-[#262320] pl-2">
+                {data.years.map(({ year }) => {
+                  const selected = year === railYear;
+                  return (
+                    <button
+                      key={year}
+                      onClick={() => setRailYear(year)}
+                      className={`rounded-[7px] py-1.5 px-0.5 text-xs font-semibold tabular-nums text-center min-h-[30px] transition-colors ${
+                        selected
+                          ? "bg-[#c2a467] text-[#1a1715]"
+                          : "text-[#7d7468] hover:bg-[#211e1b]"
+                      }`}
+                    >
+                      {year}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
 
-      {/* Spacer to push logout to bottom */}
+      {/* Spacer to push admin footer to bottom */}
       <div className="flex-1" />
 
-      {/* Bottom: Admin badge + Logout */}
+      {/* Admin footer + build string */}
       {isLoggedIn && (
-        <div className="pt-8 mt-8 border-t border-[#2a2929] space-y-3">
+        <div className="mt-7 pt-[22px] border-t border-[#2b2722]">
           {isAdmin && (
-            <div className="space-y-2">
-              <span className="inline-block text-[10px] text-[#427ea3] border border-[#427ea3]/40 px-2 py-0.5 rounded uppercase tracking-wider">
-                Admin
-              </span>
+            <>
+              <div className="flex items-center gap-2 mb-2">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4z" stroke="#8a774d" strokeWidth="2" strokeLinejoin="round" />
+                </svg>
+                <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d]">
+                  Admin
+                </span>
+              </div>
               <a
                 href="/admin/upload"
-                className="block text-sm text-[#427ea3] hover:text-[#5a9ec5] transition-colors"
+                className="flex items-center gap-[13px] px-[6px] py-[11px] min-h-[44px] rounded-[9px] transition-colors hover:bg-[#211e1b]"
               >
-                Upload Photo
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 16V4m0 0L7 9m5-5l5 5" stroke="#c2a467" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2" stroke="#c2a467" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                <span className="text-base font-semibold text-[#cfae6f]">Upload Photo</span>
               </a>
               <a
                 href="/admin/bulk-import"
-                className="hidden md:block text-sm text-[#427ea3] hover:text-[#5a9ec5] transition-colors"
+                className="hidden md:flex items-center gap-[13px] px-[6px] py-[11px] min-h-[44px] rounded-[9px] transition-colors hover:bg-[#211e1b]"
               >
-                Bulk Import
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="4" width="18" height="5" rx="1.5" stroke="#a39d92" strokeWidth="1.8" />
+                  <rect x="3" y="11" width="18" height="9" rx="1.5" stroke="#a39d92" strokeWidth="1.8" />
+                </svg>
+                <span className="text-base font-medium text-[#c9c4ba]">Bulk Import</span>
               </a>
-            </div>
+            </>
           )}
           <Link
             href="/settings"
-            className="block text-sm text-[#888] hover:text-[#d3d3d3] transition-colors"
+            className="flex items-center gap-[13px] px-[6px] py-[11px] min-h-[44px] rounded-[9px] transition-colors hover:bg-[#211e1b]"
           >
-            Settings
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="3" stroke="#a39d92" strokeWidth="1.8" />
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke="#a39d92" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <span className="text-base font-medium text-[#c9c4ba]">Settings</span>
           </Link>
+          <div className="h-px bg-[#232020] mx-[6px] my-2.5" />
           <button
             onClick={handleLogout}
-            className="block text-sm text-[#666] hover:text-[#d3d3d3] transition-colors"
+            className="w-full flex items-center gap-[13px] px-[6px] py-[11px] min-h-[44px] rounded-[9px] transition-colors hover:bg-[rgba(217,101,95,0.06)]"
           >
-            Log out
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" stroke="#938b82" strokeWidth="1.8" strokeLinecap="round" />
+              <path d="M16 17l5-5-5-5M21 12H9" stroke="#938b82" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-base font-medium text-[#938b82]">Log out</span>
           </button>
+          <div className="font-mono text-[10.5px] tracking-[0.14em] text-[#4f4b43] px-[6px] pt-[14px] uppercase">
+            Build {buildVersion}
+          </div>
         </div>
       )}
     </div>
@@ -371,11 +541,9 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
     return (
       <nav
-        className="fixed top-0 left-0 z-30 h-full w-[280px] bg-[#1d1c1c] overflow-y-auto overscroll-contain transition-all duration-300"
+        className="paper-grain fixed top-0 left-0 z-30 h-full w-[280px] bg-[#1a1918] overflow-y-auto overscroll-contain transition-all duration-300"
         style={{
-          opacity: tucked
-            ? (showFull ? 1 : 0)
-            : (showFull ? 1 : 0.35),
+          opacity: tucked ? (showFull ? 1 : 0) : showFull ? 1 : 0.35,
           transform: tucked && !showFull ? "translateX(-256px)" : "translateX(0)",
         }}
         onMouseEnter={() => setSidebarHovered(true)}
@@ -386,17 +554,17 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
     );
   }
 
-  // ─── Mobile: FAB + slide-out overlay ───
+  // ─── Mobile: FAB cluster + slide-out overlay ───
   return (
     <>
-      {/* Admin upload FAB — floats 45° up-left from main FAB when menu opens */}
+      {/* Secondary FAB — Upload (admin only), arcs straight up from the primary */}
       {isAdmin && (
         <Link
           href="/admin/upload"
           onClick={handleClose}
-          className="fixed bottom-6 right-6 z-[49] w-11 h-11 rounded-full bg-[#427ea3] shadow-xl shadow-black/50 flex items-center justify-center lg:hidden"
+          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
           style={{
-            transform: open ? "translate(-56px, -56px) scale(1)" : "translate(0,0) scale(0)",
+            transform: open ? "translate(0, -74px) scale(1)" : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
             pointerEvents: open ? "auto" : "none",
             transition: open
@@ -405,31 +573,60 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           }}
           aria-label="New upload"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" className="w-5 h-5">
-            <path d="M12 5v14" /><path d="M5 12h14" />
+          <svg viewBox="0 0 24 24" fill="none" stroke="#c2a467" strokeWidth="2" strokeLinecap="round" className="w-5 h-5">
+            <path d="M12 16V4m0 0L7 9m5-5l5 5" strokeLinejoin="round" />
+            <path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2" />
           </svg>
         </Link>
       )}
 
-      {/* Floating Action Button */}
+      {/* Secondary FAB — Settings, arcs to the lower-left of the primary */}
+      {isLoggedIn && (
+        <Link
+          href="/settings"
+          onClick={handleClose}
+          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
+          style={{
+            transform: open ? "translate(-60px, -56px) scale(1)" : "translate(0,0) scale(0)",
+            opacity: open ? 1 : 0,
+            pointerEvents: open ? "auto" : "none",
+            transition: open
+              ? "transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.15s ease-out"
+              : "transform 0.2s ease-in, opacity 0.15s ease-in",
+          }}
+          aria-label="Settings"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="#c2a467" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+            <circle cx="12" cy="12" r="3.1" />
+            <path d="M19.4 13.5a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 8.6a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h.07a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v.07a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+          </svg>
+        </Link>
+      )}
+
+      {/* Primary Floating Action Button — gold */}
       <button
         onClick={open ? handleClose : handleOpen}
-        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-[#252424] border border-[#333] shadow-lg shadow-black/40 flex items-center justify-center transition-all duration-300 active:scale-95 lg:hidden ${
+        className={`fixed bottom-6 right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#c2a467] flex items-center justify-center transition-all duration-300 active:scale-95 lg:hidden ${
           open
             ? "opacity-100 translate-y-0"
             : fabVisible
             ? "opacity-100 translate-y-0"
             : "opacity-0 translate-y-4 pointer-events-none"
         }`}
+        style={{
+          border: "1px solid rgba(255,255,255,0.16)",
+          boxShadow:
+            "0 10px 28px rgba(122,96,42,0.5), inset 0 1px 0 rgba(255,255,255,0.35)",
+        }}
         aria-label={open ? "Close menu" : "Open menu"}
       >
         {open ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="#427ea3" strokeWidth="2" strokeLinecap="round" className="w-6 h-6">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#1a1715" strokeWidth="2.6" strokeLinecap="round" className="w-6 h-6">
             <path d="M18 6L6 18" />
             <path d="M6 6l12 12" />
           </svg>
         ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="#427ea3" strokeWidth="2" strokeLinecap="round" className="w-6 h-6">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#1a1715" strokeWidth="2.4" strokeLinecap="round" className="w-6 h-6">
             <path d="M4 6h16" />
             <path d="M4 12h16" />
             <path d="M4 18h16" />
@@ -447,7 +644,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
       {/* Slide-out Panel */}
       <nav
-        className={`fixed top-0 left-0 z-40 h-full w-[80vw] max-w-[360px] bg-[#1a1a1a] shadow-2xl shadow-black/50 transform transition-transform duration-300 ease-out overflow-y-auto overscroll-contain lg:hidden ${
+        className={`paper-grain fixed top-0 left-0 z-40 h-full w-[85vw] max-w-[380px] bg-[#1a1918] shadow-2xl shadow-black/50 transform transition-transform duration-300 ease-out overflow-y-auto overscroll-contain lg:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
