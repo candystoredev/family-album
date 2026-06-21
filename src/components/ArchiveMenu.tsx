@@ -201,16 +201,15 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
   if (isHiddenPage) return null;
 
-  const yearRange =
-    data && data.years.length > 0
-      ? `${data.years[data.years.length - 1].year} — ${data.years[0].year}`
-      : "";
-
   const railMonths =
     (railYear != null && data?.years.find((y) => y.year === railYear)?.months) || [];
 
   // ─── Shared sidebar content ───
   const sidebarContent = (
+    // Grain lives on this full-content-height wrapper (not the scrolling <nav>,
+    // whose ::before would only span one viewport and leave a seam on scroll).
+    // Inner relative div paints content above the grain.
+    <div className="paper-grain relative min-h-full">
     <div className="relative px-[22px] pt-14 pb-32 flex flex-col min-h-full">
       {/* Brand header — gold serif monogram + wordmark (replaces build string) */}
       <div className="flex items-center gap-[14px] mb-[26px]">
@@ -365,11 +364,6 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
               Timeline
             </span>
             <span className="flex-1 h-0 border-b border-[#2b2722]" />
-            {yearRange && (
-              <span className="text-[10.5px] font-semibold tracking-[0.1em] text-[#56524a] tabular-nums">
-                {yearRange}
-              </span>
-            )}
           </div>
 
           {/* Classic list (default) — desktop always uses classic */}
@@ -442,7 +436,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
                   </Link>
                 ))}
               </div>
-              <div className="flex-none w-[54px] flex flex-col gap-0.5 border-l border-[#262320] pl-2">
+              <div className="flex-none w-[54px] flex flex-col gap-0.5 border-l border-[#262320] pl-2 opacity-70">
                 {data.years.map(({ year }) => {
                   const selected = year === railYear;
                   return (
@@ -509,7 +503,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="3" stroke="#a39d92" strokeWidth="1.8" />
-              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke="#a39d92" strokeWidth="1.8" strokeLinecap="round" />
+              <path d="M19.4 13.5a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 8.6a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h.07a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v.07a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="#a39d92" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span className="text-base font-medium text-[#c9c4ba]">Settings</span>
           </Link>
@@ -530,6 +524,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         </div>
       )}
     </div>
+    </div>
   );
 
   // ─── Desktop: persistent left sidebar ───
@@ -541,7 +536,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
     return (
       <nav
-        className="paper-grain fixed top-0 left-0 z-30 h-full w-[280px] bg-[#1a1918] overflow-y-auto overscroll-contain transition-all duration-300"
+        className="fixed top-0 left-0 z-30 h-full w-[280px] bg-[#1a1918] overflow-y-auto overscroll-contain transition-all duration-300"
         style={{
           opacity: tucked ? (showFull ? 1 : 0) : showFull ? 1 : 0.35,
           transform: tucked && !showFull ? "translateX(-256px)" : "translateX(0)",
@@ -644,7 +639,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
       {/* Slide-out Panel */}
       <nav
-        className={`paper-grain fixed top-0 left-0 z-40 h-full w-[85vw] max-w-[380px] bg-[#1a1918] shadow-2xl shadow-black/50 transform transition-transform duration-300 ease-out overflow-y-auto overscroll-contain lg:hidden ${
+        className={`fixed top-0 left-0 z-40 h-full w-[85vw] max-w-[380px] bg-[#1a1918] shadow-2xl shadow-black/50 transform transition-transform duration-300 ease-out overflow-y-auto overscroll-contain lg:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
