@@ -20,29 +20,33 @@ export interface OnThisDayPost {
 }
 
 /**
- * Find up to 3 memories from previous years that fall on the given calendar
- * date (month/day), with at most 2 from any single year for variety.
+ * Find memories from previous years that fall on the given calendar date
+ * (month/day), with at most `maxPerYear` from any single year for variety.
  *
- * Shared by the homepage "On this day" strip and the daily push notifier so
- * both surface the exact same memories.
+ * Shared by three surfaces with different limits:
+ *  - homepage "On this day" teaser + daily push notifier → default 3 (curated tease)
+ *  - the dedicated /today page → 6 (a fuller look back, still varied across years)
  */
 export async function getMemoriesForDate(
   month: number,
   day: number,
-  currentYear: number = new Date().getFullYear()
+  currentYear: number = new Date().getFullYear(),
+  limit: number = 3,
+  maxPerYear: number = 2
 ): Promise<OnThisDayPost[]> {
   const r2PublicUrl = process.env.R2_PUBLIC_URL!;
   const mm = String(month).padStart(2, "0");
   const dd = String(day).padStart(2, "0");
 
-  // Fetch up to 10 candidates so we can enforce diversity (return 3).
+  // Fetch a generous candidate pool so we can enforce per-year diversity
+  // before trimming to `limit`.
   const result = await db.execute({
     sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.photoset_layout
           FROM posts p
           WHERE strftime('%m', p.date) = ? AND strftime('%d', p.date) = ?
             AND strftime('%Y', p.date) != ?
           ORDER BY p.date DESC
-          LIMIT 10`,
+          LIMIT 60`,
     args: [mm, dd, String(currentYear)],
   });
 
@@ -55,13 +59,14 @@ export async function getMemoriesForDate(
     photoset_layout: string | null;
   }[];
 
-  // Pick up to 3 posts, max 2 from any single year.
+  // Pick up to `limit` posts, max `maxPerYear` from any single year.
   const selected: typeof allRows = [];
   const yearCount = new Map<string, number>();
   for (const row of allRows) {
+    if (selected.length >= limit) break;
     const year = row.date.slice(0, 4);
     const count = yearCount.get(year) || 0;
-    if (count < 2 && selected.length < 3) {
+    if (count < maxPerYear) {
       selected.push(row);
       yearCount.set(year, count + 1);
     }

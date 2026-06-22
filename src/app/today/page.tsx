@@ -13,7 +13,9 @@ export const metadata = {
 export default async function TodayPage() {
   const timezone = (await getSetting("notify_timezone")) || "America/New_York";
   const { month, day } = zonedNow(timezone);
-  const memories = await getMemoriesForDate(month, day);
+  // The dedicated page shows a fuller look back than the 3-post teaser:
+  // up to 6 memories, still capped at 2 per year for variety.
+  const memories = await getMemoriesForDate(month, day, new Date().getFullYear(), 6, 2);
 
   const todayLabel = new Date().toLocaleDateString("en-US", {
     month: "long",

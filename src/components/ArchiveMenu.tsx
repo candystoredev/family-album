@@ -65,6 +65,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
   const [data, setData] = useState<ArchiveData | null>(null);
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [railYear, setRailYear] = useState<number | null>(null);
+  const [albumsExpanded, setAlbumsExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDesktop, setIsDesktop] = useState(false);
@@ -251,11 +252,6 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         </div>
       </form>
 
-      {/* ALBUMS */}
-      <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d] mb-[13px]">
-        Albums
-      </h3>
-
       {/* The Latest — masthead */}
       <a
         href="/"
@@ -296,7 +292,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
       {/* Favorites */}
       <Link
         href="/favorites"
-        className="flex items-center gap-[14px] px-[15px] py-[14px] rounded-[13px] bg-[#1c1a18] border border-[#2b2722] min-h-[56px] mb-[30px] transition-colors hover:bg-[#211e1b]"
+        className="flex items-center gap-[14px] px-[15px] py-[14px] rounded-[13px] bg-[#1c1a18] border border-[#2b2722] min-h-[56px] mb-2.5 transition-colors hover:bg-[#211e1b]"
       >
         <span
           className="flex-none w-11 h-11 rounded-[11px] flex items-center justify-center"
@@ -313,6 +309,28 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         <ChevronRight className="w-[9px] h-4 text-[#524e45]" />
       </Link>
 
+      {/* On This Day — the daily memory page (also reachable via push notification) */}
+      <Link
+        href="/today"
+        className="flex items-center gap-[14px] px-[15px] py-[14px] rounded-[13px] bg-[#1c1a18] border border-[#2b2722] min-h-[56px] mb-[30px] transition-colors hover:bg-[#211e1b]"
+      >
+        <span
+          className="flex-none w-11 h-11 rounded-[11px] flex items-center justify-center"
+          style={{
+            background: "rgba(194,164,103,0.12)",
+            border: "1px solid rgba(194,164,103,0.30)",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="13" r="7" stroke="#cda86a" strokeWidth="1.8" />
+            <path d="M12 10v3l2 1.5" stroke="#cda86a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M5 4l2.5 2M19 4l-2.5 2" stroke="#cda86a" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </span>
+        <span className="flex-1 text-[17px] font-semibold text-[#e5e0d6]">On This Day</span>
+        <ChevronRight className="w-[9px] h-4 text-[#524e45]" />
+      </Link>
+
       {loading && !data && (
         <div className="flex justify-center py-8">
           <div className="w-5 h-5 border-2 border-[#322e29] border-t-[#c2a467] rounded-full animate-spin" />
@@ -321,44 +339,61 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
       {data && (
         <>
-          {/* FEATURED (Albums) */}
+          {/* ALBUMS — compact rows; "All albums" expands the full list in place,
+              fading/covering the timeline below so the timeline stays the default focus. */}
           {data.albums.length > 0 && (
-            <section className="mb-8">
-              <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d] mb-[13px]">
-                Featured
+            <section className="mb-6">
+              <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d] mb-2">
+                Albums
               </h3>
-              <div className="grid grid-cols-2 gap-3">
-                {data.albums.slice(0, 4).map((album) => (
+              <div className="space-y-0.5">
+                {(albumsExpanded ? data.albums : data.albums.slice(0, 4)).map((album) => (
                   <Link
                     key={album.slug}
                     href={`/albums/${album.slug}`}
-                    className="rounded-[13px] overflow-hidden bg-[#1c1a18] border border-[#2b2722] transition-colors hover:border-[rgba(194,164,103,0.3)]"
+                    className="flex items-center gap-3 px-2 min-h-[40px] rounded-lg transition-colors hover:bg-[#211e1b]"
                   >
-                    <div
-                      className="h-[92px] flex items-center justify-center"
-                      style={{
-                        background:
-                          "repeating-linear-gradient(135deg,#272320 0 9px,#201d1b 9px 18px)",
-                      }}
-                    >
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                        <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="#5a534a" strokeWidth="1.6" />
-                        <circle cx="8.5" cy="10" r="1.6" fill="#5a534a" />
-                        <path d="M5 17l4.5-4 3 2.5L16 12l3 3" stroke="#5a534a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    <div className="px-[13px] py-[11px]">
-                      <div className="font-serif text-[15px] font-semibold text-[#ddd7cc] truncate">
-                        {album.title}
-                      </div>
-                    </div>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="flex-none">
+                      <rect x="3" y="6" width="13" height="12" rx="2" stroke="#8a8378" strokeWidth="1.6" />
+                      <path d="M7 6V5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2h-1" stroke="#8a8378" strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                    <span className="flex-1 text-[15px] text-[#c9c4ba] truncate">{album.title}</span>
                   </Link>
                 ))}
               </div>
+              {data.albums.length > 4 && (
+                <button
+                  onClick={() => setAlbumsExpanded((v) => !v)}
+                  className="flex items-center gap-3 px-2 min-h-[40px] w-full rounded-lg text-left transition-colors hover:bg-[#211e1b]"
+                  aria-expanded={albumsExpanded}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className={`flex-none text-[#8a774d] transition-transform duration-300 ${albumsExpanded ? "rotate-180" : ""}`}
+                  >
+                    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="text-[14px] font-semibold tracking-wide text-[#8a774d]">
+                    {albumsExpanded ? "Show fewer" : `All albums (${data.albums.length})`}
+                  </span>
+                </button>
+              )}
             </section>
           )}
 
-          {/* TIMELINE */}
+          {/* TIMELINE — fades out and collapses when the album list is expanded
+              over it, so albums can occupy the space without a page change. */}
+          <div
+            className={`transition-all duration-300 ease-out ${
+              albumsExpanded
+                ? "opacity-0 max-h-0 overflow-hidden pointer-events-none"
+                : "opacity-100 max-h-[6000px]"
+            }`}
+            aria-hidden={albumsExpanded}
+          >
           <div className="flex items-center gap-3 mb-1">
             <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d]">
               Timeline
@@ -456,6 +491,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
               </div>
             </div>
           )}
+          </div>
         </>
       )}
 
@@ -559,7 +595,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           onClick={handleClose}
           className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
           style={{
-            transform: open ? "translate(0, -74px) scale(1)" : "translate(0,0) scale(0)",
+            transform: open ? "translate(0, -76px) scale(1)" : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
             pointerEvents: open ? "auto" : "none",
             transition: open
@@ -575,14 +611,48 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         </Link>
       )}
 
-      {/* Secondary FAB — Settings, arcs to the lower-left of the primary */}
+      {/* Secondary FAB — Timeline/Albums toggle, arcs to the upper-left (between
+          Upload and Settings). Drives the same albumsExpanded state as the inline
+          "All albums" control; stays open (no navigation). Icon shows what you'll
+          switch TO: albums-stack when the timeline is showing, calendar when albums are. */}
+      {data && data.albums.length > 0 && (
+        <button
+          onClick={() => setAlbumsExpanded((v) => !v)}
+          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
+          style={{
+            transform: open ? "translate(-54px, -54px) scale(1)" : "translate(0,0) scale(0)",
+            opacity: open ? 1 : 0,
+            pointerEvents: open ? "auto" : "none",
+            transition: open
+              ? "transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.15s ease-out"
+              : "transform 0.2s ease-in, opacity 0.15s ease-in",
+          }}
+          aria-label={albumsExpanded ? "Show timeline" : "Show albums"}
+          aria-pressed={albumsExpanded}
+        >
+          {albumsExpanded ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="#c2a467" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <rect x="3" y="4.5" width="18" height="16" rx="2" />
+              <path d="M3 9.5h18" />
+              <path d="M8 3v3M16 3v3" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="#c2a467" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <rect x="3" y="6" width="13" height="13" rx="2" />
+              <path d="M8 6V5a2 2 0 012-2h9a2 2 0 012 2v9a2 2 0 01-2 2h-1" />
+            </svg>
+          )}
+        </button>
+      )}
+
+      {/* Secondary FAB — Settings, arcs to the left (9 o'clock) of the primary */}
       {isLoggedIn && (
         <Link
           href="/settings"
           onClick={handleClose}
           className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
           style={{
-            transform: open ? "translate(-60px, -56px) scale(1)" : "translate(0,0) scale(0)",
+            transform: open ? "translate(-76px, 0px) scale(1)" : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
             pointerEvents: open ? "auto" : "none",
             transition: open
