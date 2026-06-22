@@ -39,15 +39,17 @@ export async function getMemoriesForDate(
   const dd = String(day).padStart(2, "0");
 
   // Fetch a generous candidate pool so we can enforce per-year diversity
-  // before trimming to `limit`.
+  // before trimming to `limit`. Only previous years (strictly < currentYear) —
+  // so a date-pinned page never shows posts from years after the pinned day,
+  // which would otherwise read as "-2 years ago".
   const result = await db.execute({
     sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.photoset_layout
           FROM posts p
           WHERE strftime('%m', p.date) = ? AND strftime('%d', p.date) = ?
-            AND strftime('%Y', p.date) != ?
+            AND CAST(strftime('%Y', p.date) AS INTEGER) < ?
           ORDER BY p.date DESC
           LIMIT 60`,
-    args: [mm, dd, String(currentYear)],
+    args: [mm, dd, currentYear],
   });
 
   const allRows = result.rows as unknown as {

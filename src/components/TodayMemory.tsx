@@ -25,19 +25,29 @@ interface Memory {
 }
 
 /**
- * Full-screen "Today's Memory" view — the destination when a family member
- * taps the daily push notification. Shows each memory's photos/videos with
+ * "On This Day" view — the destination when a family member taps the daily push
+ * notification or the sidebar link. Shows each memory's photos/videos with
  * caption and "X years ago", reusing the same PhotoGrid + Lightbox as the feed.
+ *
+ * `referenceYear` anchors the "X years ago" labels (defaults to the current
+ * year). A date-pinned shared link passes its own year so the labels stay
+ * correct whenever the link is opened.
  */
-export default function TodayMemory({ memories }: { memories: Memory[] }) {
+export default function TodayMemory({
+  memories,
+  referenceYear,
+}: {
+  memories: Memory[];
+  referenceYear?: number;
+}) {
   const [lightbox, setLightbox] = useState<{ media: MediaItem[]; index: number } | null>(null);
-  const currentYear = new Date().getFullYear();
+  const baseYear = referenceYear ?? new Date().getFullYear();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {memories.map((memory) => {
         const d = new Date(memory.date);
-        const yearsAgo = currentYear - d.getFullYear();
+        const yearsAgo = baseYear - d.getFullYear();
         const timeLabel = yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
         const dateFormatted = d.toLocaleDateString("en-US", {
           month: "long",
@@ -48,10 +58,11 @@ export default function TodayMemory({ memories }: { memories: Memory[] }) {
         return (
           <article
             key={memory.slug}
-            className="rounded-lg overflow-hidden bg-[#252424] border border-[#333]"
+            className="rounded-[18px] overflow-hidden bg-[#211e1a] border border-[#2b2722]"
+            style={{ boxShadow: "0 8px 26px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)" }}
           >
             {memory.media.length > 0 && (
-              <div className="rounded-t-lg overflow-hidden">
+              <div className="overflow-hidden">
                 <PhotoGrid
                   media={memory.media}
                   layout={memory.photosetLayout}
@@ -60,24 +71,24 @@ export default function TodayMemory({ memories }: { memories: Memory[] }) {
               </div>
             )}
 
-            <div className="px-4 py-4 text-center">
-              <p className="text-[#888] text-xs mb-1">
+            <div className="px-5 py-5 text-center">
+              <p className="text-[#8a774d] text-[11px] font-bold uppercase tracking-[0.16em] mb-2">
                 {timeLabel} &middot; {dateFormatted}
               </p>
               {memory.title && (
-                <p className="text-[#e0e0e0] text-base font-medium leading-snug mb-1">
+                <p className="font-serif text-[19px] font-semibold text-[#f0ebe2] leading-snug mb-1">
                   {memory.title}
                 </p>
               )}
               {memory.body && (
                 <div
-                  className="text-[#a0a0a0] text-sm leading-relaxed post-body"
+                  className="text-[#a39e93] text-sm leading-relaxed post-body"
                   dangerouslySetInnerHTML={{ __html: memory.body }}
                 />
               )}
               <Link
                 href={`/posts/${memory.slug}`}
-                className="inline-block mt-3 text-xs text-[#427ea3] hover:text-[#5a9ec5] transition-colors"
+                className="inline-block mt-3 text-xs font-semibold text-[#cfae6f] hover:text-[#d2b577] transition-colors"
               >
                 View full post →
               </Link>
