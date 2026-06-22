@@ -51,13 +51,6 @@ function SearchIcon({ className }: { className?: string }) {
   );
 }
 
-function ChevronRight({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 9 16" fill="none" className={className}>
-      <path d="M1 1l6 7-6 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: ArchiveMenuProps) {
   const [open, setOpen] = useState(false);
@@ -252,84 +245,47 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         </div>
       </form>
 
-      {/* The Latest — masthead */}
-      <a
-        href="/"
-        onClick={(e) => {
-          if (pathname === "/") {
-            e.preventDefault();
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }
-        }}
-        className="flex items-center gap-[14px] px-[15px] py-[17px] rounded-[14px] bg-[#201d19] mb-[10px] transition-colors"
-        style={{
-          border: "1px solid rgba(194,164,103,0.26)",
-          boxShadow: "0 10px 26px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)",
-        }}
-      >
-        <span
-          className="flex-none w-11 h-11 rounded-[11px] flex items-center justify-center"
-          style={{
-            background: "rgba(194,164,103,0.12)",
-            border: "1px solid rgba(194,164,103,0.30)",
+      {/* Primary views — compact rows (plain icon + label, no badges/borders/masthead).
+          The Latest keeps a serif gold label to stay the primary entry. */}
+      <div className="mb-7 space-y-0.5">
+        <a
+          href="/"
+          onClick={(e) => {
+            if (pathname === "/") {
+              e.preventDefault();
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
           }}
+          className="flex items-center gap-3 px-2 min-h-[44px] rounded-lg transition-colors hover:bg-[#211e1b]"
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="flex-none">
             <path d="M12 3l1.7 5.1 5.3.2-4.2 3.3 1.5 5.1L12 14.9 7.7 17l1.5-5.1L5 8.6l5.3-.2L12 3z" fill="#c2a467" />
           </svg>
-        </span>
-        <span className="flex-1">
-          <span className="block font-serif text-[22px] font-semibold text-[#f1ece3]">
-            The Latest
-          </span>
-          <span className="block text-[11px] font-bold tracking-[0.14em] uppercase text-[#9a8758] mt-[3px]">
-            Newest moments first
-          </span>
-        </span>
-        <ChevronRight className="w-[9px] h-4 text-[#a9925f]" />
-      </a>
+          <span className="flex-1 font-serif text-[18px] font-semibold text-[#f1ece3]">The Latest</span>
+        </a>
 
-      {/* Favorites */}
-      <Link
-        href="/favorites"
-        className="flex items-center gap-[14px] px-[15px] py-[14px] rounded-[13px] bg-[#1c1a18] border border-[#2b2722] min-h-[56px] mb-2.5 transition-colors hover:bg-[#211e1b]"
-      >
-        <span
-          className="flex-none w-11 h-11 rounded-[11px] flex items-center justify-center"
-          style={{
-            background: "rgba(217,101,95,0.10)",
-            border: "1px solid rgba(217,101,95,0.22)",
-          }}
+        <Link
+          href="/favorites"
+          className="flex items-center gap-3 px-2 min-h-[44px] rounded-lg transition-colors hover:bg-[#211e1b]"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24">
+          <svg width="19" height="19" viewBox="0 0 24 24" className="flex-none">
             <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 01-.383-.218 25.18 25.18 0 01-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0112 5.052 5.5 5.5 0 0116.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 01-4.244 3.17 15.247 15.247 0 01-.383.219l-.022.012-.007.004-.003.001a.752.752 0 01-.704 0l-.003-.001z" fill="#d9655f" />
           </svg>
-        </span>
-        <span className="flex-1 text-[17px] font-semibold text-[#e5e0d6]">Favorites</span>
-        <ChevronRight className="w-[9px] h-4 text-[#524e45]" />
-      </Link>
+          <span className="flex-1 text-[15px] font-medium text-[#c9c4ba]">Favorites</span>
+        </Link>
 
-      {/* On This Day — the daily memory page (also reachable via push notification) */}
-      <Link
-        href="/today"
-        className="flex items-center gap-[14px] px-[15px] py-[14px] rounded-[13px] bg-[#1c1a18] border border-[#2b2722] min-h-[56px] mb-[30px] transition-colors hover:bg-[#211e1b]"
-      >
-        <span
-          className="flex-none w-11 h-11 rounded-[11px] flex items-center justify-center"
-          style={{
-            background: "rgba(194,164,103,0.12)",
-            border: "1px solid rgba(194,164,103,0.30)",
-          }}
+        <Link
+          href="/today"
+          className="flex items-center gap-3 px-2 min-h-[44px] rounded-lg transition-colors hover:bg-[#211e1b]"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" className="flex-none">
             <circle cx="12" cy="13" r="7" stroke="#cda86a" strokeWidth="1.8" />
             <path d="M12 10v3l2 1.5" stroke="#cda86a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M5 4l2.5 2M19 4l-2.5 2" stroke="#cda86a" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
-        </span>
-        <span className="flex-1 text-[17px] font-semibold text-[#e5e0d6]">On This Day</span>
-        <ChevronRight className="w-[9px] h-4 text-[#524e45]" />
-      </Link>
+          <span className="flex-1 text-[15px] font-medium text-[#c9c4ba]">On This Day</span>
+        </Link>
+      </div>
 
       {loading && !data && (
         <div className="flex justify-center py-8">
@@ -586,6 +542,15 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
   }
 
   // ─── Mobile: FAB cluster + slide-out overlay ───
+  // Pack the present bubbles into the arc (12 o'clock → 10:30 → 9 o'clock) in
+  // order, so there's never a gap — e.g. with no albums, Settings moves up into
+  // the 10:30 slot instead of sitting alone at 9 o'clock.
+  const fabSlots = ["translate(0, -76px)", "translate(-54px, -54px)", "translate(-76px, 0px)"];
+  let fabIdx = 0;
+  const uploadXform = isAdmin ? fabSlots[fabIdx++] : null;
+  const albumsXform = data && data.albums.length > 0 ? fabSlots[fabIdx++] : null;
+  const settingsXform = isLoggedIn ? fabSlots[fabIdx++] : null;
+
   return (
     <>
       {/* Secondary FAB — Upload (admin only), arcs straight up from the primary */}
@@ -595,7 +560,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           onClick={handleClose}
           className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
           style={{
-            transform: open ? "translate(0, -76px) scale(1)" : "translate(0,0) scale(0)",
+            transform: open ? `${uploadXform} scale(1)` : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
             pointerEvents: open ? "auto" : "none",
             transition: open
@@ -620,7 +585,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           onClick={() => setAlbumsExpanded((v) => !v)}
           className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
           style={{
-            transform: open ? "translate(-54px, -54px) scale(1)" : "translate(0,0) scale(0)",
+            transform: open ? `${albumsXform} scale(1)` : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
             pointerEvents: open ? "auto" : "none",
             transition: open
@@ -652,7 +617,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           onClick={handleClose}
           className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
           style={{
-            transform: open ? "translate(-76px, 0px) scale(1)" : "translate(0,0) scale(0)",
+            transform: open ? `${settingsXform} scale(1)` : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
             pointerEvents: open ? "auto" : "none",
             transition: open
