@@ -13,6 +13,9 @@ const PUBLIC_PATHS = [
   "/api/notifications/daily",
   "/robots.txt",
   "/share",
+  // Unguessable "On this day" share links — public so link previews render and
+  // recipients can open without the family login.
+  "/m",
 ];
 
 // Admin paths that require admin role

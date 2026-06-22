@@ -196,6 +196,28 @@ export async function ensurePushSchema() {
   pushSchemaReady = true;
 }
 
+let dayShareSchemaReady = false;
+
+/**
+ * Lazily create the "On this day" share-link table. A token maps to a specific
+ * calendar day so a shared /m/<token> link is unguessable and persistent,
+ * unlike the date-bearing /today?date= URL.
+ */
+export async function ensureDayShareSchema() {
+  if (dayShareSchemaReady) return;
+  await db.execute(`CREATE TABLE IF NOT EXISTS day_share_links (
+    token TEXT PRIMARY KEY,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    day INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_day_share_ymd ON day_share_links(year, month, day)`
+  );
+  dayShareSchemaReady = true;
+}
+
 export async function initializeSchema() {  for (const sql of statements) {
     await db.execute(sql);
   }
