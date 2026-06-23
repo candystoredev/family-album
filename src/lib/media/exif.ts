@@ -64,6 +64,39 @@ function atomType(view: DataView, off: number): string {
   );
 }
 
+interface Atom {
+  type: string;
+  /** byte offset of the atom's contents (after its size+type header) */
+  contentStart: number;
+  /** byte offset just past the atom */
+  end: number;
+  /** raw 32-bit value of the type field — for ilst items this is the key index */
+  rawType: number;
+}
+
+/** List the child atoms within [start, end), reading only headers (not bodies). */
+async function listAtoms(blob: Blob, start: number, end: number): Promise<Atom[]> {
+  const atoms: Atom[] = [];
+  let offset = start;
+  while (offset + 8 <= end) {
+    const head = await readView(blob, offset, 16);
+    let atomSize = head.getUint32(0);
+    const type = atomType(head, 4);
+    const rawType = head.getUint32(4);
+    let headerLen = 8;
+    if (atomSize === 1) {
+      atomSize = Number(head.getBigUint64(8)); // 64-bit extended size
+      headerLen = 16;
+    } else if (atomSize === 0) {
+      atomSize = end - offset; // extends to the end
+    }
+    if (atomSize < headerLen) break; // malformed
+    atoms.push({ type, contentStart: offset + headerLen, end: offset + atomSize, rawType });
+    offset += atomSize;
+  }
+  return atoms;
+}
+
 /** Convert an MP4/MOV creation_time (seconds since 1904) to a Date. Keeps the
  *  full timestamp — the feed orders by the exact time, so same-day clips must
  *  retain their time-of-day. Returns null if implausible. */
@@ -75,59 +108,98 @@ function mp4TimeToDate(seconds: number): Date | null {
   return d;
 }
 
+/** Parse an Apple creationdate string (e.g. "2026-06-22T18:03:00+0100"), which
+ *  carries the local time AND its UTC offset, into an exact instant. The offset
+ *  may lack a colon ("+0100"), which not all engines parse — normalize it. */
+function parseAppleDate(raw: string): Date | null {
+  const s = raw.trim().replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const d = new Date(s);
+  const year = d.getFullYear();
+  if (isNaN(d.getTime()) || year < 1990 || year > 2100) return null;
+  return d;
+}
+
 /**
- * Read the capture date from an MP4/MOV container by walking top-level atoms to
- * `moov`, then its `mvhd` (movie header) creation_time. Reads only atom headers
- * (a few bytes each) via Blob slices, so it never loads the whole video.
- * Returns null if the structure isn't found.
+ * Apple writes the true local capture time + UTC offset in the QuickTime
+ * metadata under the key "com.apple.quicktime.creationdate", stored via the
+ * moov/meta `keys` (key names) + `ilst` (values) atoms. This is more accurate
+ * than mvhd (which has no timezone) and needs no GPS→timezone lookup.
+ */
+async function readQuickTimeCreationDate(
+  blob: Blob,
+  moov: { start: number; end: number }
+): Promise<Date | null> {
+  const meta = (await listAtoms(blob, moov.start, moov.end)).find((a) => a.type === "meta");
+  if (!meta) return null;
+
+  // QuickTime `meta` is a plain container; the ISO variant prepends 4 bytes of
+  // version/flags. Detect by checking which offset yields known child atoms.
+  let children = await listAtoms(blob, meta.contentStart, meta.end);
+  if (!children.some((c) => c.type === "keys" || c.type === "ilst")) {
+    children = await listAtoms(blob, meta.contentStart + 4, meta.end);
+  }
+  const keys = children.find((c) => c.type === "keys");
+  const ilst = children.find((c) => c.type === "ilst");
+  if (!keys || !ilst) return null;
+
+  // keys: version/flags(4), count(4), then [size(4), namespace(4), key-string].
+  const keysDv = await readView(blob, keys.contentStart, keys.end - keys.contentStart);
+  let targetIndex = -1;
+  let p = 8;
+  let index = 0;
+  while (p + 8 <= keysDv.byteLength) {
+    const entrySize = keysDv.getUint32(p);
+    if (entrySize < 8 || p + entrySize > keysDv.byteLength) break;
+    index++;
+    let name = "";
+    for (let j = p + 8; j < p + entrySize; j++) name += String.fromCharCode(keysDv.getUint8(j));
+    if (name === "com.apple.quicktime.creationdate") {
+      targetIndex = index;
+      break;
+    }
+    p += entrySize;
+  }
+  if (targetIndex < 0) return null;
+
+  // ilst: items whose 32-bit type field is the 1-based key index; each holds a
+  // `data` atom of type(4)+locale(4)+value.
+  for (const item of await listAtoms(blob, ilst.contentStart, ilst.end)) {
+    if (item.rawType !== targetIndex) continue;
+    const data = (await listAtoms(blob, item.contentStart, item.end)).find((d) => d.type === "data");
+    if (!data) return null;
+    const dv = await readView(blob, data.contentStart, Math.min(data.end - data.contentStart, 256));
+    let value = "";
+    for (let j = 8; j < dv.byteLength; j++) value += String.fromCharCode(dv.getUint8(j));
+    return parseAppleDate(value);
+  }
+  return null;
+}
+
+/**
+ * Read the capture date from an MP4/MOV container. Prefers Apple's
+ * "com.apple.quicktime.creationdate" (local time + UTC offset), falling back to
+ * the mvhd movie-header creation_time. Reads only atom headers/small values via
+ * Blob slices, so it never loads the whole video. Null if nothing is found.
  */
 export async function getVideoCreationDate(file: Blob): Promise<Date | null> {
   const size = file.size;
 
   // Find the moov atom among the top-level atoms.
-  let offset = 0;
-  let moov: { start: number; end: number } | null = null;
-  while (offset + 8 <= size) {
-    const head = await readView(file, offset, 16);
-    let atomSize = head.getUint32(0);
-    const type = atomType(head, 4);
-    let headerLen = 8;
-    if (atomSize === 1) {
-      atomSize = Number(head.getBigUint64(8)); // 64-bit extended size
-      headerLen = 16;
-    } else if (atomSize === 0) {
-      atomSize = size - offset; // extends to end of file
-    }
-    if (atomSize < headerLen) break; // malformed
-    if (type === "moov") {
-      moov = { start: offset + headerLen, end: offset + atomSize };
-      break;
-    }
-    offset += atomSize;
-  }
+  const moov = (await listAtoms(file, 0, size)).find((a) => a.type === "moov");
   if (!moov) return null;
+  const moovRange = { start: moov.contentStart, end: moov.end };
 
-  // Find mvhd within moov and read its creation_time.
-  let childOffset = moov.start;
-  while (childOffset + 8 <= moov.end) {
-    const head = await readView(file, childOffset, 8);
-    let atomSize = head.getUint32(0);
-    const type = atomType(head, 4);
-    if (atomSize === 1) {
-      const ext = await readView(file, childOffset + 8, 8);
-      atomSize = Number(ext.getBigUint64(0));
-    } else if (atomSize === 0) {
-      atomSize = moov.end - childOffset;
-    }
-    if (atomSize < 8) break;
-    if (type === "mvhd") {
-      const body = await readView(file, childOffset + 8, 12);
-      const version = body.getUint8(0);
-      const creationTime =
-        version === 1 ? Number(body.getBigUint64(4)) : body.getUint32(4);
-      return mp4TimeToDate(creationTime);
-    }
-    childOffset += atomSize;
+  // Prefer the timezone-aware Apple creationdate.
+  const apple = await readQuickTimeCreationDate(file, moovRange);
+  if (apple) return apple;
+
+  // Fall back to mvhd (no timezone).
+  const mvhd = (await listAtoms(file, moovRange.start, moovRange.end)).find((a) => a.type === "mvhd");
+  if (mvhd) {
+    const body = await readView(file, mvhd.contentStart, 12);
+    const version = body.getUint8(0);
+    const creationTime = version === 1 ? Number(body.getBigUint64(4)) : body.getUint32(4);
+    return mp4TimeToDate(creationTime);
   }
   return null;
 }
