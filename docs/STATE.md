@@ -1,27 +1,66 @@
 # State
 
 ## Current Status
-Phases 1–5c complete and verified. Share links feature complete and live. Tumblr migration completed against production on 2026-03-07. Site live at dev.thehoecks.com with full content. All crawler blocking layers active site-wide.
+Live in production, auto-deployed from `master` via Vercel (project `thehoecks`,
+canonical `thehoecks.com`). Tumblr migration completed 2026-03-07. Beyond the
+original v1: an installable iOS PWA, daily "On this day" push notifications, a
+Settings page, a gold "keepsake" design pass over the chrome, and unguessable
+On-This-Day share links are all live.
 
-Share links: admin long-presses any post → Share → iOS native share panel opens with a scoped `/share/[token]` URL (30-day expiry). Recipients see the post with no nav. Nav hidden for non-admins on share pages.
+> **Repo move:** the project is now its own repo (`candystoredev/family-album`)
+> with source at repo-root `src/...`. The `apps/thehoecks/` prefix throughout the
+> older "Relevant Files" / "Recent Changes" entries below is historical — read it
+> as `src/...`.
 
 ## Active Branch
-claude/sharp-hoover-0fdd42
+`master` (work is done on short-lived branches, fast-forward merged, then pushed —
+each push auto-deploys to production).
 
 ## Current Task
-No active task. Next: Phase 5d-flag (post flagging & review queue).
+None active. Next planned initiative: **Phase 10 — Rich Media Metadata &
+Enrichment** (see ROADMAP.md + `docs/rich-metadata-plan.md`). Start with 10.0
+(schema) + 10.1 (capture + real-time enrichment at upload).
 
 ## Blockers
 None
 
 ## Known Issues
-- Test posts from 5b upload testing still in the feed — delete via edit/delete feature
-- Share links create a new token every Share tap; no dedup yet (low priority)
-
-## Next Action
-Build 5d-flag: post_flags table, flag icon in feed (admin), /admin/review page, mark-resolved flow. Reuses 5c edit form.
+- Docs (ARCHITECTURE/DECISIONS/ROADMAP) predate the standalone-repo move; paths
+  reference `apps/thehoecks/` — actual paths are `src/...`.
+- HEIC photos can fail client-side canvas compression on non-Safari browsers
+  (to be fixed in Phase 10.1).
+- Undated media (no EXIF / no video container date / no filename date) still
+  falls back to upload time (Phase 10.2 adds an "estimated date" UX).
 
 ## Recent Changes
+
+### 2026-06 session (design + On This Day + video dates)
+- **Video capture dates** (`lib/media/exif.ts`): parse MP4/MOV `moov/mvhd` and
+  prefer Apple `com.apple.quicktime.creationdate` (local time + UTC offset) so
+  videos date from capture, keep full time-of-day for same-day ordering, and
+  need no GPS→tz lookup. Filename fallback. Tests in `tests/video-date.test.ts`.
+- **On This Day share links** — unguessable token route `/m/[token]` (public, OG
+  preview, gold styling) backed by a lazily-created `day_share_links` table +
+  `POST /api/share/day` (any logged-in user mints/reuses a token). "Share this
+  day" button on `/today`. `/m` added to middleware public paths.
+- **`/today` page** restyled gold; up to 6 memories (≤2/year); homepage teaser +
+  push notification stay at 3. `getMemoriesForDate(month,day,year,limit,maxPerYear)`
+  is shared by all three surfaces; only previous years (`< year`) are included.
+- **Navigation redesign (ArchiveMenu)** — gold serif monogram header, compact
+  rows (The Latest / Favorites / On This Day), compact Albums with an "All
+  albums" expand-in-place that fades/collapses the timeline, year timeline with
+  classic + **rail** layouts, FAB cluster (Upload / Albums-toggle / Settings)
+  that packs with no gap. Timeline layout is a shared preference (`useTimelineStyle`,
+  `localStorage` key `hoecks_timeline` + custom event), set from Settings.
+- **Gold "keepsake" design pass** — `Source Serif 4` added as the display voice;
+  gold accent `#c2a467` in the chrome (nav/settings/upload); paper-grain overlay;
+  canvas `#1a1918`. Feed/lightbox/post/login intentionally keep the blue `#427ea3`.
+- Earlier in session (pulled in at start): daily "On this day" **push
+  notifications** (web-push/VAPID, `push_subscriptions`, `/api/notifications/*`,
+  daily cron) + **Settings page** + **iOS standalone PWA** (manifest, service
+  worker, gold monogram icon, auto-refresh on re-foreground).
+
+### Pre-session (historical)
 - Memory card (OnThisDay): hold caption 500ms → navigates to full post page; lightbox now disables outer swipe while open; swipe threshold raised 60→90px
 - Feed: long-press action sheet now for all users — non-admin sees Share (iMessage to Tom/Victoria), admin sees Edit + Share (native share panel / clipboard fallback); tap-to-bubble removed
 - 5c UX polish: long-press caption (500ms hold) opens edit sheet; fixed iOS pointercancel killing the timer; router.back() after save restores feed scroll position

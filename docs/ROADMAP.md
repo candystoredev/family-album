@@ -104,6 +104,21 @@ Dark theme: same concept as Tumblr, refined/sharper/modern. Mobile-first. Each s
 - Single-photo rows in multi-photo posts (e.g. layout "31") were invisible on iPhone
 - Fix: single-photo rows use `h-auto` + stored `width/height` as `aspect-ratio`; multi-photo rows keep `h-full` + `aspect-ratio: 4/3`
 
+### Shipped post-launch (2026-06) — **DONE** ✓
+Beyond the original v1 plan; all live in production. Details in DECISIONS.md / ARCHITECTURE.md.
+- **Standalone repo + go-live** — extracted to `candystoredev/family-album` (source at root `src/...`); `master` auto-deploys to production (`thehoecks.com`).
+- **Installable iOS PWA** — manifest + service worker, gold monogram icon, standalone mode, auto-refresh on re-foreground.
+- **Daily "On this day" push notifications** — Web Push/VAPID, `push_subscriptions`, `/api/notifications/*`, daily cron (GitHub Actions → `/api/notifications/daily`), admin send-hour/timezone.
+- **Settings page** (`/settings`) — per-device notification toggle + admin controls (notifications, site title/description/banner, iMessage recipients, change family password, timeline layout). *(satisfies much of the Phase 5 "Admin Panel & Settings" scope below.)*
+- **`/today` "On This Day" page** + nav link; up to 6 memories (≤2/year), teaser/notification stay at 3.
+- **On This Day share links** — unguessable `/m/[token]` (public, iMessage preview) + `day_share_links` + `POST /api/share/day`.
+- **Gold "keepsake" design pass** (chrome only) — Source Serif 4, gold accent, paper grain; nav/settings/upload redesigned; symmetric heart + clean gear icons.
+- **Navigation redesign** — serif monogram, compact rows, Albums expand-in-place, classic + **rail** timeline layouts (shared `useTimelineStyle` pref), packed FAB cluster.
+- **Video capture dates** — MP4/MOV container parsing (mvhd + Apple `creationdate` w/ tz offset), full-timestamp ordering; `tests/video-date.test.ts`.
+
+### Next initiative — Phase 10 (see below)
+Rich Media Metadata & Enrichment — full design in `docs/rich-metadata-plan.md`.
+
 ## Up Next
 
 ### Phase 5 — Admin Panel & Settings
@@ -246,6 +261,74 @@ Select many images at once → client reads EXIF dates → app auto-groups them 
 
 ---
 
+### Phase 10 — Rich Media Metadata & Enrichment
+
+Full design: **[docs/rich-metadata-plan.md](rich-metadata-plan.md)**. Goal: give every
+photo/video durable, richer data so sorting/grouping stay correct and future
+features (map, dedup, semantic search, faces) stay open. Bias: capture more than
+we model, never overwrite, record provenance, keep everything re-runnable.
+
+**Why:** dates collapse to one timezone-less `posts.date` read three ways
+(order lexicographic, group via `strftime`=UTC, display via `new Date`=local).
+Edge cases: photo EXIF interpreted differently client (browser-local→UTC) vs
+server (UTC) → same photo can shift day; photos vs videos diverge; no-metadata
+media falls to upload time; random `id` tiebreaker; per-media dates discarded.
+
+**Data model (additive/nullable):** on `media` — `taken_at` (UTC) + `tz_offset`
++ `local_date` + `date_source`/`date_confidence`; GPS + `place`; camera make/
+model/lens; `duration`/`fps`/`codec`/`is_live`/`is_screenshot`/`dominant_color`/
+`aspect`; `content_hash` + `phash` + `original_filename`; `caption` + `embedding`
++ `quality_score` + `enrichment_status`/`version`/`enriched_at`. New tables
+`media_metadata_raw` (full payload JSON) and `media_sources` (origin refs:
+apple_photos/dropbox/icloud/google/filesystem/upload + ids + match confidence).
+Auto vs human `source` on tags/people so regeneration never clobbers curation.
+`posts` rollup: `taken_at`, `local_date`, `date_source`, `source`.
+
+**Sub-phases:**
+- **10.0 Schema** — add columns + `media_metadata_raw` + `media_sources`. No behavior change.
+- **10.1 Capture + real-time enrichment (live uploads)** — synchronous extraction
+  from the original before compression (EXIF incl. `OffsetTimeOriginal` + GPS +
+  device; video container incl. GPS/duration/fps/codec; hashes; dominant color);
+  server fallback uses the *same* rule as the client. Async enrichment queue +
+  Railway worker/cron (faces/scene/caption/embedding/score), pluggable +
+  versioned + idempotent. Fix HEIC compression reliability on non-Safari here
+  (absorbs the Media backlog item).
+- **10.2 Flip reads + estimated-date UX** — order by `taken_at, created_at, id`;
+  group by `local_date`; "estimated date" badge + quick fix for low-confidence.
+- **10.3 Historical backfill (separate track; runs on a machine without Claude)**
+  — Tool A Indexer (read-only, idempotent, portable index file) + Tool B
+  Matcher/Applier (phash match to stored thumbnails, confirm UI, authed admin
+  write to new columns only). Adapters: Apple Photos via `osxphotos` (faces,
+  scene labels, keywords, albums, captions, favorites, quality scores — on
+  device), filesystem (Dropbox/iCloud Drive), Google Takeout JSON, XMP sidecars.
+  Surfaces un-uploaded originals as an optional "rediscover" queue.
+- **10.4 Features on banked data (optional)** — map view, dedup warnings,
+  auto-trip albums, place/camera/date-range search, quality-ranked teasers.
+  (Absorbs backlog: Search by date range, Filter by multiple tags/people,
+  Related posts, Download original.)
+- **10.5 Semantic enrichment (optional, pluggable)** — captions + open-vocabulary
+  tags + per-photo embeddings for semantic search; local CLIP (private) or vision
+  LLM (richer); libSQL vector column; feeds FTS + semantic search.
+
+**Privacy:** family photos incl. children — default on-device (Apple Photos for
+backfill, local/server model for live) for faces + scenes; cloud vision / LLM
+captioning is opt-in. **Never expose precise GPS on public `/m/` share pages or a
+future map** — strip/round before anything public.
+
+**Build order:** 10.0 + 10.1 first (low risk, banks data everything else needs),
+then 10.2. Backfill (10.3) and semantic enrichment (10.5) are separate opt-in tracks.
+
+**Verify (per sub-phase):**
+- 10.0: migrations apply on prod Turso; existing reads unaffected.
+- 10.1: new upload populates taken_at/local_date/gps/device/hashes; enrichment
+  queue drains; HEIC upload works on Chrome/Firefox.
+- 10.2: a late-night photo groups to the correct local day; same-instant posts
+  keep stable order; estimated-date badge shows for no-metadata media.
+- 10.3: a re-encoded album thumbnail matches its original by phash; metadata
+  applies to new columns without duplicating posts; ambiguous matches queued.
+
+---
+
 ## Backlog (V2 — Post-Launch)
 
 Schema can accommodate all V2 features without breaking changes.
@@ -273,14 +356,14 @@ Schema can accommodate all V2 features without breaking changes.
 - **Slide-out menu redesign** — current panel is functional but visually rough. Redesign to match the feed's dark aesthetic and typography more closely. Goal: joyful, easy to navigate, aesthetically consistent. Consider Claude Design for the visual pass.
 
 ### Search & Discovery
-- Search by date range
-- Filter by multiple tags/people simultaneously
-- "Related posts" suggestions
+- Search by date range _(→ Phase 10.4)_
+- Filter by multiple tags/people simultaneously _(→ Phase 10.4)_
+- "Related posts" suggestions _(→ Phase 10.5, via embeddings)_
 
 ### Media
 - Video thumbnail frame picker (v1: auto poster frame)
 - Multiple thumbnail sizes (feed vs. lightbox vs. OG) — R2 key convention supports this (`media/{id}/thumb_lg.{ext}`, etc.)
-- HEIC → JPEG conversion on upload
+- HEIC → JPEG conversion on upload _(→ Phase 10.1)_
 
 ### Analytics (Lightweight)
 - Most-viewed posts (simple counter, no third-party tracking)

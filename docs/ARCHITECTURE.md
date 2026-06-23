@@ -220,13 +220,25 @@ invite_links
 ├── revoked (boolean)
 
 site_settings (key-value)
-├── key (PK: viewer_password_hash, imessage_recipients, site_title, site_description)
+├── key (PK: viewer_password_hash, imessage_recipients, site_title, site_description,
+│         banner_message, daily_notifications_enabled, notify_send_hour,
+│         notify_timezone, notify_last_sent_date)
 ├── value
 ├── updated_at
 
 posts_fts (FTS5, standalone, application-synced)
 ├── post_id (UNINDEXED, FK → posts.id)
 ├── title, body, tags (space-separated), people (space-separated)
+
+push_subscriptions            -- daily "On this day" Web Push (lazy ensurePushSchema)
+├── id (PK, nanoid)
+├── endpoint (unique), p256dh, auth   -- Web Push subscription
+├── label (device label), created_at, last_success_at
+
+day_share_links               -- unguessable "On this day" share links (lazy ensureDayShareSchema)
+├── token (PK, random)
+├── year, month, day           -- the pinned calendar day
+├── created_at
 ```
 
 ### Data Model Notes
@@ -239,6 +251,56 @@ posts_fts (FTS5, standalone, application-synced)
 - **Album covers**: Points to existing media item. Default: most recent photo. Admin-overridable.
 - **Password hashing**: bcrypt hash in `site_settings`, never plaintext
 - **Month/year tags**: NOT imported as tags — become post `date` field
+
+## Additions since v1 (2026-06)
+
+> Repo is now standalone (`candystoredev/family-album`); source at repo root
+> `src/...` (older sections say `apps/thehoecks/`). Vercel root directory is `/`;
+> `master` auto-deploys to production. Build version (commit SHA) is surfaced in
+> the nav.
+
+### Installable iOS PWA
+`manifest.webmanifest` + service worker (`public/sw.js`, registered by
+`ServiceWorkerRegister`), `apple-mobile-web-app-capable`, standalone display,
+gold monogram icons, auto-refresh on re-foreground. Required because iOS only
+exposes Web Push to a Home-Screen-installed PWA.
+
+### Daily "On this day" notifications
+- `lib/onThisDay.ts` → `getMemoriesForDate(month, day, year, limit, maxPerYear)`
+  (previous years only); shared by the homepage teaser (3), the notification (3),
+  and `/today` (6).
+- `lib/push.ts` (web-push/VAPID), `push_subscriptions` table, `/api/notifications/{subscribe,unsubscribe,test,daily}`.
+- Daily cron: GitHub Actions (`.github/workflows/daily-memories.yml`) → `POST /api/notifications/daily` authed by `CRON_SECRET`; honors admin send-hour + timezone.
+- `/today` page (gold) + `TodayMemory`; deep-linked from the notification.
+
+### On This Day share links
+Unguessable token route `/m/[token]` (public, OG + Twitter card preview, gold)
+backed by `day_share_links` + `POST /api/share/day` (session-gated mint/reuse).
+`ShareDayButton` on `/today`. `/m` is in `middleware` public paths. **Never expose
+precise GPS on `/m/` pages.**
+
+### Settings
+`/settings` + `SettingsClient` — per-device notification toggle + test; admin:
+enable/hour/timezone, "send today's memory now", site title/description/banner,
+iMessage recipients, change family password, and the timeline-layout preference.
+
+### Design system (chrome only)
+`Source Serif 4` added via `next/font` as the display voice; gold accent
+`#c2a467` + paper-grain in nav/settings/upload; canvas `#1a1918`. Feed, lightbox,
+post, and login intentionally keep blue `#427ea3`. Timeline layout (classic list
+vs year rail) is a shared preference via `lib/useTimelineStyle.ts` (`localStorage`
+key `hoecks_timeline` + a `hoecks_timeline_change` window event), driven by both
+Settings and the nav FAB toggle.
+
+### Capture dates
+`lib/media/exif.ts` extracts the capture date from the original before
+compression: photos via `exifr`; videos via dependency-free MP4/MOV atom parsing
+(`moov/mvhd`, preferring Apple `com.apple.quicktime.creationdate` with its UTC
+offset), filename fallback. `lib/datetime.ts` for zoned date parts.
+
+### New environment variables
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`. `NEXT_PUBLIC_SITE_URL`
+canonical is `https://thehoecks.com`.
 
 ## Constraints
 

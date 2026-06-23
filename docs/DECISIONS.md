@@ -123,6 +123,7 @@ Decision: Responsive web for admin (not PWA)
 Reason: PWA on iOS is unreliable
 Alternatives Considered: PWA, native iOS app
 Impact: Admin works in browser; iOS Shortcut handles mobile uploads
+**SUPERSEDED (2026-06):** shipped an installable iOS **standalone PWA** (manifest + service worker, gold monogram icon, auto-refresh on re-foreground) — required for Web Push (daily "On this day" notifications only fire from an installed PWA on iOS).
 
 ### 2025-01-01
 Decision: Cursor-based infinite scroll for pagination
@@ -167,12 +168,14 @@ Decision: Project lives at `apps/thehoecks/` in the monorepo
 Reason: Alongside other apps in `tom-playground` monorepo
 Alternatives Considered: Separate repository, root-level project
 Impact: Vercel root directory set to `apps/thehoecks`; deploy workflow scoped to `apps/**`
+**SUPERSEDED (2026-06):** extracted to its own repo `candystoredev/family-album`; source now at repo root `src/...`, Vercel root directory is `/`.
 
 ### 2025-01-01
 Decision: EXIF date extraction on new posts via iOS (not server)
 Reason: iOS natively provides EXIF data; avoids server-side EXIF parsing
 Alternatives Considered: Server-side EXIF extraction after upload
 Impact: iOS Shortcut pre-fills post date from EXIF; admin panel allows manual date override
+**EXTENDED (2026-06):** the web upload form extracts the capture date client-side from the *original* before compression — photos via `exifr` (EXIF), videos via in-browser MP4/MOV container parsing (`mvhd` + Apple `creationdate`). Server EXIF fallback exists for photos. See the 2026-06 decisions below.
 
 ### 2025-01-01
 Decision: Admin settings stored in DB `site_settings` table, not env vars
@@ -261,6 +264,51 @@ Reason: A simple `runPool(groups, 2, publishGroup)` is easier to reason about an
 Alternatives Considered: Original plan: separate pools for PUT (5) and complete (3); sequential per-group
 Impact: At most 2 `complete` calls and ~2×N simultaneous PUTs at any time. For batches of 5–20 groups this is indistinguishable from higher concurrency.
 
+## 2026-06 — On This Day, Notifications, Share, Design, Video dates
+
+### 2026-06
+Decision: Daily "On this day" push notifications via Web Push (VAPID), gated behind the installed iOS PWA
+Reason: A gentle daily memory teaser is the emotional core of the album; Web Push is free and needs no app store. iOS only exposes `PushManager` to a Home-Screen-installed PWA.
+Alternatives Considered: Email digests, SMS/iMessage push, native app
+Impact: `push_subscriptions` table, `/api/notifications/{subscribe,unsubscribe,test,daily}`, a daily cron (GitHub Actions → `/api/notifications/daily`, `CRON_SECRET`), admin send-hour/timezone settings, a Settings page with a per-device toggle. `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env vars; `web-push` dependency.
+
+### 2026-06
+Decision: One shared memory selector — `getMemoriesForDate(month, day, year, limit, maxPerYear)` — for the homepage teaser, the push notification, and the `/today` page
+Reason: All three should agree on "what happened on this day." Differences are just limits: teaser + notification = 3; `/today` = 6. Only previous years (`< year`) are included, so a pinned/shared day never shows later-year posts.
+Alternatives Considered: Separate queries per surface (drifted out of sync)
+Impact: `lib/onThisDay.ts`; `/today` accepts an internal `?date=` for deep-linking; "X years ago" anchors to the page's reference year.
+
+### 2026-06
+Decision: Share an "On this day" via an **unguessable token link** (`/m/[token]`), not a date-bearing URL
+Reason: `/today?date=YYYY-MM-DD` is guessable/enumerable; making it public would expose every day. A random token reveals nothing, previews in iMessage (OG tags), opens without the family login, and is stable/persistent.
+Alternatives Considered: Make `/today` public (guessable); preview-only with gated body (recipients can't view); GPS→timezone (wrong tool)
+Impact: `day_share_links` table (lazy `ensureDayShareSchema`, mirrors `post_share_links`), `/m` public in middleware, `POST /api/share/day` requires a session to mint. GPS/precise location must never be exposed on public `/m/` pages.
+
+### 2026-06
+Decision: Read video capture date from the container; prefer Apple `com.apple.quicktime.creationdate` over `mvhd`
+Reason: Videos carry no EXIF; `mvhd` has no timezone, but Apple's `creationdate` embeds the local time + UTC offset — more accurate than `mvhd` and avoids any GPS→timezone lookup. Keep the full timestamp (not noon) so same-day clips order correctly.
+Alternatives Considered: `file.lastModified` (export time, unreliable); reverse-geocode GPS to a timezone (needs a big dataset/API); noon-normalize (breaks same-day ordering)
+Impact: dependency-free atom parser in `lib/media/exif.ts` (reads only headers/small values via `Blob.slice`); fixes the "video dated to upload time" bug.
+
+### 2026-06
+Decision: "Keepsake" gold design pass scoped to the **chrome only**; add `Source Serif 4`
+Reason: A warmer, more premium feel for nav/settings/upload without touching the content surfaces. The gold (`#c2a467`, from the app icon) + serif display voice + faint paper grain read as a family keepsake.
+Alternatives Considered: Gold app-wide; no new font; full restyle
+Impact: Nav/Settings/Upload use gold + serif; feed/lightbox/post/login keep blue `#427ea3`. Canvas `#1a1918`. `next/font` adds Source Serif 4 alongside Source Sans 3.
+
+### 2026-06
+Decision: Timeline layout (classic list vs year rail) is a user preference shared between Settings and the nav via `localStorage` + a custom window event
+Reason: `ArchiveMenu` (root layout) and `SettingsClient` (`/settings`) never share a React tree; `localStorage` key `hoecks_timeline` plus a `hoecks_timeline_change` event keeps them in sync live without a store or server round-trip.
+Alternatives Considered: Server-persisted user pref; React context (no shared tree); URL param
+Impact: `lib/useTimelineStyle.ts`; the nav FAB "albums/timeline" toggle and the Settings segmented control both drive it.
+
+### 2026-06
+Decision: Adopt the Rich Media Metadata plan (Phase 10) — capture more than we model, never overwrite, separate ordering (instant) from grouping (local date)
+Reason: Today dates collapse to one tz-less string read three ways; videos/photos diverge; undated media defaults to upload time. Future features (map, dedup, semantic search, faces) need richer, durable per-item data.
+Alternatives Considered: Spot-fix timezone only; do nothing
+Impact: Full plan in `docs/rich-metadata-plan.md`; roadmap Phase 10. Schema additions are additive/nullable; historical backfill is a separate, opt-in track via perceptual-hash matching to local originals (Apple Photos/Dropbox/iCloud/etc.).
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)
+- Phase 10 open decisions: original full-res archival in R2? backfill auto-apply confidence threshold? indexer stack (Python+osxphotos vs Node)? per-stage enrichment backend (on-device vs cloud). See `docs/rich-metadata-plan.md`.
