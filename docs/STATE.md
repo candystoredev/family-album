@@ -17,12 +17,23 @@ On-This-Day share links are all live.
 each push auto-deploys to production).
 
 ## Current Task
-None active. Next planned initiative: **Phase 10 — Rich Media Metadata &
-Enrichment** (see ROADMAP.md + `docs/rich-metadata-plan.md`). Start with 10.0
-(schema) + 10.1 (capture + real-time enrichment at upload).
+**Phase 10 — Rich Media Metadata & Enrichment** (see ROADMAP.md +
+`docs/rich-metadata-plan.md`). 10.0 (schema) is **code-complete + deployed**
+(master @ a6dcae9); 10.1 (capture + real-time enrichment at upload) is in
+progress on a branch.
 
 ## Blockers
-None
+- **⚠️ Run `/api/init` on prod to finish 10.0.** The 10.0 additive schema is
+  deployed but the migration is not yet applied to prod Turso. Needs
+  `ADMIN_API_TOKEN` (not in local .env.local — must run from a machine that has
+  it):
+  ```
+  curl -X POST https://thehoecks.com/api/init -H "Authorization: Bearer $ADMIN_API_TOKEN"
+  ```
+  Expect `{"ok":true,...}`. Idempotent; locally verified reads-unaffected. The
+  10.1 upload path also lazy-creates the schema via `ensureRichMetadataSchema()`,
+  so this is belt-and-suspenders, but run it to keep `initializeSchema()`
+  canonical.
 
 ## Known Issues
 - Docs (ARCHITECTURE/DECISIONS/ROADMAP) predate the standalone-repo move; paths
