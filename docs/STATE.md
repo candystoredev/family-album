@@ -34,6 +34,11 @@ None
 
 ## Recent Changes
 
+### 2026-06 session — wrap
+- Planning docs (STATE/DECISIONS/ARCHITECTURE/ROADMAP) brought current + new
+  `docs/rich-metadata-plan.md`; committed & pushed (`6d11d3b`). Roadmap now has
+  Phase 10. No code in progress; clean stopping point. Next: Phase 10.0 + 10.1.
+
 ### 2026-06 session (design + On This Day + video dates)
 - **Video capture dates** (`lib/media/exif.ts`): parse MP4/MOV `moov/mvhd` and
   prefer Apple `com.apple.quicktime.creationdate` (local time + UTC offset) so
