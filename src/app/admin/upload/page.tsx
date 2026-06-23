@@ -13,7 +13,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { compressImage } from "@/lib/media/compress";
-import { getMediaDate } from "@/lib/media/exif";
+import { getMediaDate, getVideoDate } from "@/lib/media/exif";
 import { defaultLayout } from "@/lib/media/layout";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
@@ -244,16 +244,23 @@ export default function UploadPage() {
     const mediaFiles: MediaFile[] = await Promise.all(
       newFiles.map(async (f) => {
         const isVideo = isVideoFile(f);
-        // EXIF must be read from the original — compression re-encodes via
-        // canvas and strips it, which is why the server can't do this.
-        const mediaDate = isVideo ? null : await getMediaDate(f);
+        // Capture date must be read from the original — for photos, compression
+        // re-encodes via canvas and strips EXIF; videos carry their date in the
+        // MP4/MOV container (the server can't read either from R2 cheaply).
+        let exifDate: Date | undefined;
+        if (isVideo) {
+          exifDate = (await getVideoDate(f)) ?? undefined;
+        } else {
+          const mediaDate = await getMediaDate(f);
+          exifDate = mediaDate.source === "exif" ? mediaDate.date : undefined;
+        }
         const processed = isVideo ? f : await compressImage(f);
         return {
           id: nextFileId(),
           file: processed,
           preview: URL.createObjectURL(processed),
           type: isVideo ? ("video" as const) : ("photo" as const),
-          exifDate: mediaDate?.source === "exif" ? mediaDate.date : undefined,
+          exifDate,
         };
       })
     );
