@@ -172,6 +172,8 @@ posts
 ├── tumblr_id (original Tumblr post ID, used for migration dedup)
 ├── created_at
 ├── updated_at
+│   -- Phase 10.0 rollup (representative = earliest media; additive/nullable)
+├── taken_at (UTC ISO), local_date (YYYY-MM-DD), date_source, source (upload|bulk|tumblr|shared)
 
 media
 ├── id (PK, nanoid)
@@ -184,6 +186,16 @@ media
 ├── duration (seconds, video only)
 ├── display_order (integer)
 ├── mime_type
+│   -- Phase 10.0 rich metadata (all additive/nullable; lazy ensureRichMetadataSchema)
+├── taken_at (UTC ISO instant), tz_offset (min), local_date (YYYY-MM-DD),
+│             date_source, date_confidence (high|medium|low)   -- order by instant, group by local day
+├── gps_lat, gps_lng, gps_altitude, place (cached reverse-geocode)
+├── camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length
+├── fps, codec, is_live, is_screenshot, dominant_color, aspect, orientation
+├── content_hash (SHA-256 of original), phash (perceptual), original_filename
+├── caption, embedding (BLOB; vector index in 10.5), quality_score
+├── enrichment_status (none|pending|done|error), enrichment_version, enriched_at
+├── source (upload|bulk|tumblr|shared)
 
 tags
 ├── id (PK, nanoid)
@@ -239,6 +251,25 @@ day_share_links               -- unguessable "On this day" share links (lazy ens
 ├── token (PK, random)
 ├── year, month, day           -- the pinned calendar day
 ├── created_at
+
+media_metadata_raw            -- Phase 10.0: full extracted payloads kept verbatim (no re-scan)
+├── id (PK, nanoid)
+├── media_id (FK → media, cascade)
+├── source (extractor/origin, e.g. exif | video_container | apple_photos)
+├── payload (JSON)
+├── created_at
+
+media_sources                 -- Phase 10.0: origin refs for re-sync / backfill corroboration (10.3)
+├── id (PK, nanoid)
+├── media_id (FK → media, cascade)
+├── kind (apple_photos | dropbox | icloud | google | filesystem | upload)
+├── external_id (Apple UUID, Dropbox path, Takeout id, …)
+├── content_hash, phash
+├── match_method, match_confidence, matched_at
+├── created_at
+
+-- post_tags / post_people / post_albums each gain: source TEXT NOT NULL DEFAULT 'human'
+--   (auto vs human, so regenerated auto data never clobbers manual curation)
 ```
 
 ### Data Model Notes
