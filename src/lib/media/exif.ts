@@ -64,15 +64,15 @@ function atomType(view: DataView, off: number): string {
   );
 }
 
-/** Convert an MP4/MOV creation_time (seconds since 1904) to a Date on the
- *  recorded calendar day at local noon — mirrors dateFromFilename so timezone
- *  conversion can't bump it to the wrong day. Returns null if implausible. */
+/** Convert an MP4/MOV creation_time (seconds since 1904) to a Date. Keeps the
+ *  full timestamp — the feed orders by the exact time, so same-day clips must
+ *  retain their time-of-day. Returns null if implausible. */
 function mp4TimeToDate(seconds: number): Date | null {
   if (!seconds) return null;
   const d = new Date((seconds - MP4_EPOCH_OFFSET) * 1000);
   const year = d.getUTCFullYear();
   if (isNaN(d.getTime()) || year < 1990 || year > 2100) return null;
-  return new Date(year, d.getUTCMonth(), d.getUTCDate(), 12, 0, 0);
+  return d;
 }
 
 /**

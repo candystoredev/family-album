@@ -33,22 +33,30 @@ function mov(creationTime: number): Blob {
   return new Blob([ftyp, mdat, moov]);
 }
 
-test("reads mvhd creation_time as the capture day", async () => {
-  // 22 Jun 2026, 12:00 UTC
-  const seconds = Math.floor(Date.UTC(2026, 5, 22, 12, 0, 0) / 1000) + MP4_EPOCH_OFFSET;
+test("reads mvhd creation_time and preserves the exact instant", async () => {
+  // 22 Jun 2026, 14:37 UTC — the time-of-day must survive for same-day ordering.
+  const instant = Date.UTC(2026, 5, 22, 14, 37, 0);
+  const seconds = Math.floor(instant / 1000) + MP4_EPOCH_OFFSET;
   const d = await getVideoCreationDate(mov(seconds));
   assert.ok(d, "expected a date");
-  assert.equal(d!.getFullYear(), 2026);
-  assert.equal(d!.getMonth(), 5); // June (0-indexed)
-  assert.equal(d!.getDate(), 22);
+  assert.equal(d!.getTime(), instant);
+});
+
+test("two clips from the same day keep distinct, ordered times", async () => {
+  const morning = Date.UTC(2026, 5, 22, 8, 15, 0);
+  const evening = Date.UTC(2026, 5, 22, 20, 45, 0);
+  const a = await getVideoCreationDate(mov(Math.floor(morning / 1000) + MP4_EPOCH_OFFSET));
+  const b = await getVideoCreationDate(mov(Math.floor(evening / 1000) + MP4_EPOCH_OFFSET));
+  assert.equal(a!.getTime(), morning);
+  assert.equal(b!.getTime(), evening);
+  assert.ok(a!.getTime() < b!.getTime(), "morning should sort before evening");
 });
 
 test("skips a large leading mdat to find moov", async () => {
-  const seconds = Math.floor(Date.UTC(2019, 0, 5, 9, 30, 0) / 1000) + MP4_EPOCH_OFFSET;
+  const instant = Date.UTC(2019, 0, 5, 9, 30, 0);
+  const seconds = Math.floor(instant / 1000) + MP4_EPOCH_OFFSET;
   const d = await getVideoCreationDate(mov(seconds));
-  assert.equal(d!.getFullYear(), 2019);
-  assert.equal(d!.getMonth(), 0);
-  assert.equal(d!.getDate(), 5);
+  assert.equal(d!.getTime(), instant);
 });
 
 test("returns null for a non-MP4 blob", async () => {
