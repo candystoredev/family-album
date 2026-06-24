@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
+import { baseUrlFromRequest } from "@/lib/baseUrl";
 
 export async function POST(request: Request) {
   try {
@@ -26,7 +27,9 @@ export async function POST(request: Request) {
       args: [id, token, postId, expiresAt],
     });
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
+    // Build the share URL from the request host so it always matches the domain
+    // the admin is actually using, regardless of NEXT_PUBLIC_SITE_URL.
+    const siteUrl = baseUrlFromRequest(request);
     return NextResponse.json({ shareUrl: `${siteUrl}/share/${token}` });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
