@@ -311,7 +311,11 @@ function PostCard({
   function handleShare() {
     setShowActionSheet(false);
     if (!isAdmin) {
-      const postUrl = `${siteUrl}/posts/${post.slug}`;
+      // Use the live origin so the link matches the domain in use, not a
+      // possibly-stale NEXT_PUBLIC_SITE_URL.
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : siteUrl;
+      const postUrl = `${origin}/posts/${post.slug}`;
       const body = `${postUrl}\n\nMy reaction:\n`;
       window.location.href = `sms:${recipients.join(",")}&body=${encodeURIComponent(body)}`;
       return;
