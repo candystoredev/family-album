@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { compressImage } from "@/lib/media/compress";
 import { getMediaDate, getVideoDate } from "@/lib/media/exif";
-import { buildCaptureInput } from "@/lib/media/extract";
+import { buildCaptureInput, sha256Hex } from "@/lib/media/extract";
 import type { CaptureDateInput } from "@/lib/media/capture-date";
 import { defaultLayout } from "@/lib/media/layout";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
@@ -33,6 +33,8 @@ interface MediaFile {
   exifDate?: Date;
   /** Raw capture-date inputs from the original, resolved server-side (10.1a). */
   capture?: CaptureDateInput;
+  /** SHA-256 of the original bytes — identity for dedup/backfill (10.1b). */
+  contentHash?: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -260,6 +262,9 @@ export default function UploadPage() {
         }
         // Rich capture inputs from the original (resolved server-side, 10.1a).
         const capture = await buildCaptureInput(f, isVideo);
+        // SHA-256 of the original for dedup/backfill identity (10.1b). Photos
+        // only — videos can be huge and hashing them client-side is unsafe.
+        const contentHash = isVideo ? undefined : ((await sha256Hex(f)) ?? undefined);
         const processed = isVideo ? f : await compressImage(f);
         return {
           id: nextFileId(),
@@ -268,6 +273,7 @@ export default function UploadPage() {
           type: isVideo ? ("video" as const) : ("photo" as const),
           exifDate,
           capture,
+          contentHash,
         };
       })
     );
@@ -404,6 +410,7 @@ export default function UploadPage() {
           type: mf.type,
           posterDataUrl: mf.posterDataUrl,
           capture: mf.capture,
+          contentHash: mf.contentHash,
         };
       });
 

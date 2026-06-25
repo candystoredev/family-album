@@ -27,13 +27,18 @@ async function main() {
     console.log("   rollup      : taken_at=%s local_date=%s date_source=%s source=%s",
       p.taken_at, p.local_date, p.date_source, p.source);
     const media = await db.execute({
-      sql: `SELECT display_order, type, taken_at, tz_offset, local_date, date_source, date_confidence
+      sql: `SELECT display_order, type, mime_type, r2_key, taken_at, tz_offset, local_date, date_source, date_confidence,
+                   content_hash, phash, dominant_color, aspect, orientation, original_filename
             FROM media WHERE post_id = ? ORDER BY display_order`,
       args: [p.id as string],
     });
     for (const m of media.rows) {
-      console.log("   media[%s] %s: taken_at=%s tz=%s local_date=%s src=%s conf=%s",
-        m.display_order, m.type, m.taken_at, m.tz_offset, m.local_date, m.date_source, m.date_confidence);
+      console.log("   media[%s] %s mime=%s key=%s", m.display_order, m.type, m.mime_type, m.r2_key);
+      console.log("        capture : taken_at=%s tz=%s local_date=%s src=%s conf=%s",
+        m.taken_at, m.tz_offset, m.local_date, m.date_source, m.date_confidence);
+      const ch = m.content_hash ? String(m.content_hash).slice(0, 12) + "…" : null;
+      console.log("        identity: content_hash=%s phash=%s color=%s aspect=%s orient=%s file=%s",
+        ch, m.phash, m.dominant_color, m.aspect, m.orientation, m.original_filename);
     }
   }
   process.exit(0);

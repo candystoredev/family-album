@@ -15,7 +15,7 @@ import { getMediaDate, type DateSource } from "@/lib/media/exif";
 import { groupByGap, nearestGroupWithin, GAP_THRESHOLDS } from "@/lib/media/grouping";
 import { defaultLayoutCounts } from "@/lib/media/layout";
 import { compressImage } from "@/lib/media/compress";
-import { buildCaptureInput } from "@/lib/media/extract";
+import { buildCaptureInput, sha256Hex } from "@/lib/media/extract";
 import type { CaptureDateInput } from "@/lib/media/capture-date";
 import MetadataFields, {
   useMetadataOptions,
@@ -808,6 +808,9 @@ export default function BulkImportPage() {
           // Usually pre-compressed in the background; compress here only if
           // Publish was clicked before the background pass reached this photo
           const compressed = item.compressed ?? (await compressImage(item.file));
+          // Hash the original here (not at ingest) so we don't read every
+          // original up front (10.1b).
+          const contentHash = (await sha256Hex(item.file)) ?? undefined;
           const presignRes = await fetch("/api/admin/upload/presign", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -824,7 +827,7 @@ export default function BulkImportPage() {
             body: compressed,
           });
           if (!uploadRes.ok) throw new Error("Failed to upload photo");
-          return { r2Key, keyPrefix, type: "photo" as const, capture: item.capture };
+          return { r2Key, keyPrefix, type: "photo" as const, capture: item.capture, contentHash };
         })
       );
 

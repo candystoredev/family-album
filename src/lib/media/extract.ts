@@ -56,3 +56,19 @@ export async function buildCaptureInput(
     return base;
   }
 }
+
+/**
+ * SHA-256 of the ORIGINAL file bytes (Phase 10.1b), as lowercase hex. Computed
+ * client-side because compression replaces the bytes — this hash must identify
+ * the true original (for dedup + the 10.3 backfill). Null on failure.
+ */
+export async function sha256Hex(file: File): Promise<string | null> {
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return null;
+  }
+}

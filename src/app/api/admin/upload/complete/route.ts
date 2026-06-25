@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
+import { createHash } from "node:crypto";
 import sharp from "sharp";
 import exifr from "exifr";
 import { downloadFromR2, uploadToR2 } from "@/lib/r2";
 import { db } from "@/lib/db";
 import { generatePhotosetLayout } from "@/lib/media/layout";
+import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
 import { ensureRichMetadataSchema } from "@/lib/schema";
 import {
   resolveCaptureDate,
@@ -63,6 +65,7 @@ interface MediaItem {
   type: "photo" | "video";
   posterDataUrl?: string; // base64 data URL for video poster frame
   capture?: CaptureDateInput; // raw capture-date inputs from the original (10.1a)
+  contentHash?: string; // SHA-256 of the original bytes, client-computed (10.1b)
 }
 
 /**
@@ -146,6 +149,8 @@ export async function POST(request: NextRequest) {
 
         if (item.type === "video") {
           let thumbKey = "";
+          let phash: string | null = null;
+          let domColor: string | null = null;
           if (item.posterDataUrl) {
             const base64 = item.posterDataUrl.split(",")[1];
             const posterBuffer = Buffer.from(base64, "base64");
@@ -155,6 +160,11 @@ export async function POST(request: NextRequest) {
               .toBuffer();
             thumbKey = `${item.keyPrefix}/thumb.jpg`;
             await uploadToR2(thumbKey, thumbBuffer, "image/jpeg");
+            // Poster-frame phash lets the 10.3 backfill match videos too.
+            [phash, domColor] = await Promise.all([
+              perceptualHash(thumbBuffer),
+              dominantColor(thumbBuffer),
+            ]);
           }
           // Video bytes aren't downloaded server-side; rely on the client's
           // container-parsed capture (or filename/mtime/upload fallback).
@@ -170,6 +180,12 @@ export async function POST(request: NextRequest) {
             displayOrder: i,
             exifDate: null as Date | null,
             capture,
+            contentHash: item.contentHash ?? null,
+            phash,
+            dominantColor: domColor,
+            aspect: null as number | null,
+            orientation: null as number | null,
+            originalFilename: item.capture?.filename ?? null,
           };
         }
 
@@ -200,6 +216,16 @@ export async function POST(request: NextRequest) {
         const processedKey = `${item.keyPrefix}/original.jpg`;
         const thumbKey = `${item.keyPrefix}/thumb.jpg`;
 
+        // Identity + visual metadata (10.1b). content_hash must be of the
+        // ORIGINAL: the client sends it for compressed uploads; for the
+        // originals path (e.g. iOS Shortcut) `buffer` IS the original.
+        const [phash, domColor] = await Promise.all([
+          perceptualHash(thumbBuffer),
+          dominantColor(thumbBuffer),
+        ]);
+        const contentHash =
+          item.contentHash ?? createHash("sha256").update(buffer).digest("hex");
+
         await Promise.all([
           uploadToR2(processedKey, originalBuffer, "image/jpeg"),
           uploadToR2(thumbKey, thumbBuffer, "image/jpeg"),
@@ -216,6 +242,12 @@ export async function POST(request: NextRequest) {
           displayOrder: i,
           exifDate,
           capture,
+          contentHash,
+          phash,
+          dominantColor: domColor,
+          aspect: width && height ? width / height : null,
+          orientation: meta.orientation ?? null,
+          originalFilename: item.capture?.filename ?? null,
         };
       })
     );
@@ -346,8 +378,9 @@ export async function POST(request: NextRequest) {
         },
         ...mediaRecords.map((m) => ({
           sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type,
-                                   taken_at, tz_offset, local_date, date_source, date_confidence, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload')`,
+                                   taken_at, tz_offset, local_date, date_source, date_confidence, source,
+                                   content_hash, phash, dominant_color, aspect, orientation, original_filename)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, ?, ?, ?)`,
           args: [
             m.id,
             postId,
@@ -364,6 +397,12 @@ export async function POST(request: NextRequest) {
             m.capture.localDate,
             m.capture.source,
             m.capture.confidence,
+            m.contentHash,
+            m.phash,
+            m.dominantColor,
+            m.aspect,
+            m.orientation,
+            m.originalFilename,
           ],
         })),
         ...tagIds.map((tagId) => ({
