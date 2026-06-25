@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { ORDER_KEY_SQL, EFF_DAY_SQL } from "./order";
 
 export interface OnThisDayMedia {
   id: string;
@@ -42,12 +43,15 @@ export async function getMemoriesForDate(
   // before trimming to `limit`. Only previous years (strictly < currentYear) —
   // so a date-pinned page never shows posts from years after the pinned day,
   // which would otherwise read as "-2 years ago".
+  // Match on the effective capture day (local_date ?? legacy day) so "on this
+  // day" follows true capture, not upload/legacy date (Phase 10.2b).
   const result = await db.execute({
-    sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.photoset_layout
+    sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.photoset_layout,
+                 ${EFF_DAY_SQL} AS eff_day
           FROM posts p
-          WHERE strftime('%m', p.date) = ? AND strftime('%d', p.date) = ?
-            AND CAST(strftime('%Y', p.date) AS INTEGER) < ?
-          ORDER BY p.date DESC
+          WHERE substr(${EFF_DAY_SQL}, 6, 2) = ? AND substr(${EFF_DAY_SQL}, 9, 2) = ?
+            AND CAST(substr(${EFF_DAY_SQL}, 1, 4) AS INTEGER) < ?
+          ORDER BY ${ORDER_KEY_SQL} DESC
           LIMIT 60`,
     args: [mm, dd, currentYear],
   });
@@ -59,6 +63,7 @@ export async function getMemoriesForDate(
     body: string | null;
     date: string;
     photoset_layout: string | null;
+    eff_day: string;
   }[];
 
   // Pick up to `limit` posts, max `maxPerYear` from any single year.
@@ -66,7 +71,7 @@ export async function getMemoriesForDate(
   const yearCount = new Map<string, number>();
   for (const row of allRows) {
     if (selected.length >= limit) break;
-    const year = row.date.slice(0, 4);
+    const year = row.eff_day.slice(0, 4);
     const count = yearCount.get(year) || 0;
     if (count < maxPerYear) {
       selected.push(row);

@@ -8,7 +8,7 @@ process.env.TURSO_DATABASE_URL = ":memory:";
 
 import { initializeSchema } from "../src/lib/schema";
 import { db } from "../src/lib/db";
-import { ORDER_KEY_SQL } from "../src/lib/order";
+import { ORDER_KEY_SQL, EFF_DAY_SQL } from "../src/lib/order";
 
 /**
  * Phase 10.2a — feed ordering + cursor pagination over the effective order key
@@ -32,10 +32,12 @@ async function paginate(pageSize: number): Promise<string[]> {
   const seq: string[] = [];
   let cursor: { k: string; id: string } | null = null;
   for (let guard = 0; guard < 100; guard++) {
-    const where = cursor
+    const where: string = cursor
       ? `WHERE (${ORDER_KEY_SQL} < ? OR (${ORDER_KEY_SQL} = ? AND p.id < ?))`
       : "";
-    const args = cursor ? [cursor.k, cursor.k, cursor.id, pageSize + 1] : [pageSize + 1];
+    const args: (string | number)[] = cursor
+      ? [cursor.k, cursor.k, cursor.id, pageSize + 1]
+      : [pageSize + 1];
     const r = await db.execute({
       sql: `SELECT p.id, ${ORDER} FROM posts p ${where} ORDER BY order_key DESC, p.id DESC LIMIT ?`,
       args,
@@ -90,5 +92,16 @@ describe("feed ordering (Phase 10.2a)", () => {
     const paged = await paginate(2);
     assert.deepEqual(paged, expected);
     assert.equal(new Set(paged).size, paged.length);
+  });
+
+  it("groups by effective day: local_date when present, else legacy day (10.2b)", async () => {
+    const r = await db.execute(
+      `SELECT p.id, substr(${EFF_DAY_SQL},1,4) AS y, substr(${EFF_DAY_SQL},6,2) AS m, substr(${EFF_DAY_SQL},9,2) AS d FROM posts p`
+    );
+    const by = new Map(r.rows.map((x) => [x.id as string, `${x.y}-${x.m}-${x.d}`]));
+    // D has local_date 2026-06-23 though its legacy date is Jun 25 → groups to the 23rd.
+    assert.equal(by.get("D_takenJun23"), "2026-06-23");
+    // A legacy post (no local_date) groups by its own date's day.
+    assert.equal(by.get("A_2012"), "2012-09-11");
   });
 });
