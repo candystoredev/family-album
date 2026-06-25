@@ -329,6 +329,38 @@ compression: photos via `exifr`; videos via dependency-free MP4/MOV atom parsing
 (`moov/mvhd`, preferring Apple `com.apple.quicktime.creationdate` with its UTC
 offset), filename fallback. `lib/datetime.ts` for zoned date parts.
 
+### Rich media capture pipeline (Phase 10.1, write-only)
+Every upload banks rich, durable per-media metadata into the additive columns
+(see Schema / Phase 10.0). **Write-only so far**: ordering/grouping still read the
+legacy `posts.date` — reads flip to the new columns in 10.2.
+
+- **One date rule, client + server** — `lib/media/capture-date.ts`
+  `resolveCaptureDate()` is the single source of truth. It takes provenance-tagged
+  inputs and returns `{takenAt (UTC instant, for ordering), tzOffsetMin, localDate
+  (capture-local day, for grouping), source, confidence}`. Naive EXIF is parsed to
+  wall-clock components and the instant built with `Date.UTC(...)` — never
+  `new Date(str)` — so client and server agree regardless of host timezone, and
+  `localDate` is tz-independent. `source` ∈ exif_offset | video_meta | exif |
+  filename | file_mtime | manual | upload_fallback.
+- **Client extraction** — `lib/media/extract.ts` `buildCaptureInput()` reads the
+  ORIGINAL before `compressImage` strips EXIF, using exifr `{reviveValues:false}`
+  (raw EXIF string, never a tz-built Date) + the video container instant/offset;
+  `sha256Hex()` computes `content_hash` of the original (photos). Sent per-item to
+  the upload route; the server re-extracts with the same rule for the
+  originals/iOS-Shortcut path that sends no payload.
+- **Server identity/visual** — `lib/media/image-hash.ts`: `perceptualHash()`
+  (dHash, 16 hex) + `dominantColor()`, computed from the generated thumbnail so
+  live hashes match how the 10.3 backfill will phash stored thumbnails. Plus
+  `aspect`, `orientation`, `original_filename`.
+- **HEIC** — `compressImage` tries native canvas decode first (Safari), then falls
+  back to a lazy `heic2any` (libheif WASM) decode on Chrome/Firefox; always emits
+  JPEG. exifr reads HEIC EXIF directly, so capture is unaffected by the conversion.
+- **Pure-core tests**: `tests/capture-date.test.ts` (incl. host-tz independence),
+  `tests/exif-pipeline.test.ts` (exifr reviveValues contract), `tests/heic.test.ts`,
+  `tests/image-hash.test.ts`. Read-only `scripts/capture-check.ts` inspects the
+  written columns. *Pending: 10.1c (GPS/device + `media_metadata_raw` +
+  `media_sources`), 10.1e (async enrichment queue + Railway worker).*
+
 ### New environment variables
 `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`. `NEXT_PUBLIC_SITE_URL`
 canonical is `https://thehoecks.com`.

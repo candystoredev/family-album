@@ -18,25 +18,41 @@ each push auto-deploys to production).
 
 ## Current Task
 **Phase 10 — Rich Media Metadata & Enrichment** (see ROADMAP.md +
-`docs/rich-metadata-plan.md`). 10.0 (schema) is **DONE** — deployed (master @
-a6dcae9) and `/api/init` run on prod 2026-06-25 (`{"ok":true,...}`; the
-column-dependent indexes built, proving the new columns exist on prod). 10.1
-(capture + real-time enrichment at upload) is in progress on branch
-`phase-10.1-capture` — the pure `resolveCaptureDate()` core + tests are done
-(commit ec8e7e5); upload-path wiring is next.
+`docs/rich-metadata-plan.md`).
+- **10.0 (schema) — DONE**, deployed + `/api/init` run on prod 2026-06-25.
+- **10.1 (capture + enrichment at upload) — in progress.** Shipped & verified on
+  prod (all write-only — reads still use `posts.date` until 10.2):
+  - **10.1a** date capture — shared `resolveCaptureDate()` rule (client extracts
+    from original before compress; server re-extracts identically). Writes media
+    `taken_at`/`tz_offset`/`local_date`/`date_source`/`date_confidence` + posts
+    rollup.
+  - **10.1d** HEIC fix — `heic2any` fallback so non-Safari uploads decode to JPEG.
+  - **10.1b** identity/visual — `content_hash`/`phash`/`dominant_color`/`aspect`/
+    `orientation`/`original_filename`.
+  - **Next: 10.1c** (GPS + camera/device + `media_metadata_raw` + `media_sources`),
+    then **10.1e** (async enrichment queue + Railway worker).
 
 ## Blockers
 None.
 
 ## Known Issues
-- Docs (ARCHITECTURE/DECISIONS/ROADMAP) predate the standalone-repo move; paths
-  reference `apps/thehoecks/` — actual paths are `src/...`.
-- HEIC photos can fail client-side canvas compression on non-Safari browsers
-  (to be fixed in Phase 10.1).
-- Undated media (no EXIF / no video container date / no filename date) still
-  falls back to upload time (Phase 10.2 adds an "estimated date" UX).
+- Docs (DECISIONS/ROADMAP) predate the standalone-repo move; paths reference
+  `apps/thehoecks/` — actual paths are `src/...`. (ARCHITECTURE updated.)
+- Undated media still falls back to upload time for the legacy `posts.date`;
+  10.1 now also records the true fallback source (`file_mtime`/`upload_fallback`,
+  low confidence) in the new columns, and 10.2 adds an "estimated date" UX.
 
 ## Recent Changes
+
+### 2026-06-25 session — Phase 10.0 + 10.1a/d/b
+- **10.0** additive rich-metadata schema (media + posts columns,
+  `media_metadata_raw`, `media_sources`, `source` on junctions, indexes;
+  `ensureRichMetadataSchema()` lazy-ensure). Deployed + applied to prod.
+- **10.1a/d/b** capture pipeline (see Current Task + ARCHITECTURE "Rich media
+  capture pipeline"). New: `lib/media/capture-date.ts`, `extract.ts`,
+  `image-hash.ts`; `heic2any` dep; `scripts/capture-check.ts`. Each stage
+  deployed and verified against real uploads on prod. tests: capture-date,
+  exif-pipeline, heic, image-hash. All write-only — feed reads unchanged.
 
 ### 2026-06 session — wrap
 - Planning docs (STATE/DECISIONS/ARCHITECTURE/ROADMAP) brought current + new
