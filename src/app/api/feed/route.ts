@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ORDER_KEY_SQL, EFF_DAY_SQL } from "@/lib/order";
 
 const PAGE_SIZE = 20;
 
@@ -11,6 +12,7 @@ interface PostRow {
   date: string;
   type: string;
   photoset_layout: string | null;
+  order_key: string;
 }
 
 interface MediaRow {
@@ -37,22 +39,23 @@ interface PersonRow {
 }
 
 /**
- * Cursor format: base64(date + "|" + id)
- * Using (date, id) as cursor pair handles same-timestamp posts correctly.
+ * Cursor format: base64(orderKey + "|" + id), where orderKey is the effective
+ * ordering value (taken_at ?? normalized legacy date — see lib/order.ts). The
+ * (orderKey, id) pair handles same-instant posts correctly.
  */
-function decodeCursor(cursor: string): { date: string; id: string } | null {
+function decodeCursor(cursor: string): { orderKey: string; id: string } | null {
   try {
     const decoded = Buffer.from(cursor, "base64url").toString();
     const sep = decoded.indexOf("|");
     if (sep === -1) return null;
-    return { date: decoded.slice(0, sep), id: decoded.slice(sep + 1) };
+    return { orderKey: decoded.slice(0, sep), id: decoded.slice(sep + 1) };
   } catch {
     return null;
   }
 }
 
-function encodeCursor(date: string, id: string): string {
-  return Buffer.from(`${date}|${id}`).toString("base64url");
+function encodeCursor(orderKey: string, id: string): string {
+  return Buffer.from(`${orderKey}|${id}`).toString("base64url");
 }
 
 export async function GET(request: NextRequest) {
@@ -117,7 +120,7 @@ export async function GET(request: NextRequest) {
     const nextMonth = month === 12 ? 1 : month + 1;
     const nextYear = month === 12 ? year + 1 : year;
     const endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
-    dateWhere = "AND p.date >= ? AND p.date < ?";
+    dateWhere = `AND ${EFF_DAY_SQL} >= ? AND ${EFF_DAY_SQL} < ?`;
     dateArgs.push(startDate, endDate);
   }
 
@@ -132,23 +135,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
     }
     const result = await db.execute({
-      sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout
+      sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout,
+                   ${ORDER_KEY_SQL} AS order_key
             FROM posts p
             ${filterJoin}
-            WHERE (p.date ${cursorOp} ? OR (p.date = ? AND p.id ${cursorOp} ?))
+            WHERE (${ORDER_KEY_SQL} ${cursorOp} ? OR (${ORDER_KEY_SQL} = ? AND p.id ${cursorOp} ?))
             ${dateWhere}
-            ORDER BY p.date ${orderDir}, p.id ${orderDir}
+            ORDER BY order_key ${orderDir}, p.id ${orderDir}
             LIMIT ?`,
-      args: [...filterArgs, parsed.date, parsed.date, parsed.id, ...dateArgs, PAGE_SIZE + 1],
+      args: [...filterArgs, parsed.orderKey, parsed.orderKey, parsed.id, ...dateArgs, PAGE_SIZE + 1],
     });
     posts = result.rows as unknown as PostRow[];
   } else {
     const result = await db.execute({
-      sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout
+      sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout,
+                   ${ORDER_KEY_SQL} AS order_key
             FROM posts p
             ${filterJoin}
             WHERE 1=1 ${dateWhere}
-            ORDER BY p.date ${orderDir}, p.id ${orderDir}
+            ORDER BY order_key ${orderDir}, p.id ${orderDir}
             LIMIT ?`,
       args: [...filterArgs, ...dateArgs, PAGE_SIZE + 1],
     });
@@ -160,7 +165,7 @@ export async function GET(request: NextRequest) {
   if (posts.length > PAGE_SIZE) {
     posts = posts.slice(0, PAGE_SIZE);
     const last = posts[posts.length - 1];
-    nextCursor = encodeCursor(last.date, last.id);
+    nextCursor = encodeCursor(last.order_key, last.id);
   }
 
   if (posts.length === 0) {

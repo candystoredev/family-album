@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { ORDER_KEY_SQL, EFF_DAY_SQL } from "./order";
 
 const PAGE_SIZE = 20;
 
@@ -10,6 +11,8 @@ interface PostRow {
   date: string;
   type: string;
   photoset_layout: string | null;
+  /** Effective ordering key (taken_at ?? normalized date); also the cursor. */
+  order_key: string;
 }
 
 interface MediaRow {
@@ -35,8 +38,8 @@ interface PersonRow {
   slug: string;
 }
 
-function encodeCursor(date: string, id: string): string {
-  return Buffer.from(`${date}|${id}`).toString("base64url");
+function encodeCursor(orderKey: string, id: string): string {
+  return Buffer.from(`${orderKey}|${id}`).toString("base64url");
 }
 
 export interface FeedFilter {
@@ -82,16 +85,17 @@ export async function getInitialFeed(filter?: FeedFilter) {
     const nextMonth = filter.month === 12 ? 1 : filter.month + 1;
     const nextYear = filter.month === 12 ? filter.year + 1 : filter.year;
     const endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
-    dateWhere = "WHERE p.date >= ? AND p.date < ?";
+    dateWhere = `WHERE ${EFF_DAY_SQL} >= ? AND ${EFF_DAY_SQL} < ?`;
     dateArgs.push(startDate, endDate);
   }
 
   const result = await db.execute({
-    sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout
+    sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout,
+                 ${ORDER_KEY_SQL} AS order_key
           FROM posts p
           ${filterJoin}
           ${dateWhere}
-          ORDER BY p.date ${orderDir}, p.id ${orderDir} LIMIT ?`,
+          ORDER BY order_key ${orderDir}, p.id ${orderDir} LIMIT ?`,
     args: [...filterArgs, ...dateArgs, PAGE_SIZE + 1],
   });
 
@@ -101,7 +105,7 @@ export async function getInitialFeed(filter?: FeedFilter) {
   if (posts.length > PAGE_SIZE) {
     posts = posts.slice(0, PAGE_SIZE);
     const last = posts[posts.length - 1];
-    nextCursor = encodeCursor(last.date, last.id);
+    nextCursor = encodeCursor(last.order_key, last.id);
   }
 
   if (posts.length === 0) return { posts: [], nextCursor: null };
