@@ -12,6 +12,8 @@ interface PostRow {
   date: string;
   type: string;
   photoset_layout: string | null;
+  local_date: string | null;
+  date_source: string | null;
   order_key: string;
 }
 
@@ -136,7 +138,7 @@ export async function GET(request: NextRequest) {
     }
     const result = await db.execute({
       sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout,
-                   ${ORDER_KEY_SQL} AS order_key
+                   p.local_date, p.date_source, ${ORDER_KEY_SQL} AS order_key
             FROM posts p
             ${filterJoin}
             WHERE (${ORDER_KEY_SQL} ${cursorOp} ? OR (${ORDER_KEY_SQL} = ? AND p.id ${cursorOp} ?))
@@ -149,7 +151,7 @@ export async function GET(request: NextRequest) {
   } else {
     const result = await db.execute({
       sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout,
-                   ${ORDER_KEY_SQL} AS order_key
+                   p.local_date, p.date_source, ${ORDER_KEY_SQL} AS order_key
             FROM posts p
             ${filterJoin}
             WHERE 1=1 ${dateWhere}

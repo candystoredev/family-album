@@ -1,3 +1,45 @@
+const MONTHS_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+const MONTHS_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/**
+ * Format a capture date for display (Phase 10.2c). Prefers the tz-independent
+ * `local_date` (`YYYY-MM-DD`) so the shown day is the capture-local day and a
+ * timezone can never shift it; falls back to the legacy date string. Returns
+ * e.g. "Jun 20, 2026" (or "June 20, 2026" when `long`).
+ */
+export function formatDisplayDate(
+  legacyDate: string,
+  localDate?: string | null,
+  opts?: { long?: boolean }
+): string {
+  const months = opts?.long ? MONTHS_LONG : MONTHS_SHORT;
+  if (localDate && /^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
+    const [y, m, d] = localDate.split("-").map(Number);
+    if (m >= 1 && m <= 12) return `${months[m - 1]} ${d}, ${y}`;
+  }
+  const dt = new Date(legacyDate);
+  if (isNaN(dt.getTime())) return legacyDate;
+  return dt.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: opts?.long ? "long" : "short",
+    day: "numeric",
+  });
+}
+
+/** Date sources that mean "we guessed" — show an estimated-date affordance. */
+const ESTIMATED_SOURCES = new Set(["filename", "file_mtime", "upload_fallback"]);
+
+/** True when the post's date came from a fallback, not real capture metadata. */
+export function isEstimatedDate(dateSource?: string | null): boolean {
+  return !!dateSource && ESTIMATED_SOURCES.has(dateSource);
+}
+
 /** Current date parts in a given IANA timezone. */
 export function zonedNow(timeZone: string): {
   date: string; // YYYY-MM-DD

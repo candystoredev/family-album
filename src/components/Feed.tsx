@@ -5,6 +5,7 @@ import Link from "next/link";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
 import OnThisDay from "./OnThisDay";
+import { formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
 
 interface MediaItem {
   id: string;
@@ -23,6 +24,8 @@ interface Post {
   date: string;
   type: string;
   photoset_layout: string | null;
+  local_date?: string | null;
+  date_source?: string | null;
   media: MediaItem[];
   tags?: { name: string; slug: string }[];
   people?: { name: string; slug: string }[];
@@ -47,15 +50,6 @@ const END_MESSAGES = [
   "No more scrolling \u2014 go make some memories!",
   "You\u2019ve seen it all. For now.",
 ];
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 /** Skeleton placeholder for a loading post */
 function PostSkeleton() {
@@ -391,8 +385,16 @@ function PostCard({
           )}
           <div className="flex items-center justify-center gap-2 flex-wrap">
             <time className="text-[#555] text-xs tracking-wide uppercase">
-              {formatDate(post.date)}
+              {formatDisplayDate(post.date, post.local_date)}
             </time>
+            {isEstimatedDate(post.date_source) && (
+              <span
+                className="text-[#555] text-[10px] tracking-wide uppercase border border-[#333] rounded px-1 py-px"
+                title="Date estimated — no capture metadata was found, so this is a best guess."
+              >
+                est.
+              </span>
+            )}
             {isAdmin && <PostMeta tags={post.tags} people={post.people} />}
           </div>
         </div>

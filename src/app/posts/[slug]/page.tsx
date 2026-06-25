@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { formatDisplayDate } from "@/lib/datetime";
 import PostContent from "@/components/PostContent";
 import type { Metadata } from "next";
 
@@ -13,6 +14,8 @@ interface PostRow {
   date: string;
   type: string;
   photoset_layout: string | null;
+  local_date: string | null;
+  date_source: string | null;
 }
 
 interface MediaRow {
@@ -30,7 +33,7 @@ async function getPost(slug: string) {
   const r2PublicUrl = process.env.R2_PUBLIC_URL!;
 
   const result = await db.execute({
-    sql: `SELECT id, slug, title, body, date, type, photoset_layout
+    sql: `SELECT id, slug, title, body, date, type, photoset_layout, local_date, date_source
           FROM posts WHERE slug = ? LIMIT 1`,
     args: [slug],
   });
@@ -78,11 +81,7 @@ export async function generateMetadata({
   if (!post) return { title: "Not Found" };
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
-  const date = new Date(post.date).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const date = formatDisplayDate(post.date, post.local_date, { long: true });
   const ogImage = post.media.map((m) => m.ogImageUrl).find(Boolean);
 
   return {
@@ -97,15 +96,6 @@ export async function generateMetadata({
       type: "article",
     },
   };
-}
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
 }
 
 export default async function PostPage({
@@ -125,7 +115,7 @@ export default async function PostPage({
           layout={post.photoset_layout}
           title={post.title}
           body={post.body}
-          dateFormatted={formatDate(post.date)}
+          dateFormatted={formatDisplayDate(post.date, post.local_date, { long: true })}
         />
       </article>
     </main>

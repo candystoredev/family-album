@@ -11,6 +11,9 @@ interface PostRow {
   date: string;
   type: string;
   photoset_layout: string | null;
+  /** Capture-local day + how the date was derived, for display (10.2c). */
+  local_date: string | null;
+  date_source: string | null;
   /** Effective ordering key (taken_at ?? normalized date); also the cursor. */
   order_key: string;
 }
@@ -91,7 +94,7 @@ export async function getInitialFeed(filter?: FeedFilter) {
 
   const result = await db.execute({
     sql: `SELECT p.id, p.slug, p.title, p.body, p.date, p.type, p.photoset_layout,
-                 ${ORDER_KEY_SQL} AS order_key
+                 p.local_date, p.date_source, ${ORDER_KEY_SQL} AS order_key
           FROM posts p
           ${filterJoin}
           ${dateWhere}
