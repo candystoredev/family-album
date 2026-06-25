@@ -1,0 +1,42 @@
+/**
+ * Read-only check for Phase 10.1a capture columns. Prints the newest posts with
+ * their rollup + per-media capture fields, so we can confirm an upload populated
+ * taken_at / local_date / date_source correctly without changing any read path.
+ *
+ * Usage (point at prod, read-only):
+ *   TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... npx tsx scripts/capture-check.ts [limit]
+ */
+import { createClient } from "@libsql/client";
+
+async function main() {
+  const limit = Number(process.argv[2] || 3);
+  const db = createClient({
+    url: process.env.TURSO_DATABASE_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
+
+  const posts = await db.execute({
+    sql: `SELECT id, slug, date, taken_at, local_date, date_source, source
+          FROM posts ORDER BY created_at DESC, id DESC LIMIT ?`,
+    args: [limit],
+  });
+
+  for (const p of posts.rows) {
+    console.log("\n━━ post", p.slug);
+    console.log("   legacy date :", p.date);
+    console.log("   rollup      : taken_at=%s local_date=%s date_source=%s source=%s",
+      p.taken_at, p.local_date, p.date_source, p.source);
+    const media = await db.execute({
+      sql: `SELECT display_order, type, taken_at, tz_offset, local_date, date_source, date_confidence
+            FROM media WHERE post_id = ? ORDER BY display_order`,
+      args: [p.id as string],
+    });
+    for (const m of media.rows) {
+      console.log("   media[%s] %s: taken_at=%s tz=%s local_date=%s src=%s conf=%s",
+        m.display_order, m.type, m.taken_at, m.tz_offset, m.local_date, m.date_source, m.date_confidence);
+    }
+  }
+  process.exit(0);
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
