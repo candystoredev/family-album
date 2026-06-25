@@ -7,6 +7,7 @@ import { downloadFromR2, uploadToR2 } from "@/lib/r2";
 import { db } from "@/lib/db";
 import { generatePhotosetLayout } from "@/lib/media/layout";
 import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
+import { extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
 import { ensureRichMetadataSchema } from "@/lib/schema";
 import {
   resolveCaptureDate,
@@ -66,7 +67,10 @@ interface MediaItem {
   posterDataUrl?: string; // base64 data URL for video poster frame
   capture?: CaptureDateInput; // raw capture-date inputs from the original (10.1a)
   contentHash?: string; // SHA-256 of the original bytes, client-computed (10.1b)
+  meta?: MediaExtras; // GPS + device + raw EXIF from the original (10.1c)
 }
+
+const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
 
 /**
  * Server-side capture resolution (Phase 10.1a). Prefers the client's raw inputs
@@ -186,6 +190,7 @@ export async function POST(request: NextRequest) {
             aspect: null as number | null,
             orientation: null as number | null,
             originalFilename: item.capture?.filename ?? null,
+            extras: EMPTY_EXTRAS, // video container GPS/codec parse deferred
           };
         }
 
@@ -225,6 +230,9 @@ export async function POST(request: NextRequest) {
         ]);
         const contentHash =
           item.contentHash ?? createHash("sha256").update(buffer).digest("hex");
+        // GPS/device/raw (10.1c): client sends from the original; for the
+        // originals path we re-extract from the buffer with the same mapper.
+        const extras = item.meta ?? (await extractPhotoExtras(buffer));
 
         await Promise.all([
           uploadToR2(processedKey, originalBuffer, "image/jpeg"),
@@ -248,6 +256,7 @@ export async function POST(request: NextRequest) {
           aspect: width && height ? width / height : null,
           orientation: meta.orientation ?? null,
           originalFilename: item.capture?.filename ?? null,
+          extras,
         };
       })
     );
@@ -379,8 +388,11 @@ export async function POST(request: NextRequest) {
         ...mediaRecords.map((m) => ({
           sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type,
                                    taken_at, tz_offset, local_date, date_source, date_confidence, source,
-                                   content_hash, phash, dominant_color, aspect, orientation, original_filename)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, ?, ?, ?)`,
+                                   content_hash, phash, dominant_color, aspect, orientation, original_filename,
+                                   gps_lat, gps_lng, gps_altitude,
+                                   camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             m.id,
             postId,
@@ -403,7 +415,30 @@ export async function POST(request: NextRequest) {
             m.aspect,
             m.orientation,
             m.originalFilename,
+            m.extras.gps?.lat ?? null,
+            m.extras.gps?.lng ?? null,
+            m.extras.gps?.altitude ?? null,
+            m.extras.device?.make ?? null,
+            m.extras.device?.model ?? null,
+            m.extras.device?.lens ?? null,
+            m.extras.device?.iso ?? null,
+            m.extras.device?.aperture ?? null,
+            m.extras.device?.shutterSpeed ?? null,
+            m.extras.device?.focalLength ?? null,
           ],
+        })),
+        // Full raw EXIF payload — kept verbatim so a future feature never re-scans.
+        ...mediaRecords
+          .filter((m) => m.extras.raw)
+          .map((m) => ({
+            sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'exif', ?)`,
+            args: [nanoid(), m.id, JSON.stringify(m.extras.raw)],
+          })),
+        // Origin reference for re-sync / backfill corroboration (10.3).
+        ...mediaRecords.map((m) => ({
+          sql: `INSERT INTO media_sources (id, media_id, kind, content_hash, phash, match_method, match_confidence, matched_at)
+                VALUES (?, ?, 'upload', ?, ?, 'direct', 1.0, datetime('now'))`,
+          args: [nanoid(), m.id, m.contentHash, m.phash],
         })),
         ...tagIds.map((tagId) => ({
           sql: "INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)",

@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { compressImage } from "@/lib/media/compress";
 import { getMediaDate, getVideoDate } from "@/lib/media/exif";
-import { buildCaptureInput, sha256Hex } from "@/lib/media/extract";
+import { buildCaptureInput, sha256Hex, extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
 import type { CaptureDateInput } from "@/lib/media/capture-date";
 import { defaultLayout } from "@/lib/media/layout";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
@@ -35,6 +35,8 @@ interface MediaFile {
   capture?: CaptureDateInput;
   /** SHA-256 of the original bytes — identity for dedup/backfill (10.1b). */
   contentHash?: string;
+  /** GPS + device + raw EXIF from the original (10.1c). */
+  extras?: MediaExtras;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -265,6 +267,8 @@ export default function UploadPage() {
         // SHA-256 of the original for dedup/backfill identity (10.1b). Photos
         // only — videos can be huge and hashing them client-side is unsafe.
         const contentHash = isVideo ? undefined : ((await sha256Hex(f)) ?? undefined);
+        // GPS + device + raw EXIF from the original (10.1c). Photos only.
+        const extras = isVideo ? undefined : await extractPhotoExtras(f);
         const processed = isVideo ? f : await compressImage(f);
         return {
           id: nextFileId(),
@@ -274,6 +278,7 @@ export default function UploadPage() {
           exifDate,
           capture,
           contentHash,
+          extras,
         };
       })
     );
@@ -411,6 +416,7 @@ export default function UploadPage() {
           posterDataUrl: mf.posterDataUrl,
           capture: mf.capture,
           contentHash: mf.contentHash,
+          meta: mf.extras,
         };
       });
 

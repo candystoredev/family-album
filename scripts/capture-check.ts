@@ -27,8 +27,9 @@ async function main() {
     console.log("   rollup      : taken_at=%s local_date=%s date_source=%s source=%s",
       p.taken_at, p.local_date, p.date_source, p.source);
     const media = await db.execute({
-      sql: `SELECT display_order, type, mime_type, r2_key, taken_at, tz_offset, local_date, date_source, date_confidence,
-                   content_hash, phash, dominant_color, aspect, orientation, original_filename
+      sql: `SELECT id, display_order, type, mime_type, r2_key, taken_at, tz_offset, local_date, date_source, date_confidence,
+                   content_hash, phash, dominant_color, aspect, orientation, original_filename,
+                   gps_lat, gps_lng, gps_altitude, camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length
             FROM media WHERE post_id = ? ORDER BY display_order`,
       args: [p.id as string],
     });
@@ -39,6 +40,14 @@ async function main() {
       const ch = m.content_hash ? String(m.content_hash).slice(0, 12) + "…" : null;
       console.log("        identity: content_hash=%s phash=%s color=%s aspect=%s orient=%s file=%s",
         ch, m.phash, m.dominant_color, m.aspect, m.orientation, m.original_filename);
+      console.log("        device  : make=%s model=%s lens=%s iso=%s f=%s shutter=%s focal=%s",
+        m.camera_make, m.camera_model, m.lens, m.iso, m.aperture, m.shutter_speed, m.focal_length);
+      console.log("        gps     : lat=%s lng=%s alt=%s  (NEVER exposed on /m/ pages)",
+        m.gps_lat, m.gps_lng, m.gps_altitude);
+      const raw = await db.execute({ sql: `SELECT COUNT(*) n, MAX(LENGTH(payload)) sz FROM media_metadata_raw WHERE media_id = ?`, args: [m.id as string] });
+      const src = await db.execute({ sql: `SELECT kind, match_method, content_hash FROM media_sources WHERE media_id = ?`, args: [m.id as string] });
+      console.log("        raw     : %s row(s), payload bytes=%s", raw.rows[0].n, raw.rows[0].sz);
+      console.log("        sources : %s", src.rows.map((s) => `${s.kind}/${s.match_method}`).join(", ") || "(none)");
     }
   }
   process.exit(0);
