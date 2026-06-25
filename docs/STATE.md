@@ -18,19 +18,20 @@ each push auto-deploys to production).
 
 ## Current Task
 **Phase 10 — Rich Media Metadata & Enrichment** (see ROADMAP.md +
-`docs/rich-metadata-plan.md`).
+`docs/rich-metadata-plan.md`). 10.0, 10.1 (a–d), and 10.2 (a–c) all shipped &
+verified on prod.
 - **10.0 (schema) — DONE**, deployed + `/api/init` run on prod 2026-06-25.
-- **10.1 (capture + enrichment at upload) — in progress.** Shipped & verified on
-  prod (all write-only — reads still use `posts.date` until 10.2):
-  - **10.1a** date capture — shared `resolveCaptureDate()` rule (client extracts
-    from original before compress; server re-extracts identically). Writes media
-    `taken_at`/`tz_offset`/`local_date`/`date_source`/`date_confidence` + posts
-    rollup.
-  - **10.1d** HEIC fix — `heic2any` fallback so non-Safari uploads decode to JPEG.
-  - **10.1b** identity/visual — `content_hash`/`phash`/`dominant_color`/`aspect`/
-    `orientation`/`original_filename`.
-  - **Next: 10.1c** (GPS + camera/device + `media_metadata_raw` + `media_sources`),
-    then **10.1e** (async enrichment queue + Railway worker).
+- **10.1 (capture at upload) — DONE** (write-only): 10.1a dates, 10.1d HEIC fix,
+  10.1b identity/visual, 10.1c GPS/device/raw + `media_sources`. Every upload
+  banks the full rich-metadata set. **10.1e (async enrichment queue + Railway
+  worker) is the one remaining sub-stage — deferred** (its ML backends are stubs
+  until 10.5, so the queue would have no real work yet).
+- **10.2 (flip reads) — DONE**: 10.2a feed ordering + cursor by effective
+  `taken_at`, 10.2b archive/on-this-day grouping by effective `local_date`,
+  10.2c display the corrected date + "est." badge. Read-time `COALESCE` (see
+  `lib/order.ts`) — no prod data mutated; existing posts keep their exact order.
+- **Next options:** 10.1e (enrichment infra, gated on 10.5), 10.3 (historical
+  backfill — separate track, runs on a Claude-less machine), or pause.
 
 ## Blockers
 None.
@@ -38,21 +39,28 @@ None.
 ## Known Issues
 - Docs (DECISIONS/ROADMAP) predate the standalone-repo move; paths reference
   `apps/thehoecks/` — actual paths are `src/...`. (ARCHITECTURE updated.)
-- Undated media still falls back to upload time for the legacy `posts.date`;
-  10.1 now also records the true fallback source (`file_mtime`/`upload_fallback`,
-  low confidence) in the new columns, and 10.2 adds an "estimated date" UX.
+- New columns are populated only for posts uploaded since 10.1 (a handful);
+  historical/migrated content is `NULL` until the 10.3 backfill. Reads handle
+  this via `COALESCE` fallback, so the feed is correct either way.
 
 ## Recent Changes
 
-### 2026-06-25 session — Phase 10.0 + 10.1a/d/b
+### 2026-06-25 session — Phase 10.0 + 10.1(a–d) + 10.2(a–c)
 - **10.0** additive rich-metadata schema (media + posts columns,
   `media_metadata_raw`, `media_sources`, `source` on junctions, indexes;
   `ensureRichMetadataSchema()` lazy-ensure). Deployed + applied to prod.
-- **10.1a/d/b** capture pipeline (see Current Task + ARCHITECTURE "Rich media
-  capture pipeline"). New: `lib/media/capture-date.ts`, `extract.ts`,
-  `image-hash.ts`; `heic2any` dep; `scripts/capture-check.ts`. Each stage
-  deployed and verified against real uploads on prod. tests: capture-date,
-  exif-pipeline, heic, image-hash. All write-only — feed reads unchanged.
+- **10.1a/d/b/c** capture pipeline (see ARCHITECTURE "Rich media capture
+  pipeline"). New: `lib/media/capture-date.ts`, `extract.ts`, `image-hash.ts`;
+  `heic2any` dep; `scripts/capture-check.ts`. Each stage deployed and verified
+  against real uploads on prod (dates incl. HEIC EXIF, identity hashes, GPS +
+  device + raw payload + `media_sources`). All write-only.
+- **10.2a/b/c** flipped reads to the effective capture date via read-time
+  `COALESCE` (`lib/order.ts`): feed ordering/cursor, archive + on-this-day
+  grouping, and corrected-date display + estimated badge. No prod data mutated;
+  existing order proven byte-identical (`tests/feed-order.test.ts`). Verified
+  live: feed scroll/pagination, archive, on-this-day all good.
+- tests added: capture-date, exif-pipeline, heic, image-hash, extract,
+  feed-order, display-date.
 
 ### 2026-06 session — wrap
 - Planning docs (STATE/DECISIONS/ARCHITECTURE/ROADMAP) brought current + new

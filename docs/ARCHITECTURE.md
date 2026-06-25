@@ -355,11 +355,31 @@ legacy `posts.date` — reads flip to the new columns in 10.2.
 - **HEIC** — `compressImage` tries native canvas decode first (Safari), then falls
   back to a lazy `heic2any` (libheif WASM) decode on Chrome/Firefox; always emits
   JPEG. exifr reads HEIC EXIF directly, so capture is unaffected by the conversion.
-- **Pure-core tests**: `tests/capture-date.test.ts` (incl. host-tz independence),
-  `tests/exif-pipeline.test.ts` (exifr reviveValues contract), `tests/heic.test.ts`,
-  `tests/image-hash.test.ts`. Read-only `scripts/capture-check.ts` inspects the
-  written columns. *Pending: 10.1c (GPS/device + `media_metadata_raw` +
-  `media_sources`), 10.1e (async enrichment queue + Railway worker).*
+- **GPS + device + raw (10.1c)** — `extractPhotoExtras()` (photos) reads GPS,
+  camera/lens/exposure, and the full raw EXIF (JSON-sanitized). Server writes the
+  `gps_*` / `camera_*` columns, a `media_metadata_raw` row (verbatim payload), and
+  a `media_sources(kind='upload')` row. **GPS is never selected by any public
+  read path** (verified: feed/onThisDay enumerate columns, no `gps_*`).
+- **Tests**: `capture-date` (host-tz independence), `exif-pipeline` (exifr
+  reviveValues contract), `heic`, `image-hash`, `extract`. Read-only
+  `scripts/capture-check.ts` inspects the written columns. *Deferred: 10.1e
+  (async enrichment queue + Railway worker; ML backends stubbed until 10.5).*
+
+### Reads use the effective capture date (Phase 10.2)
+Feed ordering, cursor pagination, archive/on-this-day grouping, and date display
+now key off the **effective** capture date, computed at read time so the legacy
+`posts.date` is never mutated (`lib/order.ts`):
+- `ORDER_KEY = COALESCE(taken_at, normalized legacy date)` — captured posts sort
+  by their true instant; everything else keeps its exact prior order. The two
+  legacy formats and `taken_at` collapse to one comparable ISO string.
+- `EFF_DAY = COALESCE(local_date, legacy day)` — month ranges + grouping.
+- Display: `formatDisplayDate()` shows `local_date` tz-safely (no `new Date` on a
+  bare day); an "est." badge marks fallback `date_source`
+  (filename/file_mtime/upload_fallback). `tests/feed-order.test.ts` proves
+  existing order is byte-identical and pagination has no dupes/skips;
+  `tests/display-date.test.ts` proves tz-safety.
+Populated only for posts since 10.1; historical content falls back via COALESCE
+until the 10.3 backfill.
 
 ### New environment variables
 `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`. `NEXT_PUBLIC_SITE_URL`
