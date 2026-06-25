@@ -1,4 +1,5 @@
 import exifr from "exifr";
+import { parseAppleCreationDate } from "./capture-date";
 
 export type DateSource = "exif" | "filename" | "file";
 
@@ -124,11 +125,15 @@ function parseAppleDate(raw: string): Date | null {
  * metadata under the key "com.apple.quicktime.creationdate", stored via the
  * moov/meta `keys` (key names) + `ilst` (values) atoms. This is more accurate
  * than mvhd (which has no timezone) and needs no GPS→timezone lookup.
+ *
+ * Returns the RAW string (e.g. "2026-06-22T18:03:00+0100") so callers can keep
+ * either just the instant (getVideoCreationDate) or the instant + offset
+ * (getVideoCapture). Null if the key/value isn't present.
  */
-async function readQuickTimeCreationDate(
+async function readQuickTimeCreationRaw(
   blob: Blob,
   moov: { start: number; end: number }
-): Promise<Date | null> {
+): Promise<string | null> {
   const meta = (await listAtoms(blob, moov.start, moov.end)).find((a) => a.type === "meta");
   if (!meta) return null;
 
@@ -170,37 +175,67 @@ async function readQuickTimeCreationDate(
     const dv = await readView(blob, data.contentStart, Math.min(data.end - data.contentStart, 256));
     let value = "";
     for (let j = 8; j < dv.byteLength; j++) value += String.fromCharCode(dv.getUint8(j));
-    return parseAppleDate(value);
+    return value;
   }
   return null;
 }
 
 /**
- * Read the capture date from an MP4/MOV container. Prefers Apple's
- * "com.apple.quicktime.creationdate" (local time + UTC offset), falling back to
- * the mvhd movie-header creation_time. Reads only atom headers/small values via
- * Blob slices, so it never loads the whole video. Null if nothing is found.
+ * Locate the moov atom and read both the Apple creationdate (raw) and the mvhd
+ * creation_time in one pass. Reads only atom headers/small values via Blob
+ * slices, so it never loads the whole video.
  */
-export async function getVideoCreationDate(file: Blob): Promise<Date | null> {
-  const size = file.size;
-
-  // Find the moov atom among the top-level atoms.
-  const moov = (await listAtoms(file, 0, size)).find((a) => a.type === "moov");
-  if (!moov) return null;
+async function readVideoContainerTimes(
+  file: Blob
+): Promise<{ appleRaw: string | null; mvhd: Date | null }> {
+  const moov = (await listAtoms(file, 0, file.size)).find((a) => a.type === "moov");
+  if (!moov) return { appleRaw: null, mvhd: null };
   const moovRange = { start: moov.contentStart, end: moov.end };
 
-  // Prefer the timezone-aware Apple creationdate.
-  const apple = await readQuickTimeCreationDate(file, moovRange);
-  if (apple) return apple;
+  const appleRaw = await readQuickTimeCreationRaw(file, moovRange);
 
-  // Fall back to mvhd (no timezone).
-  const mvhd = (await listAtoms(file, moovRange.start, moovRange.end)).find((a) => a.type === "mvhd");
-  if (mvhd) {
-    const body = await readView(file, mvhd.contentStart, 12);
+  let mvhd: Date | null = null;
+  const mvhdAtom = (await listAtoms(file, moovRange.start, moovRange.end)).find(
+    (a) => a.type === "mvhd"
+  );
+  if (mvhdAtom) {
+    const body = await readView(file, mvhdAtom.contentStart, 12);
     const version = body.getUint8(0);
     const creationTime = version === 1 ? Number(body.getBigUint64(4)) : body.getUint32(4);
-    return mp4TimeToDate(creationTime);
+    mvhd = mp4TimeToDate(creationTime);
   }
+  return { appleRaw, mvhd };
+}
+
+/**
+ * Read the capture date from an MP4/MOV container as a bare instant. Prefers
+ * Apple's "com.apple.quicktime.creationdate" (local time + UTC offset), falling
+ * back to mvhd. Null if nothing is found. (Offset is discarded — use
+ * getVideoCapture to keep it.)
+ */
+export async function getVideoCreationDate(file: Blob): Promise<Date | null> {
+  const { appleRaw, mvhd } = await readVideoContainerTimes(file);
+  if (appleRaw) {
+    const parsed = parseAppleDate(appleRaw);
+    if (parsed) return parsed;
+  }
+  return mvhd;
+}
+
+/**
+ * Read the capture instant AND its UTC offset from an MP4/MOV container, for the
+ * unified capture-date model. Apple's creationdate carries the offset; mvhd is
+ * UTC-only (tzOffsetMin = null). Null if the container has neither.
+ */
+export async function getVideoCapture(
+  file: Blob
+): Promise<{ instant: string; tzOffsetMin: number | null } | null> {
+  const { appleRaw, mvhd } = await readVideoContainerTimes(file);
+  if (appleRaw) {
+    const parsed = parseAppleCreationDate(appleRaw);
+    if (parsed) return parsed;
+  }
+  if (mvhd) return { instant: mvhd.toISOString(), tzOffsetMin: null };
   return null;
 }
 

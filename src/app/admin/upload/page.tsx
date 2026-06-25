@@ -14,6 +14,8 @@ import {
 } from "@dnd-kit/core";
 import { compressImage } from "@/lib/media/compress";
 import { getMediaDate, getVideoDate } from "@/lib/media/exif";
+import { buildCaptureInput } from "@/lib/media/extract";
+import type { CaptureDateInput } from "@/lib/media/capture-date";
 import { defaultLayout } from "@/lib/media/layout";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
@@ -29,6 +31,8 @@ interface MediaFile {
   posterDataUrl?: string;
   /** Capture date from the original file's EXIF (compression strips EXIF). */
   exifDate?: Date;
+  /** Raw capture-date inputs from the original, resolved server-side (10.1a). */
+  capture?: CaptureDateInput;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -254,6 +258,8 @@ export default function UploadPage() {
           const mediaDate = await getMediaDate(f);
           exifDate = mediaDate.source === "exif" ? mediaDate.date : undefined;
         }
+        // Rich capture inputs from the original (resolved server-side, 10.1a).
+        const capture = await buildCaptureInput(f, isVideo);
         const processed = isVideo ? f : await compressImage(f);
         return {
           id: nextFileId(),
@@ -261,6 +267,7 @@ export default function UploadPage() {
           preview: URL.createObjectURL(processed),
           type: isVideo ? ("video" as const) : ("photo" as const),
           exifDate,
+          capture,
         };
       })
     );
@@ -391,7 +398,13 @@ export default function UploadPage() {
           body: mf.file,
         });
         if (!uploadRes.ok) throw new Error(`Failed to upload file ${i + 1}`);
-        return { r2Key, keyPrefix, type: mf.type, posterDataUrl: mf.posterDataUrl };
+        return {
+          r2Key,
+          keyPrefix,
+          type: mf.type,
+          posterDataUrl: mf.posterDataUrl,
+          capture: mf.capture,
+        };
       });
 
       const uploadedItems = await Promise.all(uploadPromises);

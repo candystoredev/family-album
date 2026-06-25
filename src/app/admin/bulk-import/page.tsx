@@ -15,6 +15,8 @@ import { getMediaDate, type DateSource } from "@/lib/media/exif";
 import { groupByGap, nearestGroupWithin, GAP_THRESHOLDS } from "@/lib/media/grouping";
 import { defaultLayoutCounts } from "@/lib/media/layout";
 import { compressImage } from "@/lib/media/compress";
+import { buildCaptureInput } from "@/lib/media/extract";
+import type { CaptureDateInput } from "@/lib/media/capture-date";
 import MetadataFields, {
   useMetadataOptions,
   type MetadataOptions,
@@ -35,6 +37,8 @@ interface BulkItem {
   /** Upload-ready file, compressed in the background after ingest so clicking
    *  Publish skips straight to the network. Falls back to on-demand. */
   compressed?: File;
+  /** Raw capture-date inputs from the original, resolved server-side (10.1a). */
+  capture?: CaptureDateInput;
 }
 
 interface BulkGroup {
@@ -420,11 +424,13 @@ export default function BulkImportPage() {
     const newItems: BulkItem[] = new Array(files.length);
     await runPool(files, EXIF_CONCURRENCY, async (file, i) => {
       const { date, source } = await getMediaDate(file);
+      const capture = await buildCaptureInput(file, false); // bulk import is photos-only
       newItems[i] = {
         id: nextId("i"),
         file,
         date,
         dateSource: source,
+        capture,
         thumb: null,
         thumbFailed: false,
         aspect: DEFAULT_ASPECT,
@@ -818,7 +824,7 @@ export default function BulkImportPage() {
             body: compressed,
           });
           if (!uploadRes.ok) throw new Error("Failed to upload photo");
-          return { r2Key, keyPrefix, type: "photo" as const };
+          return { r2Key, keyPrefix, type: "photo" as const, capture: item.capture };
         })
       );
 

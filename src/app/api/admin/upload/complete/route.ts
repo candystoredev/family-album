@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
+import exifr from "exifr";
 import { downloadFromR2, uploadToR2 } from "@/lib/r2";
 import { db } from "@/lib/db";
 import { generatePhotosetLayout } from "@/lib/media/layout";
+import { ensureRichMetadataSchema } from "@/lib/schema";
+import {
+  resolveCaptureDate,
+  type CaptureDate,
+  type CaptureDateInput,
+} from "@/lib/media/capture-date";
 
 const THUMB_WIDTH = 400;
 
@@ -55,6 +62,36 @@ interface MediaItem {
   keyPrefix: string;
   type: "photo" | "video";
   posterDataUrl?: string; // base64 data URL for video poster frame
+  capture?: CaptureDateInput; // raw capture-date inputs from the original (10.1a)
+}
+
+/**
+ * Server-side capture resolution (Phase 10.1a). Prefers the client's raw inputs
+ * (extracted from the original before compression); for the originals path that
+ * sends none (e.g. iOS Shortcut), re-extracts photo EXIF with the SAME rule
+ * (reviveValues:false → naive string) so client and server can't disagree.
+ */
+async function resolveServerCapture(
+  item: MediaItem,
+  buffer: Buffer | null,
+  nowMs: number
+): Promise<CaptureDate> {
+  let input: CaptureDateInput = item.capture ?? {};
+  if (!item.capture && buffer && item.type === "photo") {
+    try {
+      const tags = await exifr.parse(buffer, {
+        pick: ["DateTimeOriginal", "CreateDate", "OffsetTimeOriginal", "OffsetTimeDigitized"],
+        reviveValues: false,
+      });
+      input = {
+        exifDateTimeOriginal: tags?.DateTimeOriginal ?? tags?.CreateDate ?? null,
+        exifOffsetTimeOriginal: tags?.OffsetTimeOriginal ?? tags?.OffsetTimeDigitized ?? null,
+      };
+    } catch {
+      // No readable EXIF — fall through to upload_fallback.
+    }
+  }
+  return resolveCaptureDate(input, nowMs);
 }
 
 /**
@@ -93,6 +130,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Phase 10.1a — make sure the rich-metadata columns exist before we write
+    // them (works on an already-deployed DB without re-running /api/init).
+    await ensureRichMetadataSchema();
+
+    // One clock for the whole post so any upload_fallback dates agree.
+    const nowMs = Date.now();
+
     // Process all media items in parallel
     let firstExifDate: Date | null = null;
 
@@ -112,6 +156,9 @@ export async function POST(request: NextRequest) {
             thumbKey = `${item.keyPrefix}/thumb.jpg`;
             await uploadToR2(thumbKey, thumbBuffer, "image/jpeg");
           }
+          // Video bytes aren't downloaded server-side; rely on the client's
+          // container-parsed capture (or filename/mtime/upload fallback).
+          const capture = await resolveServerCapture(item, null, nowMs);
           return {
             id: mediaId,
             r2Key: item.r2Key,
@@ -122,12 +169,14 @@ export async function POST(request: NextRequest) {
             fileSize: 0,
             displayOrder: i,
             exifDate: null as Date | null,
+            capture,
           };
         }
 
         // Photo: download, extract EXIF, process, thumbnail — all at once
         const buffer = await downloadFromR2(item.r2Key);
         const exifDate = await extractExifDate(buffer);
+        const capture = await resolveServerCapture(item, buffer, nowMs);
 
         // Client uploads are already ≤1920px JPEGs with orientation baked in
         // (canvas re-encode) — re-encoding those again just burns time and
@@ -166,6 +215,7 @@ export async function POST(request: NextRequest) {
           fileSize: originalBuffer.length,
           displayOrder: i,
           exifDate,
+          capture,
         };
       })
     );
@@ -179,6 +229,22 @@ export async function POST(request: NextRequest) {
     }
 
     const mediaRecords = mediaResults.map(({ exifDate, ...rest }) => rest);
+
+    // Posts rollup (10.1a): representative = the media with the earliest known
+    // capture instant (display order breaks ties). A manual date override wins,
+    // so posts.taken_at/local_date stay consistent with the legacy posts.date.
+    // Written alongside posts.date — reads still use posts.date until 10.2.
+    const earliestCapture = mediaRecords
+      .filter((m) => m.capture.takenAt)
+      .sort((a, b) => {
+        const t = (a.capture.takenAt ?? "").localeCompare(b.capture.takenAt ?? "");
+        return t !== 0 ? t : a.displayOrder - b.displayOrder;
+      })[0]?.capture;
+    const manualRollup =
+      dateOverride && !isNaN(new Date(dateOverride).getTime())
+        ? resolveCaptureDate({ manual: dateOverride }, nowMs)
+        : null;
+    const repCapture = manualRollup ?? earliestCapture;
 
     // Determine post date
     let postDate: Date;
@@ -263,13 +329,25 @@ export async function POST(request: NextRequest) {
     await db.batch(
       [
         {
-          sql: `INSERT INTO posts (id, slug, title, body, date, type, photoset_layout, created_at, updated_at)
-                VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
-          args: [postId, slug, postTitle, dateStr, postType, photosetLayout],
+          sql: `INSERT INTO posts (id, slug, title, body, date, type, photoset_layout, created_at, updated_at,
+                                    taken_at, local_date, date_source, source)
+                VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, ?, 'upload')`,
+          args: [
+            postId,
+            slug,
+            postTitle,
+            dateStr,
+            postType,
+            photosetLayout,
+            repCapture?.takenAt ?? null,
+            repCapture?.localDate ?? null,
+            repCapture?.source ?? null,
+          ],
         },
         ...mediaRecords.map((m) => ({
-          sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type,
+                                   taken_at, tz_offset, local_date, date_source, date_confidence, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload')`,
           args: [
             m.id,
             postId,
@@ -281,6 +359,11 @@ export async function POST(request: NextRequest) {
             m.fileSize || null,
             m.displayOrder,
             m.type === "video" ? "video/mp4" : "image/jpeg",
+            m.capture.takenAt,
+            m.capture.tzOffsetMin,
+            m.capture.localDate,
+            m.capture.source,
+            m.capture.confidence,
           ],
         })),
         ...tagIds.map((tagId) => ({
