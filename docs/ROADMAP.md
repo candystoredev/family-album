@@ -284,17 +284,26 @@ apple_photos/dropbox/icloud/google/filesystem/upload + ids + match confidence).
 Auto vs human `source` on tags/people so regeneration never clobbers curation.
 `posts` rollup: `taken_at`, `local_date`, `date_source`, `source`.
 
+**Progress (as of 2026-06-26): 10.0, 10.1a–d, and 10.2a–c are DONE — shipped &
+verified on prod.** The correctness core of Phase 10 is complete. Remaining:
+10.1e (deferred), then the optional/separate tracks 10.3 / 10.4 / 10.5.
+
 **Sub-phases:**
-- **10.0 Schema** — add columns + `media_metadata_raw` + `media_sources`. No behavior change.
+- **10.0 Schema** — add columns + `media_metadata_raw` + `media_sources`. No behavior change. ✅ **DONE**
 - **10.1 Capture + real-time enrichment (live uploads)** — synchronous extraction
-  from the original before compression (EXIF incl. `OffsetTimeOriginal` + GPS +
-  device; video container incl. GPS/duration/fps/codec; hashes; dominant color);
-  server fallback uses the *same* rule as the client. Async enrichment queue +
-  Railway worker/cron (faces/scene/caption/embedding/score), pluggable +
-  versioned + idempotent. Fix HEIC compression reliability on non-Safari here
-  (absorbs the Media backlog item).
-- **10.2 Flip reads + estimated-date UX** — order by `taken_at, created_at, id`;
-  group by `local_date`; "estimated date" badge + quick fix for low-confidence.
+  from the original before compression; server fallback uses the *same* rule as
+  the client. Shipped in write-only stages:
+  - **10.1a** date capture (shared `resolveCaptureDate`; EXIF incl. `OffsetTimeOriginal`, video offset) ✅ **DONE**
+  - **10.1d** HEIC compression fix on non-Safari (`heic2any`) ✅ **DONE**
+  - **10.1b** identity/visual (`content_hash` + `phash` + `dominant_color` + `aspect`/`orientation` + `original_filename`) ✅ **DONE**
+  - **10.1c** GPS + camera/device + raw EXIF → `media_metadata_raw` + `media_sources` ✅ **DONE** *(video container deep-parse — GPS/fps/codec/duration — deferred)*
+  - **10.1e** async enrichment queue + Railway worker/cron (faces/scene/caption/embedding/score), pluggable + versioned + idempotent — ⏸ **DEFERRED** (ML backends are stubs until 10.5, so nothing to process yet; build it alongside 10.5)
+- **10.2 Flip reads + estimated-date UX** — ✅ **DONE** via read-time `COALESCE`
+  (`lib/order.ts`, no prod data mutated): **10.2a** feed ordering + cursor by
+  effective `taken_at`; **10.2b** archive + on-this-day grouping by effective
+  `local_date`; **10.2c** corrected-date display + "est." badge. *(Tiebreaker is
+  `(order_key, id)`; the plan's `created_at` middle key was skipped to keep the
+  2-tuple cursor — revisit only if exact-instant ties become an issue.)*
 - **10.3 Historical backfill (separate track; runs on a machine without Claude)**
   — Tool A Indexer (read-only, idempotent, portable index file) + Tool B
   Matcher/Applier (phash match to stored thumbnails, confirm UI, authed admin

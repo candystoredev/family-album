@@ -12,6 +12,54 @@ On-This-Day share links are all live.
 > older "Relevant Files" / "Recent Changes" entries below is historical — read it
 > as `src/...`.
 
+## ⏸ PAUSED — read this first when you come back (2026-06-26)
+
+Taking a few weeks off mid–**Phase 10 (Rich Media Metadata & Enrichment)**. Full
+design: [`docs/rich-metadata-plan.md`](rich-metadata-plan.md). Status table in
+[`docs/ROADMAP.md`](ROADMAP.md). Everything below is committed, deployed, and
+verified on prod — **you are stopped at a clean, safe checkpoint.**
+
+**What Phase 10 is & why we're doing it.** Every photo/video used to collapse to
+one timezone-less string `posts.date`, read three inconsistent ways (ordering
+lexicographically, grouping as UTC, display as local). Result: the *same* photo
+could land on a different day depending on which code path ran or the uploader's
+timezone; photos and videos diverged; undated media fell back to upload time. The
+goal: give every item **durable, precise, provenanced capture data** — a true UTC
+instant (`taken_at`) for ordering and a timezone-independent capture day
+(`local_date`) for grouping — plus identity hashes, GPS/device, and the full raw
+metadata, so sorting/grouping are correct *and* future features (map, dedup,
+semantic search, faces, "rediscover un-uploaded memories") stay open. Guiding
+bias: **capture more than we model, never overwrite, record provenance, keep it
+re-runnable.**
+
+**What's DONE (shipped + verified on prod):**
+- **10.0** additive schema · **10.1a–d** capture at upload (dates, HEIC fix,
+  identity/visual hashes, GPS/device/raw) · **10.2a–c** flipped reads to the
+  effective capture date (feed order/cursor, grouping, display + "est." badge).
+- The correctness core is complete and the feed is live and confirmed working.
+  No production data was mutated — reads use a read-time `COALESCE` fallback, so
+  historical posts (which have no new columns yet) keep their exact prior order.
+
+**WHERE TO RESUME — pick one (none is urgent):**
+1. **10.3 Historical backfill** — *the big payoff.* Phash-match the album's
+   re-encoded thumbnails to your local original files (Apple Photos via
+   `osxphotos`, Dropbox, folders) on a Claude-less machine, then apply real
+   capture dates / GPS / faces to the thousands of historical posts that are
+   currently `NULL`. Separate two-tool design (Indexer + Matcher/Applier) already
+   spec'd in the plan doc. This is what makes 10.1/10.2 pay off for old content.
+2. **10.1e Async enrichment queue + Railway worker** — deferred on purpose: its
+   ML backends (faces/scene/caption/embedding) are stubs until **10.5**, so build
+   the two together or not yet.
+3. **Pause / polish** — small tracked gaps below.
+
+**Mental model for resuming:** the upload path writes the new columns
+(`src/lib/media/capture-date.ts`, `extract.ts`, `image-hash.ts` →
+`src/app/api/admin/upload/complete/route.ts`); reads consume them via
+`src/lib/order.ts` (`ORDER_KEY_SQL`/`EFF_DAY_SQL`). Inspect what got written on
+prod with `scripts/capture-check.ts` (needs prod `TURSO_*` env). All additive /
+write-only; the legacy `posts.date` is still the immutable source of truth until
+a future audited "promote" step.
+
 ## Active Branch
 `master` (work is done on short-lived branches, fast-forward merged, then pushed —
 each push auto-deploys to production).

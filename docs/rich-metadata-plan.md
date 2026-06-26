@@ -8,6 +8,15 @@ backfill).
 Guiding bias: **leave as many future options open as possible** — capture more
 than we model, never overwrite, record provenance, make everything re-runnable.
 
+> **STATUS (2026-06-26): PAUSED at a clean checkpoint.** Phases 0–2 here (= ROADMAP
+> 10.0, 10.1a–d, 10.2a–c) are **DONE, shipped & verified on prod** — the live
+> upload path banks the full metadata set and reads use the effective capture
+> date. Remaining: the async enrichment worker (ROADMAP 10.1e, deferred until the
+> 10.5 backends exist) and the separate opt-in tracks below — **Phase 3
+> (historical backfill)** is the next big payoff. Implementation lives in
+> `src/lib/media/{capture-date,extract,image-hash}.ts`, the upload `complete`
+> route, and `src/lib/order.ts`; see `docs/STATE.md` for the resume pointer.
+
 ---
 
 ## Why (problems in today's pipeline)
