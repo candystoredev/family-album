@@ -139,6 +139,8 @@ export default function UploadPage() {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [resultSlug, setResultSlug] = useState("");
+  // Status banner while pulling in items shared from the iOS share sheet.
+  const [ingestStatus, setIngestStatus] = useState<string | null>(null);
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -246,8 +248,9 @@ export default function UploadPage() {
 
   // ─── File handling ──────────────────────────────────────────────────────────
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const newFiles = Array.from(e.target.files || []);
+  /** Process raw originals into MediaFile rows and append them to the queue.
+   *  Shared by the file picker and the share-to-upload ?ingest= flow. */
+  const ingestFiles = useCallback(async (newFiles: File[]) => {
     if (!newFiles.length) return;
     const mediaFiles: MediaFile[] = await Promise.all(
       newFiles.map(async (f) => {
@@ -289,8 +292,71 @@ export default function UploadPage() {
     );
     setError("");
     setState("idle");
+  }, []);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const newFiles = Array.from(e.target.files || []);
+    if (!newFiles.length) return;
+    await ingestFiles(newFiles);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
+
+  // Share-to-upload: the iOS Shortcut presigns + PUTs originals to R2, then opens
+  // /admin/upload?ingest=<comma-separated r2 keys>. Each key ends in
+  // original.<ext>, so we recover the content type from the extension. Pull each
+  // back through the same-origin proxy and drop it into the queue — a shared
+  // photo/video lands here ready to publish, no app-open-first needed.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("ingest");
+    if (!raw) return;
+    // Strip the param so a refresh / re-render doesn't re-ingest.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("ingest");
+    window.history.replaceState({}, "", url.toString());
+
+    const EXT_TYPE: Record<string, string> = {
+      jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+      heic: "image/heic", heif: "image/heif",
+      mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm",
+    };
+    const keys = raw
+      .split(",")
+      .map((k) => k.trim())
+      .filter((k) => k.startsWith("media/"));
+    if (keys.length === 0) {
+      setIngestStatus("Couldn't read the shared items.");
+      return;
+    }
+
+    (async () => {
+      setIngestStatus(`Loading ${keys.length} shared item${keys.length > 1 ? "s" : ""}…`);
+      const files: File[] = [];
+      for (const key of keys) {
+        const ext = key.split(".").pop()?.toLowerCase() || "";
+        const type = EXT_TYPE[ext] || "";
+        try {
+          const res = await fetch(
+            `/api/admin/upload/ingest-fetch?key=${encodeURIComponent(key)}&type=${encodeURIComponent(type)}`
+          );
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          files.push(
+            new File([blob], `shared-${files.length + 1}.${ext || "jpg"}`, {
+              type: type || blob.type || "application/octet-stream",
+            })
+          );
+        } catch {
+          // Skip individual failures; ingest whatever loaded.
+        }
+      }
+      if (files.length === 0) {
+        setIngestStatus("Couldn't load the shared items — try again from the app.");
+        return;
+      }
+      await ingestFiles(files);
+      setIngestStatus(null);
+    })();
+  }, [ingestFiles]);
 
   function removeFile(id: string) {
     setRows((prev) =>
@@ -489,6 +555,13 @@ export default function UploadPage() {
         onChange={handleFileChange}
         disabled={disabled}
       />
+
+      {/* Share-to-upload status (pulling in items shared from the share sheet) */}
+      {ingestStatus && (
+        <div className="max-w-lg mx-auto w-full mb-3 rounded-lg border border-[#3a342c] bg-[#211e1a] px-4 py-2.5 text-center text-[13px] text-[#c2a467]">
+          {ingestStatus}
+        </div>
+      )}
 
       {/* ── Empty state ── */}
       {isEmpty && (

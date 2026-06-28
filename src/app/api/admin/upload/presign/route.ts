@@ -9,7 +9,7 @@ import { getPresignedUploadUrl } from "@/lib/r2";
  */
 export async function POST(request: NextRequest) {
   try {
-    const { contentType } = await request.json();
+    const { contentType, staging } = await request.json();
 
     const allowedTypes = [
       "image/jpeg",
@@ -36,7 +36,11 @@ export async function POST(request: NextRequest) {
     const h = String(now.getUTCHours()).padStart(2, "0");
     const min = String(now.getUTCMinutes()).padStart(2, "0");
     const suffix = nanoid(4);
-    const keyPrefix = `media/${y}${m}${d}-${h}${min}UTC-${suffix}`;
+    // The share-to-upload Shortcut sets staging:true — those originals are only
+    // transient (the page re-uploads a processed copy on publish), so route them
+    // under media/staging/ where an R2 lifecycle rule can auto-expire them.
+    const base = staging ? "media/staging" : "media";
+    const keyPrefix = `${base}/${y}${m}${d}-${h}${min}UTC-${suffix}`;
 
     // Extension from content type
     const extMap: Record<string, string> = {
