@@ -79,17 +79,27 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
   // Admin authoring tools own the full screen — the slide-out would overlap them
   const isHiddenPage = isLoginPage || isUploadPage || isBulkImportPage || isSharePage;
 
-  // Track desktop vs mobile
+  // Track desktop vs mobile. The persistent left sidebar relies on hover to
+  // reveal itself when it doesn't fit beside the feed (< 1460px), so it's only
+  // usable on hover-capable pointers. Touch devices (iPads, incl. landscape at
+  // ≥1024px) must fall back to the tappable FAB + slide-out, or the menu would
+  // be tucked off-screen with no way to open it.
   useEffect(() => {
     if (isHiddenPage) return;
 
+    const hoverMql = window.matchMedia("(hover: hover)");
     function check() {
-      setIsDesktop(window.innerWidth >= LG_BREAKPOINT);
+      const canHover = hoverMql.matches;
+      setIsDesktop(window.innerWidth >= LG_BREAKPOINT && canHover);
       setSidebarFits(window.innerWidth >= SIDEBAR_FITS_BREAKPOINT);
     }
     check();
     window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+    hoverMql.addEventListener("change", check);
+    return () => {
+      window.removeEventListener("resize", check);
+      hoverMql.removeEventListener("change", check);
+    };
   }, [isLoginPage]);
 
   // Pre-fetch archive data on mount (eliminates spinner on first open)
@@ -558,7 +568,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         <Link
           href="/admin/upload"
           onClick={handleClose}
-          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
+          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center [@media(hover:hover)]:lg:hidden"
           style={{
             transform: open ? `${uploadXform} scale(1)` : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
@@ -583,7 +593,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
       {data && data.albums.length > 0 && (
         <button
           onClick={() => setAlbumsExpanded((v) => !v)}
-          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
+          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center [@media(hover:hover)]:lg:hidden"
           style={{
             transform: open ? `${albumsXform} scale(1)` : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
@@ -615,7 +625,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         <Link
           href="/settings"
           onClick={handleClose}
-          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center lg:hidden"
+          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center [@media(hover:hover)]:lg:hidden"
           style={{
             transform: open ? `${settingsXform} scale(1)` : "translate(0,0) scale(0)",
             opacity: open ? 1 : 0,
@@ -636,7 +646,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
       {/* Primary Floating Action Button — gold */}
       <button
         onClick={open ? handleClose : handleOpen}
-        className={`fixed bottom-6 right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#c2a467] flex items-center justify-center transition-all duration-300 active:scale-95 lg:hidden ${
+        className={`fixed bottom-6 right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#c2a467] flex items-center justify-center transition-all duration-300 active:scale-95 [@media(hover:hover)]:lg:hidden ${
           open
             ? "opacity-100 translate-y-0"
             : fabVisible
@@ -666,7 +676,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 z-40 bg-black/60 transition-opacity duration-300 lg:hidden ${
+        className={`fixed inset-0 z-40 bg-black/60 transition-opacity duration-300 [@media(hover:hover)]:lg:hidden ${
           open ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         onClick={handleClose}
@@ -674,7 +684,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
 
       {/* Slide-out Panel */}
       <nav
-        className={`fixed top-0 left-0 z-40 h-full w-[85vw] max-w-[380px] bg-[#1a1918] shadow-2xl shadow-black/50 transform transition-transform duration-300 ease-out overflow-y-auto overscroll-contain lg:hidden ${
+        className={`fixed top-0 left-0 z-40 h-full w-[85vw] max-w-[380px] bg-[#1a1918] shadow-2xl shadow-black/50 transform transition-transform duration-300 ease-out overflow-y-auto overscroll-contain [@media(hover:hover)]:lg:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
