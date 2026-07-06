@@ -843,13 +843,21 @@ export default function UploadPage() {
               </div>
             )}
 
-            {/* Reset */}
-            {state === "idle" && (
+            {/* Discard — non-floating, sits at the bottom below all fields */}
+            {rows.length > 0 && !disabled && (
               <button
                 onClick={reset}
-                className="w-full text-sm text-[#666] hover:text-[#888] transition-colors py-2"
+                className="w-full flex items-center justify-center gap-2 text-sm text-[#8a8078] hover:text-[#d86d6d] transition-colors py-2.5"
+                aria-label="Discard post"
               >
-                Clear all
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-[17px] h-[17px]">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14H6L5 6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                </svg>
+                Discard post
               </button>
             )}
           </div>
@@ -864,22 +872,6 @@ export default function UploadPage() {
       </div>
       )}
 
-      {/* Trash FAB — discard in-progress post */}
-      {rows.length > 0 && !disabled && (
-        <button
-          onClick={reset}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-14 h-14 rounded-full bg-[#d4d4d4] shadow-lg shadow-black/40 flex items-center justify-center active:scale-95 transition-transform duration-100"
-          aria-label="Discard post"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6">
-            <path d="M3 6h18" />
-            <path d="M8 6V4h8v2" />
-            <path d="M19 6l-1 14H6L5 6" />
-            <path d="M10 11v6" />
-            <path d="M14 11v6" />
-          </svg>
-        </button>
-      )}
     </div>
   );
 }
