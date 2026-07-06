@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { db } from "@/lib/db";
+import { getSession } from "@/lib/auth";
 import { formatDisplayDate } from "@/lib/datetime";
 import PostContent from "@/components/PostContent";
 import type { Metadata } from "next";
@@ -57,13 +59,13 @@ async function getPost(slug: string) {
       thumbnailUrl: m.thumbnail_r2_key
         ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
         : `${r2PublicUrl}/${m.r2_key}`,
-      // og:image must be a still — a video file URL renders no preview at all,
-      // so videos contribute their poster frame or nothing.
-      ogImageUrl:
-        m.type === "video"
-          ? m.thumbnail_r2_key
-            ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
-            : null
+      // og:image must be a still — a video file URL renders no preview at all.
+      // Prefer the thumbnail so link-preview crawlers cache the small image, not
+      // the full-resolution original.
+      ogImageUrl: m.thumbnail_r2_key
+        ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
+        : m.type === "video"
+          ? null
           : `${r2PublicUrl}/${m.r2_key}`,
       width: m.width,
       height: m.height,
@@ -106,6 +108,35 @@ export default async function PostPage({
   const { slug } = await params;
   const post = await getPost(slug);
   if (!post) notFound();
+
+  // The page stays reachable (so link-preview crawlers can read the OG tags in
+  // generateMetadata), but the actual photos/caption are only shown to a
+  // logged-in family member — otherwise post URLs would expose the whole
+  // "private" album to anyone who guesses a slug.
+  const session = await getSession();
+  if (!session) {
+    return (
+      <main className="min-h-screen bg-[#1d1c1c] flex items-center justify-center px-4">
+        <div className="max-w-sm text-center">
+          <div className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#8a774d] mb-3">
+            The Hoecks
+          </div>
+          <h1 className="font-serif text-[26px] font-semibold text-[#efeae1] leading-snug mb-3">
+            {post.title || "A private memory"}
+          </h1>
+          <p className="text-[#a39e93] text-sm mb-6">
+            This is a private family album. Log in to view this post.
+          </p>
+          <Link
+            href="/login"
+            className="inline-block rounded-lg bg-[#c2a467] px-5 py-2.5 text-sm font-semibold text-[#1a1715] hover:bg-[#d2b577] transition-colors"
+          >
+            Log in
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#1d1c1c]">
