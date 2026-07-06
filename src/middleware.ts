@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import { bearerMatches } from "@/lib/safeCompare";
 
-const getSecret = () => new TextEncoder().encode(process.env.JWT_SECRET!);
+const getSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("JWT_SECRET is missing or too short");
+  }
+  return new TextEncoder().encode(secret);
+};
 const COOKIE_NAME = "hoecks_session";
 
 // Public paths that don't require auth
@@ -37,10 +44,11 @@ export async function middleware(request: NextRequest) {
   // Allow public paths
   if (isPublicPath(pathname)) return NextResponse.next();
 
-  // Check for API bearer token auth
+  // Check for API bearer token auth (constant-time; never matches when the
+  // token env var is unset)
   if (pathname.startsWith("/api/")) {
     const auth = request.headers.get("authorization");
-    if (auth?.startsWith("Bearer ") && auth.slice(7) === process.env.ADMIN_API_TOKEN) {
+    if (await bearerMatches(auth, process.env.ADMIN_API_TOKEN)) {
       return NextResponse.next();
     }
   }
@@ -56,7 +64,7 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret(), { algorithms: ["HS256"] });
 
     // Admin routes need admin role
     if (isAdminPath(pathname) && payload.role !== "admin") {

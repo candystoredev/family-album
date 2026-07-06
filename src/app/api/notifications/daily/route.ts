@@ -4,21 +4,20 @@ import { getMemoriesForDate } from "@/lib/onThisDay";
 import { buildDailyPayload, sendPushToAll } from "@/lib/push";
 import { getSettings, setSetting } from "@/lib/settings";
 import { zonedNow } from "@/lib/datetime";
+import { bearerMatches } from "@/lib/safeCompare";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
-  // Cron / API callers authenticate with a bearer token.
+  // Cron / API callers authenticate with a bearer token (constant-time,
+  // fails closed if the secret is unset).
   const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) {
-    const token = auth.slice(7);
-    if (
-      (!!process.env.CRON_SECRET && token === process.env.CRON_SECRET) ||
-      (!!process.env.ADMIN_API_TOKEN && token === process.env.ADMIN_API_TOKEN)
-    ) {
-      return true;
-    }
+  if (
+    (await bearerMatches(auth, process.env.CRON_SECRET)) ||
+    (await bearerMatches(auth, process.env.ADMIN_API_TOKEN))
+  ) {
+    return true;
   }
   // The admin "Send now" button authenticates with the logged-in session.
   const session = await getSession();

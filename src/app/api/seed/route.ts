@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { bearerMatches } from "@/lib/safeCompare";
 import { uploadToR2, deleteFromR2, PUBLIC_URL } from "@/lib/r2";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
+
+// This is a test-fixture endpoint: it mass-creates posts and, on DELETE, mass-
+// deletes posts by matching known seed titles (which could collide with real
+// posts). It must never be reachable in production.
+function blockedInProduction(): NextResponse | null {
+  if (process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not available in production" }, { status: 403 });
+  }
+  return null;
+}
 
 const SEED_TITLES = [
   "New Year's Day Hike",
@@ -72,9 +83,12 @@ async function generateTestImage(
 }
 
 export async function POST(request: Request) {
+  const blocked = blockedInProduction();
+  if (blocked) return blocked;
+
   // Accept bearer token OR admin session cookie
   const auth = request.headers.get("authorization");
-  const hasBearerToken = auth === `Bearer ${process.env.ADMIN_API_TOKEN}`;
+  const hasBearerToken = await bearerMatches(auth, process.env.ADMIN_API_TOKEN);
   const session = await getSession();
   const isAdmin = session?.role === "admin";
 
@@ -420,8 +434,11 @@ export async function POST(request: Request) {
  *  (default)   → remove duplicate posts only (keeps newest per title)
  */
 export async function DELETE(request: Request) {
+  const blocked = blockedInProduction();
+  if (blocked) return blocked;
+
   const auth = request.headers.get("authorization");
-  const hasBearerToken = auth === `Bearer ${process.env.ADMIN_API_TOKEN}`;
+  const hasBearerToken = await bearerMatches(auth, process.env.ADMIN_API_TOKEN);
   const session = await getSession();
   const isAdmin = session?.role === "admin";
 

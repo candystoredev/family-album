@@ -1,10 +1,19 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { timingSafeEqual } from "crypto";
 import { db } from "./db";
 import bcrypt from "bcryptjs";
+import { safeEqual } from "./safeCompare";
 
-const getSecret = () => new TextEncoder().encode(process.env.JWT_SECRET!);
+const getSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  // Fail closed: never fall back to signing/verifying with the string
+  // "undefined" (which is what encode(undefined) would produce), and reject
+  // weak secrets that could be brute-forced offline from an issued cookie.
+  if (!secret || secret.length < 32) {
+    throw new Error("JWT_SECRET is missing or too short (need at least 32 characters)");
+  }
+  return new TextEncoder().encode(secret);
+};
 
 const COOKIE_NAME = "hoecks_session";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 90; // 90 days
@@ -39,7 +48,7 @@ export async function getSession(): Promise<SessionPayload | null> {
   if (!token) return null;
 
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret(), { algorithms: ["HS256"] });
     return payload as unknown as SessionPayload;
   } catch {
     return null;
@@ -62,16 +71,14 @@ export async function verifyViewerPassword(password: string): Promise<boolean> {
 }
 
 export async function verifyAdminPassword(password: string): Promise<boolean> {
-  const expected = process.env.ADMIN_PASSWORD;
-  if (!expected) return false;
-  if (password.length !== expected.length) return false;
-  const a = Buffer.from(password);
-  const b = Buffer.from(expected);
-  return timingSafeEqual(a, b);
+  // safeEqual hashes both sides to a fixed width, so this is constant-time and
+  // leaks neither the password nor its length; returns false if ADMIN_PASSWORD
+  // is unset.
+  return safeEqual(password, process.env.ADMIN_PASSWORD);
 }
 
-export function verifyApiToken(request: Request): boolean {
+export async function verifyApiToken(request: Request): Promise<boolean> {
   const auth = request.headers.get("authorization");
   if (!auth?.startsWith("Bearer ")) return false;
-  return auth.slice(7) === process.env.ADMIN_API_TOKEN;
+  return safeEqual(auth.slice(7), process.env.ADMIN_API_TOKEN);
 }

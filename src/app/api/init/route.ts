@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { initializeSchema, rebuildFtsIndex } from "@/lib/schema";
 import { db } from "@/lib/db";
+import { bearerMatches } from "@/lib/safeCompare";
 import bcrypt from "bcryptjs";
 
 export async function POST(request: Request) {
-  // Only allow with admin API token
+  // Only allow with admin API token (constant-time; fails closed if unset)
   const auth = request.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.ADMIN_API_TOKEN}`) {
+  if (!(await bearerMatches(auth, process.env.ADMIN_API_TOKEN))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -38,9 +39,11 @@ export async function POST(request: Request) {
       args: ["viewer_password_hash"],
     });
 
-    if (existing.rows.length === 0) {
-      const defaultPassword = process.env.VIEWER_PASSWORD || "hoecks2025";
-      const hash = await bcrypt.hash(defaultPassword, 12);
+    // Seed the viewer password only from the env var — never a hardcoded
+    // default (a source-visible default would gate the whole album). If unset,
+    // leave it unconfigured; the admin can set one from Settings.
+    if (existing.rows.length === 0 && process.env.VIEWER_PASSWORD) {
+      const hash = await bcrypt.hash(process.env.VIEWER_PASSWORD, 12);
       await db.execute({
         sql: `INSERT INTO site_settings (key, value) VALUES (?, ?)`,
         args: ["viewer_password_hash", hash],
