@@ -14,9 +14,11 @@ function clampInt(n: number, lo: number, hi: number): number {
 
 /**
  * Rotate (bake in EXIF orientation), optionally crop to `crop` (fractions of
- * the upright image), and produce a re-encoded original + thumbnail. EXIF is
- * carried through via withMetadata so capture date / GPS / camera survive the
- * crop; orientation is forced to 1 since the pixels are already upright.
+ * the upright image), and produce a re-encoded original + thumbnail. All EXIF
+ * is stripped (sharp's default without withMetadata) — capture date, GPS,
+ * device, and raw tags already live in the DB from ingest, so keeping them in
+ * the served file only leaks GPS. .rotate() bakes orientation into the pixels,
+ * so no withMetadata orientation fix-up is needed.
  */
 async function processPhoto(
   buffer: Buffer,
@@ -44,14 +46,8 @@ async function processPhoto(
     return p;
   };
 
-  // Only re-embed EXIF when cropping (the case the user opted into preserving);
-  // the plain re-encode path keeps its existing metadata-stripping behavior.
-  const origPipeline = crop
-    ? pipeline().withMetadata({ orientation: 1 })
-    : pipeline();
-
   const [orig, thumb] = await Promise.all([
-    origPipeline.jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
+    pipeline().jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
     pipeline().resize(THUMB_WIDTH, null, { withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
   ]);
 
@@ -302,7 +298,7 @@ export async function PUT(
 
     // Re-crop existing photos the user adjusted. Writes to fresh R2 keys (so
     // caches don't serve the old framing), updates the media row, then removes
-    // the old objects. The DB metadata is untouched; file EXIF is preserved.
+    // the old objects. The DB metadata is untouched; file EXIF is stripped.
     await Promise.all(
       mediaList
         .filter((item) => item.kind === "existing" && item.crop && item.mediaId && keptMediaIds.has(item.mediaId))
