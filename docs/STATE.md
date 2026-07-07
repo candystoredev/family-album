@@ -93,6 +93,68 @@ None.
 
 ## Recent Changes
 
+### 2026-07-06 session — notifications hardening + Security Phase 1 (parallel track, not Phase 10)
+A batch of fixes on top of the daily-notifications feature, then a full security
+audit + first hardening pass. All merged to `master` and live except the crop PR.
+- **Notifications fixes:** manual "Send today's memory now" 401 fixed (daily
+  endpoint now also accepts an admin session, not just the cron bearer);
+  emojis removed from notification titles; **scheduling made reliable** — the
+  daily endpoint now sends on the first run *at/after* the configured hour
+  (`now.hour >= sendHour` + once-per-day guard) instead of an exact-hour match,
+  so a skipped GitHub-cron run self-heals; workflow bumped to every 30 min.
+  iOS **notification deep-link fixed** — SW `postMessage`s the open PWA and an
+  in-page listener (`ServiceWorkerRegister`) routes to `/today` via the router,
+  since iOS ignores `WindowClient.navigate()`.
+- **iPad menu fix** — `ArchiveMenu` now treats hover-incapable (touch) devices
+  as mobile (`matchMedia('(hover: hover)')`), so iPads ≥1024px get the tappable
+  FAB instead of the hover-only tucked sidebar. Mobile FAB `lg:hidden` →
+  `[@media(hover:hover)]:lg:hidden`.
+- **Share links** now derive their domain from the request host
+  (`lib/baseUrl.ts` / `window.location.origin`), not `NEXT_PUBLIC_SITE_URL`.
+- **Upload discard** button de-floated (was `fixed` and covered the form under
+  the iOS keyboard) — now inline at the bottom.
+- **Security Phase 1 (PR #29, merged + verified on prod):**
+  - `/posts/[slug]` **gated behind a session** — the page stays reachable so
+    link-preview crawlers read the OG tags, but photos/caption render only when
+    logged in (previously the whole album was readable by slug-guessing). og:image
+    now uses the thumbnail, not the full-res original.
+  - **Login rate limiting** — Turso-backed `login_attempts` table, 10/10min per
+    IP → 429 (`lib/rateLimit.ts`). No new infra.
+  - Removed the hardcoded `"hoecks2025"` default viewer password (fail closed).
+  - **Secrets fail closed** — `lib/safeCompare.ts` `safeEqual` (Web Crypto,
+    constant-time, length-independent) for admin password + all bearer/cron
+    tokens; `getSecret()` throws if `JWT_SECRET` missing/<32 chars; JWT alg pinned
+    to HS256. Fixes the `Bearer undefined` fail-open + admin-password length oracle.
+  - **Security headers** added in `next.config.ts`: CSP (allows `*.r2.dev` +
+    `*.r2.cloudflarestorage.com`), HSTS, `X-Frame-Options: DENY`, nosniff,
+    Referrer-Policy, Permissions-Policy.
+  - `/api/seed` now returns 403 in production (its `DELETE ?clean=all` deletes by
+    matching seed titles → could hit real posts).
+- **Verified on prod:** all headers live/correct; logged-out `/` → 307 `/login`.
+  *Not* automatable here: in-browser CSP-violation check on authenticated pages
+  (needs login + the sandbox proxy blocks headless Chromium) — recommend a manual
+  console glance on home/post/**upload** (the R2 PUT under CSP).
+
+**DEFERRED / OPEN from this session:**
+- **PR #28 — Add photo cropping to the edit page: OPEN, not merged.** Server-side
+  `sharp` crop-on-Save with `withMetadata` (preserves EXIF). ⚠️ **Conflicts with
+  Security Phase 2 finding #4 (strip GPS from public images)** — reconcile
+  (strip GPS specifically while keeping other EXIF + DB metadata) before merging.
+- **Security Phase 2 (privacy & integrity):** strip GPS/EXIF from publicly-served
+  originals *and videos* (upload `complete` "already-processed" fast path serves
+  raw bytes with EXIF intact — `complete/route.ts`, `lib/media/compress.ts`);
+  lengthen R2 key entropy (`nanoid(4)`→21 in `presign`); validate client-supplied
+  `r2Key`/`keyPrefix` in `upload/complete` + posts `PUT` (arbitrary bucket
+  read/write); sanitize post `body` (DOMPurify) at the 4 `dangerouslySetInnerHTML`
+  sites.
+- **Security Phase 3 (hygiene):** session revocation (`tokenVersion` epoch,
+  shorter expiry) — 90-day JWTs currently unrevocable; share-link revocation +
+  expiry (`post_share_links` no revoke, `day_share_links` never expire);
+  push-subscribe SSRF allow-list (`endpoint` is an unvalidated URL the cron POSTs
+  to); `npm audit fix` (Next/`ws`/`postcss`); remove/implement dead `invite_links`
+  table; upload size cap; CSP nonce (drop `'unsafe-inline'` scripts); constrain
+  `sw.js` nav to same-origin; stop echoing `String(error)` to clients.
+
 ### 2026-06-25 session — Phase 10.0 + 10.1(a–d) + 10.2(a–c)
 - **10.0** additive rich-metadata schema (media + posts columns,
   `media_metadata_raw`, `media_sources`, `source` on junctions, indexes;
@@ -247,14 +309,17 @@ None.
 Assumptions:
 - Phases 1-4 are considered complete per ROADMAP.md phase definitions
 - Production migration completed 2026-03-07, site live with all content
-- dev.thehoecks.com is the production site (old Tumblr site still on www.thehoecks.com)
+- **thehoecks.com** is the production site (was dev.thehoecks.com earlier)
 - Tom is the primary admin user
 
 Constraints:
 - All changes must work within Vercel free tier limits
 - Media uploads must go through presigned R2 URLs (not through Vercel)
 - All passwords must be bcrypt hashed, never plaintext
-- Post pages must remain publicly accessible (for OG previews)
+- Post pages serve **OG metadata publicly** but **gate content behind a session**
+  (changed in Security Phase 1 — no longer fully public)
+- `JWT_SECRET` must be ≥32 chars or auth throws (fail-closed); login is
+  rate-limited; no hardcoded default passwords; `/api/seed` is prod-blocked
 - Do not break existing auth flow
 
 Do Not:
