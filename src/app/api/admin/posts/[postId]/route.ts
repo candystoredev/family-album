@@ -6,6 +6,54 @@ import { db } from "@/lib/db";
 
 const THUMB_WIDTH = 400;
 
+interface CropBox { x: number; y: number; w: number; h: number }
+
+function clampInt(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, Math.round(n)));
+}
+
+/**
+ * Rotate (bake in EXIF orientation), optionally crop to `crop` (fractions of
+ * the upright image), and produce a re-encoded original + thumbnail. All EXIF
+ * is stripped (sharp's default without withMetadata) — capture date, GPS,
+ * device, and raw tags already live in the DB from ingest, so keeping them in
+ * the served file only leaks GPS. .rotate() bakes orientation into the pixels,
+ * so no withMetadata orientation fix-up is needed.
+ */
+async function processPhoto(
+  buffer: Buffer,
+  crop?: CropBox
+): Promise<{ originalBuffer: Buffer; thumbBuffer: Buffer; width: number; height: number }> {
+  let region: { left: number; top: number; width: number; height: number } | null = null;
+  if (crop) {
+    const meta = await sharp(buffer).metadata();
+    const orient = meta.orientation ?? 1;
+    const swap = orient >= 5; // orientations 5-8 rotate 90°, swapping W/H
+    const W = (swap ? meta.height : meta.width) ?? 0;
+    const H = (swap ? meta.width : meta.height) ?? 0;
+    if (W > 0 && H > 0) {
+      const left = clampInt(crop.x * W, 0, W - 1);
+      const top = clampInt(crop.y * H, 0, H - 1);
+      const width = clampInt(crop.w * W, 1, W - left);
+      const height = clampInt(crop.h * H, 1, H - top);
+      region = { left, top, width, height };
+    }
+  }
+
+  const pipeline = () => {
+    let p = sharp(buffer).rotate();
+    if (region) p = p.extract(region);
+    return p;
+  };
+
+  const [orig, thumb] = await Promise.all([
+    pipeline().jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
+    pipeline().resize(THUMB_WIDTH, null, { withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
+  ]);
+
+  return { originalBuffer: orig.data, thumbBuffer: thumb, width: orig.info.width, height: orig.info.height };
+}
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -158,6 +206,8 @@ interface MediaListItem {
   keyPrefix?: string;
   type?: "photo" | "video";
   posterDataUrl?: string;
+  /** Crop box in fractions of the upright image; present when the user cropped. */
+  crop?: CropBox;
 }
 
 export async function PUT(
@@ -235,12 +285,7 @@ export async function PUT(
         }
 
         const buffer = await downloadFromR2(item.r2Key!);
-        const [processed, thumbBuffer] = await Promise.all([
-          sharp(buffer).rotate().jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
-          sharp(buffer).rotate().resize(THUMB_WIDTH, null, { withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
-        ]);
-        const { width, height } = processed.info;
-        const originalBuffer = processed.data;
+        const { originalBuffer, thumbBuffer, width, height } = await processPhoto(buffer, item.crop);
         const processedKey = `${item.keyPrefix}/original.jpg`;
         const thumbKey = `${item.keyPrefix}/thumb.jpg`;
         await Promise.all([
@@ -249,6 +294,43 @@ export async function PUT(
         ]);
         processedNewMap.set(item.keyPrefix!, { id: mediaId, r2Key: processedKey, thumbKey, type: "photo", width, height, fileSize: originalBuffer.length });
       })
+    );
+
+    // Re-crop existing photos the user adjusted. Writes to fresh R2 keys (so
+    // caches don't serve the old framing), updates the media row, then removes
+    // the old objects. The DB metadata is untouched; file EXIF is stripped.
+    await Promise.all(
+      mediaList
+        .filter((item) => item.kind === "existing" && item.crop && item.mediaId && keptMediaIds.has(item.mediaId))
+        .map(async (item) => {
+          const current = currentMediaMap.get(item.mediaId!);
+          if (!current || !current.r2_key) return;
+          const oldR2Key = current.r2_key as string;
+          const oldThumbKey = current.thumbnail_r2_key as string | null;
+          try {
+            const buffer = await downloadFromR2(oldR2Key);
+            const { originalBuffer, thumbBuffer, width, height } = await processPhoto(buffer, item.crop);
+            const prefix = oldR2Key.replace(/\/[^/]+$/, "");
+            const stamp = nanoid(6);
+            const newR2Key = `${prefix}/original-${stamp}.jpg`;
+            const newThumbKey = `${prefix}/thumb-${stamp}.jpg`;
+            await Promise.all([
+              uploadToR2(newR2Key, originalBuffer, "image/jpeg"),
+              uploadToR2(newThumbKey, thumbBuffer, "image/jpeg"),
+            ]);
+            await db.execute({
+              sql: "UPDATE media SET r2_key = ?, thumbnail_r2_key = ?, width = ?, height = ?, file_size = ? WHERE id = ? AND post_id = ?",
+              args: [newR2Key, newThumbKey, width, height, originalBuffer.length, item.mediaId!, postId],
+            });
+            // Clean up the pre-crop objects (best-effort).
+            await Promise.all([
+              deleteFromR2(oldR2Key).catch(() => {}),
+              oldThumbKey ? deleteFromR2(oldThumbKey).catch(() => {}) : Promise.resolve(),
+            ]);
+          } catch (err) {
+            console.error("Crop existing media failed:", item.mediaId, err);
+          }
+        })
     );
 
     // Assign display_order based on mediaList order; insert new media

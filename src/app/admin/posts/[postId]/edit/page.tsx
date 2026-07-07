@@ -15,9 +15,11 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface CropBox { x: number; y: number; w: number; h: number }
+
 type EditItem =
-  | { kind: "existing"; id: string; mediaId: string; thumbUrl: string; type: "photo" | "video" }
-  | { kind: "new"; id: string; file: File; preview: string; type: "photo" | "video"; posterDataUrl?: string };
+  | { kind: "existing"; id: string; mediaId: string; thumbUrl: string; type: "photo" | "video"; crop?: CropBox }
+  | { kind: "new"; id: string; file: File; preview: string; type: "photo" | "video"; posterDataUrl?: string; crop?: CropBox };
 
 interface TagOption { id: string; name: string; slug: string }
 interface PersonOption { id: string; name: string; slug: string }
@@ -179,6 +181,7 @@ export default function EditPostPage() {
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [cropTargetId, setCropTargetId] = useState<string | null>(null);
   const [insertAt, setInsertAt] = useState<{ rowIdx: number; colIdx: number; isNewRow?: boolean } | null>(null);
   const pendingInsertRef = useRef<{ rowIdx: number; colIdx: number; isNewRow?: boolean } | null>(null);
   const insertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -317,6 +320,20 @@ export default function EditPostPage() {
     );
   }
 
+  function setItemCrop(id: string, crop: CropBox | undefined) {
+    setRows((prev) =>
+      prev.map((row) => row.map((x) => (x.id === id ? { ...x, crop } : x)))
+    );
+  }
+
+  const cropTarget = cropTargetId ? flatItems.find((i) => i.id === cropTargetId) : null;
+  const cropSrc =
+    cropTarget?.kind === "existing"
+      ? cropTarget.thumbUrl
+      : cropTarget?.kind === "new"
+      ? cropTarget.preview
+      : null;
+
   // ─── Video poster capture ─────────────────────────────────────────────────
 
   const captureVideoPoster = useCallback((itemId: string, videoEl: HTMLVideoElement) => {
@@ -441,7 +458,7 @@ export default function EditPostPage() {
       const photosetLayout = rows.map((r) => r.length).join("");
       const mediaList = flatItems.map((item) => {
         if (item.kind === "existing") {
-          return { kind: "existing" as const, mediaId: item.mediaId };
+          return { kind: "existing" as const, mediaId: item.mediaId, crop: item.crop };
         }
         const uploaded = uploadedNewMap.get(item.id)!;
         return {
@@ -450,6 +467,7 @@ export default function EditPostPage() {
           keyPrefix: uploaded.keyPrefix,
           type: item.type,
           posterDataUrl: item.posterDataUrl,
+          crop: item.crop,
         };
       });
 
@@ -582,6 +600,7 @@ export default function EditPostPage() {
                           item={item}
                           disabled={isBusy}
                           onRemove={removeItem}
+                          onCrop={setCropTargetId}
                           onPosterCapture={captureVideoPoster}
                         />
                       ))}
@@ -831,6 +850,17 @@ export default function EditPostPage() {
             Cancel
           </button>
         </div>
+
+        {cropTargetId && cropSrc && (
+          <CropModalCoords
+            src={cropSrc}
+            initial={cropTarget?.crop}
+            hasCrop={!!cropTarget?.crop}
+            onApply={(box) => { setItemCrop(cropTargetId, box); setCropTargetId(null); }}
+            onReset={() => { setItemCrop(cropTargetId, undefined); setCropTargetId(null); }}
+            onCancel={() => setCropTargetId(null)}
+          />
+        )}
       </div>
     </div>
   );
@@ -842,12 +872,14 @@ function DraggableItem({
   item,
   disabled,
   onRemove,
+  onCrop,
   onPosterCapture,
   asIndicator,
 }: {
   item: EditItem;
   disabled: boolean;
   onRemove: (id: string) => void;
+  onCrop?: (id: string) => void;
   onPosterCapture: (itemId: string, video: HTMLVideoElement) => void;
   asIndicator?: "horizontal";
 }) {
@@ -915,6 +947,32 @@ function DraggableItem({
       {item.type === "video" && (
         <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[9px] text-white">VIDEO</div>
       )}
+
+      {/* Crop button — photos only; stops pointer propagation so it doesn't start a drag */}
+      {!disabled && onCrop && item.type === "photo" && (
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onCrop(item.id)}
+          className="absolute bottom-1 right-1 w-7 h-7 flex items-center justify-center bg-black/55 rounded active:bg-[#427ea3]/80"
+          aria-label="Crop image"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+            <path d="M6 2v14a2 2 0 002 2h14" />
+            <path d="M18 22V8a2 2 0 00-2-2H2" />
+          </svg>
+        </button>
+      )}
+
+      {/* Staged-crop badge — the actual crop is applied server-side on Save */}
+      {item.crop && (
+        <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-[#c2a467] text-[#1a1715] rounded text-[9px] font-bold flex items-center gap-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5">
+            <path d="M6 2v14a2 2 0 002 2h14" />
+            <path d="M18 22V8a2 2 0 00-2-2H2" />
+          </svg>
+          CROPPED
+        </div>
+      )}
     </div>
   );
 }
@@ -953,5 +1011,155 @@ function VideoPreview({
       onSeeked={handleSeeked}
       className="w-full h-full object-cover"
     />
+  );
+}
+
+// ─── Crop Modal (coordinate-based) ──────────────────────────────────────────────
+// Captures a crop box as fractions of the image and hands it back; the actual
+// pixel crop happens server-side on Save (works for already-uploaded photos and
+// avoids reading cross-origin pixels in the browser). Draw logic mirrors the
+// upload page's cropper.
+
+function CropModalCoords({
+  src,
+  initial,
+  hasCrop,
+  onApply,
+  onReset,
+  onCancel,
+}: {
+  src: string;
+  initial?: CropBox;
+  hasCrop: boolean;
+  onApply: (box: CropBox) => void;
+  onReset: () => void;
+  onCancel: () => void;
+}) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [crop, setCrop] = useState<CropBox>(initial ?? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+
+  function getScale() {
+    const img = imgRef.current;
+    const c = containerRef.current;
+    if (!img || !c || !img.naturalWidth) return null;
+    const s = Math.min(c.clientWidth / img.naturalWidth, c.clientHeight / img.naturalHeight);
+    const dw = img.naturalWidth * s;
+    const dh = img.naturalHeight * s;
+    return { s, dw, dh, ox: (c.clientWidth - dw) / 2, oy: (c.clientHeight - dh) / 2 };
+  }
+
+  function makeDragHandlers(corner: string) {
+    return {
+      onPointerDown(e: React.PointerEvent) {
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+      },
+      onPointerMove(e: React.PointerEvent) {
+        if (!(e.buttons & 1) && e.pointerType === "mouse") return;
+        const sc = getScale();
+        if (!sc) return;
+        const dx = e.movementX / sc.dw;
+        const dy = e.movementY / sc.dh;
+        const MIN = 0.08;
+        setCrop((c) => {
+          let { x, y, w, h } = c;
+          if (corner === "tl") {
+            const nx = Math.min(x + w - MIN, Math.max(0, x + dx));
+            const ny = Math.min(y + h - MIN, Math.max(0, y + dy));
+            w += x - nx; h += y - ny; x = nx; y = ny;
+          } else if (corner === "tr") {
+            const ny = Math.min(y + h - MIN, Math.max(0, y + dy));
+            h += y - ny; y = ny;
+            w = Math.max(MIN, Math.min(1 - x, w + dx));
+          } else if (corner === "bl") {
+            const nx = Math.min(x + w - MIN, Math.max(0, x + dx));
+            w += x - nx; x = nx;
+            h = Math.max(MIN, Math.min(1 - y, h + dy));
+          } else if (corner === "br") {
+            w = Math.max(MIN, Math.min(1 - x, w + dx));
+            h = Math.max(MIN, Math.min(1 - y, h + dy));
+          } else {
+            x = Math.max(0, Math.min(1 - w, x + dx));
+            y = Math.max(0, Math.min(1 - h, y + dy));
+          }
+          return { x, y, w, h };
+        });
+      },
+    };
+  }
+
+  const sc = loaded ? getScale() : null;
+  const box = sc ? {
+    left: sc.ox + crop.x * sc.dw,
+    top: sc.oy + crop.y * sc.dh,
+    w: crop.w * sc.dw,
+    h: crop.h * sc.dh,
+  } : null;
+
+  const corners = [
+    { id: "tl", style: { left: box ? box.left - 14 : 0, top: box ? box.top - 14 : 0 } },
+    { id: "tr", style: { left: box ? box.left + box.w - 14 : 0, top: box ? box.top - 14 : 0 } },
+    { id: "bl", style: { left: box ? box.left - 14 : 0, top: box ? box.top + box.h - 14 : 0 } },
+    { id: "br", style: { left: box ? box.left + box.w - 14 : 0, top: box ? box.top + box.h - 14 : 0 } },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black flex flex-col">
+      <div ref={containerRef} className="flex-1 relative overflow-hidden select-none">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={imgRef}
+          src={src}
+          alt=""
+          className="w-full h-full object-contain"
+          onLoad={() => setLoaded(true)}
+          draggable={false}
+        />
+        {box && (
+          <>
+            <div
+              className="absolute border border-white/80 pointer-events-none"
+              style={{ left: box.left, top: box.top, width: box.w, height: box.h, boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)" }}
+            />
+            <div
+              className="absolute touch-none cursor-move"
+              style={{ left: box.left, top: box.top, width: box.w, height: box.h }}
+              {...makeDragHandlers("center")}
+            />
+            {corners.map(({ id, style }) => (
+              <div
+                key={id}
+                className="absolute w-7 h-7 flex items-center justify-center touch-none cursor-grab z-10"
+                style={style}
+                {...makeDragHandlers(id)}
+              >
+                <div className="w-3.5 h-3.5 rounded-full bg-white shadow-md" />
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between px-6 py-4 bg-black border-t border-white/10">
+        <button onClick={onCancel} className="text-white/60 text-base px-4 py-2 active:text-white">
+          Cancel
+        </button>
+        <div className="flex items-center gap-2">
+          {hasCrop && (
+            <button onClick={onReset} className="text-white/60 text-base px-4 py-2 active:text-white">
+              Remove crop
+            </button>
+          )}
+          <button
+            onClick={() => onApply(crop)}
+            className="bg-[#427ea3] text-white text-base font-semibold px-6 py-2.5 rounded-full active:bg-[#3a6f91]"
+          >
+            Apply crop
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
