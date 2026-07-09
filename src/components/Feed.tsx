@@ -93,6 +93,20 @@ export default function Feed({
     []
   );
 
+  // Re-sync to a fresh server payload (router.refresh() / soft navigation).
+  // `initialPosts` only gets a new identity when the server component actually
+  // re-renders, so this never fires on our own setPosts calls (infinite scroll).
+  // We overlay the fresh first page — reflecting edits, new posts and reordering
+  // — while keeping any older pages the user has already scrolled in, so a
+  // background refresh doesn't collapse the feed or jump their scroll position.
+  useEffect(() => {
+    setPosts((prev) => {
+      const freshIds = new Set(initialPosts.map((p) => p.id));
+      const olderTail = prev.filter((p) => !freshIds.has(p.id));
+      return [...initialPosts, ...olderTail];
+    });
+  }, [initialPosts]);
+
   const buildUrl = useCallback(
     (c: string) => {
       const params = new URLSearchParams();

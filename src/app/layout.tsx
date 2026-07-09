@@ -3,6 +3,8 @@ import { Source_Sans_3, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import ArchiveMenu from "@/components/ArchiveMenu";
 import AutoRefresh from "@/components/AutoRefresh";
+import BackButton from "@/components/BackButton";
+import PullToRefresh from "@/components/PullToRefresh";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import { getSession } from "@/lib/auth";
 
@@ -62,6 +64,8 @@ export default async function RootLayout({
     <html lang="en" className={`dark ${sourceSans.variable} ${sourceSerif.variable}`}>
       <body className={`min-h-screen bg-[#1a1918] text-[#c9c4ba] antialiased ${sourceSans.className}`}>
         {children}
+        <PullToRefresh />
+        <BackButton />
         <AutoRefresh buildVersion={BUILD_VERSION} />
         <ServiceWorkerRegister />
         <ArchiveMenu isAdmin={session?.role === "admin"} isLoggedIn={!!session} buildVersion={BUILD_VERSION} />
