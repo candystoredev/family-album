@@ -116,56 +116,20 @@ Beyond the original v1 plan; all live in production. Details in DECISIONS.md / A
 - **Navigation redesign** — serif monogram, compact rows, Albums expand-in-place, classic + **rail** timeline layouts (shared `useTimelineStyle` pref), packed FAB cluster.
 - **Video capture dates** — MP4/MOV container parsing (mvhd + Apple `creationdate` w/ tz offset), full-timestamp ordering; `tests/video-date.test.ts`.
 
-### Next initiative — Phase 10 (see below)
-Rich Media Metadata & Enrichment — full design in `docs/rich-metadata-plan.md`.
+### Next initiative — Phase 11 → 12 → 10.3 (see below)
+Archive Safety (backups + hardening) → metadata-correctness completion → the Phase 10
+historical backfill. Phase 10 (Rich Media Metadata & Enrichment) stays the spine —
+full design in `docs/rich-metadata-plan.md`.
 
 ## Up Next
 
-### Phase 5 — Admin Panel & Settings
-Responsive web throughout (not PWA). Each sub-slice builds on previous.
-
-- **5a**: Single photo upload (presigned URL → R2 → server thumbnail via `sharp` → DB)
-  - Verify: Upload photo → appears in feed with thumbnail. Check R2 bucket for both `original.jpg` and `thumb.jpg`
-- **5b**: Full upload form (multi-file, title, date, tags, people, albums, drag-reorder, video poster capture via canvas)
-  - Verify: 4-photo post with tags/people → grid + tag/people links. Video → poster frame + playback. Drag-reorder works
-- **5c**: Edit + delete posts (with R2 cleanup)
-  - Verify: Edit title → updated in feed + post page. Add photo → grid updates. Delete post → gone from feed + R2 cleaned
-- **5d-flag**: Post flagging & review queue
-  - `post_flags` table: `id`, `post_id`, `note`, `created_at`, `resolved_at`
-  - In feed: admin sees flag icon (replaces iMessage bubble position) → tap opens inline note input → creates flag
-  - `/admin/review` page: lists unresolved flagged posts with notes, sorted by flag date
-  - Edit view from review queue: edit title/body/date, add/remove/reorder photos, tag/untag people, mark resolved
-  - Reuses edit form from 5c
-  - Verify: Flag post in feed → appears in review queue with note. Edit from queue → changes reflected. Mark resolved → removed from queue
-- **5d**: Settings page (change viewer password, manage invite links, update iMessage numbers, edit site metadata)
-  - Verify: Change password → old fails, new works. Create invite → incognito auto-auth. Revoke → rejected. Update iMessage → reflected
-  - Test: Automated auth middleware tests (viewer JWT blocked from admin, expired/revoked invites rejected, valid invite sets cookie)
-- **5e**: Tech stack overview page — at-a-glance view of infrastructure (Vercel, Turso, R2, Doppler, domain/DNS)
-- **5f**: Changelog — track what's been built and when, visible from admin UI
-- **5g**: Admin tabs — separate tabs for Settings, Tech Stack, Changelog
-
-### Phase 6 — iOS Shortcut
-- Shortcut definition + setup guide
-- Uses ADMIN_API_TOKEN (iOS Keychain)
-- Supports: single photo, multi-photo, video, mixed
-- Flow: Select photos → Share → fill title/tags → presigned upload to R2 → `POST /api/posts` → server thumbnail
-- EXIF date extraction → pre-fill post date
-- Continues in background if user switches apps
-- Verify: On iPhone — select 3 photos → share → shortcut → fill title/tags → post appears on dev.thehoecks.com with thumbnails, tags, EXIF date
-
-### Phase 7 — Performance & Polish
-- Performance optimization with real content (no visual redesign — styling done in Phase 4)
-- Loading states and perceived performance
-- Cross-browser/mobile testing (Safari, Chrome, Firefox — desktop and phone)
-- Accessibility pass (keyboard nav, screen reader, color contrast)
-- Verify: Lighthouse performance score. Feed loads quickly on throttled mobile. All elements keyboard-accessible. No layout shifts
-
-### Phase 8 — Go Live
-- Final review of all content on dev.thehoecks.com
-- DNS update: thehoecks.com → Vercel production
-- Merge to master → auto-deploy
-- Verify: Production end-to-end (login → feed → post → iMessage → search)
-- Share invite links with family
+### Retired phases (2026-07-09 review)
+The app review found the old "Up Next" (Phases 5–8) had rotted — much had shipped via
+other routes, some described APIs that never existed. Disposition:
+- **Phase 5 — Admin Panel & Settings** — 5a/5b/5c shipped; `/settings` satisfied 5d's settings scope; invite-link management **CUT** (dead `invite_links` table never implemented — shared password + share links cover the use cases; table dropped in Phase 13); **5d-flag** (post flagging & review queue) absorbed into **Phase 10.3c**; 5e/5f/5g (tech-stack page, changelog, admin tabs) **CUT** — the docs already do this job.
+- **Phase 6 — iOS Shortcut** — rewritten as-built: the documented `POST /api/posts` never existed; the real flow is presign → direct R2 PUT → `/api/admin/upload/complete`, plus the shipped share-to-upload route `/api/admin/upload/ingest-fetch` (opens `/admin/upload?ingest=…`). Remaining work (a committed Shortcut definition + setup guide) moves to **Phase 14** as optional.
+- **Phase 7 — Performance & Polish** — absorbed into **Phases 12 and 14**.
+- **Phase 8 — Go Live** — ~~DONE~~ ✓ (site live at thehoecks.com, `master` auto-deploys).
 
 ### Phase 9 — Bulk Import — **IN PROGRESS**
 
@@ -304,13 +268,16 @@ verified on prod.** The correctness core of Phase 10 is complete. Remaining:
   `local_date`; **10.2c** corrected-date display + "est." badge. *(Tiebreaker is
   `(order_key, id)`; the plan's `created_at` middle key was skipped to keep the
   2-tuple cursor — revisit only if exact-instant ties become an issue.)*
-- **10.3 Historical backfill (separate track; runs on a machine without Claude)**
-  — Tool A Indexer (read-only, idempotent, portable index file) + Tool B
-  Matcher/Applier (phash match to stored thumbnails, confirm UI, authed admin
-  write to new columns only). Adapters: Apple Photos via `osxphotos` (faces,
-  scene labels, keywords, albums, captions, favorites, quality scores — on
-  device), filesystem (Dropbox/iCloud Drive), Google Takeout JSON, XMP sidecars.
-  Surfaces un-uploaded originals as an optional "rediscover" queue.
+- **10.3 Historical backfill (separate track; runs on a machine without Claude)** —
+  Tool A + Tool B, both writing to new columns only. Adapters: Apple Photos via
+  `osxphotos` (faces, scene labels, keywords, albums, captions, favorites, quality
+  scores — on device), filesystem (Dropbox/iCloud Drive), Google Takeout JSON, XMP
+  sidecars. Surfaces un-uploaded originals as an optional "rediscover" queue. Sub-phases:
+  - **10.3a Tool A — Indexer** — osxphotos/filesystem/Takeout/XMP adapters, portable index file, read-only, idempotent, resumable.
+  - **10.3b Tool B — Matcher/Applier** — phash match to stored thumbnails, confidence thresholds, applies to new columns only via an authed admin endpoint.
+  - **10.3c Review queue** — one `/admin/review` surface with three queues: ambiguous backfill matches + flagged posts (absorbs old 5d-flag) + estimated-date quick-fix (absorbs 10.2c's loose end).
+  - **10.3d Originals archival option in Tool B** — matched local originals → `originals/` prefix (closes the historical half of 11c; Tumblr-era photos regain a full-res source).
+  - **10.3e Promote + index** — the audited promote step: with coverage high, order/group by real indexed columns and retire the read-time `COALESCE` hot path (fallback kept for stragglers). Perf note: interim expression indexes were considered and rejected — SQLite can't ALTER-ADD stored generated columns and the scan is milliseconds at current scale.
 - **10.4 Features on banked data (optional)** — map view, dedup warnings,
   auto-trip albums, place/camera/date-range search, quality-ranked teasers.
   (Absorbs backlog: Search by date range, Filter by multiple tags/people,
@@ -338,6 +305,54 @@ then 10.2. Backfill (10.3) and semantic enrichment (10.5) are separate opt-in tr
 
 ---
 
+### Phase 11 — Archive Safety — **NEXT UP**
+Small; protects everything else.
+
+- **11a Backups** — GitHub Actions cron → `turso db dump` → private R2 prefix (e.g. `backups/`), keep last ~12; document one manual restore drill in ARCHITECTURE.
+  - Verify: dump lands in R2 on schedule; app boots locally against a restored scratch DB.
+- **11b Dependency + auth hardening** — `npm audit fix` (Next.js middleware-bypass CVEs matter — all auth is middleware-enforced); add the long-promised auth-middleware tests (viewer/admin/public-path matrix).
+  - Verify: audit clean; tests cover every public path.
+- **11c Bank originals going forward** — upload flows presign a second key and PUT the untouched file to an `originals/` prefix (never served; `original_r2_key` on `media`). Rationale: client compression (1920px JPEG) currently discards full-res originals forever; the original file is the ultimate metadata record; R2 cost trivial.
+- **11d Serve clean, keep raw** — with 11c, the upload-complete "already-processed" fast path (iOS-shortcut/originals path) can re-encode its *served* copy, stripping GPS/EXIF like the edit route already does, with zero information loss. Plus an upload size cap on presign/complete.
+  - Verify: served original of a geotagged upload has no GPS tags; oversized presign rejected.
+- **11e Share-link revocation** — `revoked` flag on both `post_share_links` and `day_share_links` + small admin list/revoke UI. NO auto-expiry — links stay persistent by design (old iMessage links must keep working; upholds the 2026-06 decision).
+  - Verify: revoked `/m/` link 404s; others unaffected.
+
+---
+
+### Phase 12 — Metadata correctness completion
+Small; finishes what 10.2 claims.
+
+- **12a Archive page → effective day** — `/archive` page still groups by legacy `strftime(date)` while the archive API uses `EFF_DAY_SQL` — reconcile to one source (the API's). Becomes user-visible after the 10.3 backfill.
+- **12b All date display through `formatDisplayDate`** — ~6 raw `new Date(post.date)` call sites (/today, /m/[token], /share/[token], OnThisDay, TodayMemory, bulk-import) bypass the tz-safe helper — exactly the day-shift class Phase 10 exists to kill.
+- **12c FTS body indexing** — incremental FTS writes insert `body=''`, so body text is only searchable after a full rebuild. Index body on create/edit + one rebuild.
+- **12d Feed pipeline** — `/api/feed` runs its three enrichment queries sequentially (the SSR path already uses `Promise.all`) — parallelize; extract the one shared "attach media/tags/people" function (currently ~5 near-identical copies across `lib/feed.ts`, `api/feed`, `api/search`, `lib/onThisDay` — already drifted on `display_order`).
+- Verify: a late-night photo lands on the same day in feed, archive page, archive API, and /today; body text of a fresh post is searchable; feed scroll round-trips reduced.
+
+---
+
+### Phase 13 — Debt paydown
+Opportunistic, no deadline.
+
+- Edit page adopts shared `compressImage` (fixes a real bug: the edit page's private copy has no HEIC support) + shared `MetadataFields` (currently hand-rolls its own form). Do **NOT** unify the three drag-and-drop implementations — documented deliberate divergences.
+- Delete dead `invite_links` table; remove SeedButton from prod UI and move `/api/seed`'s seed/dedup/clean logic to `scripts/` (552 lines of test tooling in the prod bundle; button always 403s in prod).
+- Drop stale `@types/sharp` devDep; dedupe `slugify` (defined in both create and edit routes); collapse the three `ensure*Schema` functions into one `PRAGMA user_version` check (currently ~50 sequential guarded DDL statements on first upload per cold start, and schema DDL duplicated with `initializeSchema`).
+- Security hygiene leftovers: stop echoing `String(error)` to clients (7 sites, 5 authed routes); push-subscribe endpoint allow-list (weak blind-SSRF, session-gated); add JWT `tokenVersion` claim now / enforce later; CSP nonce only if a body-editing feature ever lands (today `posts.body` is never user-writable, so the 4 `dangerouslySetInnerHTML` sites are latent); validate `r2Key`/`keyPrefix` in upload-complete + posts PUT (copy the guard `ingest-fetch` already has).
+
+---
+
+### Phase 14 — Experience
+On-demand, never blocking.
+
+- Feed `srcset` **only** if cellular scroll actually annoys — the lightbox always serves the original; feed keeps full-size images by default (2026-07-09 decision: R2 egress is free and the family values pinch-zoom detail).
+- "Full-res on zoom" in lightbox once originals are banked (11c/10.3d).
+- Service-worker app-shell + thumbnail caching (real PWA offline; `sw.js` currently caches nothing).
+- Accessibility pass: alt text from title/date, keyboard-operable feed (every `img` is `alt=""` today; feed photos aren't focusable; Lightbox keyboard nav is already good).
+- On This Day folded into SSR (currently a client-side fetch waterfall + full scan on every home load).
+- iOS Shortcut definition + setup guide (from retired Phase 6), documented around the real endpoints.
+
+---
+
 ## Backlog (V2 — Post-Launch)
 
 Schema can accommodate all V2 features without breaking changes.
@@ -356,7 +371,7 @@ Schema can accommodate all V2 features without breaking changes.
 
 ### Content Features
 - ~~"On this day" — surface posts from same date in past years~~ (built in 4i)
-- Favorites / pinned posts
+- ~~Favorites / pinned posts~~ ✓ **SHIPPED** — `/favorites` page + `/api/favorites` in prod
 - Download original photo button
 - Print-friendly view
 
@@ -372,24 +387,26 @@ Schema can accommodate all V2 features without breaking changes.
 ### Media
 - Video thumbnail frame picker (v1: auto poster frame)
 - Multiple thumbnail sizes (feed vs. lightbox vs. OG) — R2 key convention supports this (`media/{id}/thumb_lg.{ext}`, etc.)
-- HEIC → JPEG conversion on upload _(→ Phase 10.1)_
 
 ### Analytics (Lightweight)
 - Most-viewed posts (simple counter, no third-party tracking)
-- Invite link usage stats
+- Share-link usage stats (invite links cut 2026-07-09)
 
 ### Infrastructure
-- Automated backup schedule (cron → `turso db dump` → R2)
 - Staging environment
 
 ## Testing Strategy
 
-**Automated tests** (written as they come up):
-- Slug generation (duplicates, untitled fallbacks, suffix logic)
-- Cursor-based pagination (ordering, tiebreakers, no skips/dupes)
-- Auth middleware (viewer can't reach admin, expired invite rejected, valid invite sets cookie)
-- FTS5 search (insert posts, verify results match)
+**Status (2026-07-09):** 69 tests pass across 11 files — mostly Phase 9/10 coverage
+(EXIF, grouping, hashing, feed-order, dates, cursor pagination). The originally
+promised slug-generation and FTS5-search tests are still missing — add opportunistically.
 
-**Manual verification**: Against dev.thehoecks.com on desktop and phone.
+**Automated tests** (written as they come up):
+- Slug generation (duplicates, untitled fallbacks, suffix logic) — *still missing*
+- Cursor-based pagination (ordering, tiebreakers, no skips/dupes) ✓
+- Auth middleware (viewer/admin/public-path matrix) — *now scheduled in Phase 11b*
+- FTS5 search (insert posts, verify results match) — *still missing*
+
+**Manual verification**: Against thehoecks.com (production) on desktop and phone.
 
 Each phase has a verify checklist — phase isn't done until every item passes.

@@ -162,6 +162,7 @@ Decision: FTS5 external content mode with rowid backing
 Reason: Standard SQLite approach for FTS5 with non-integer PKs (nanoid text PK)
 Alternatives Considered: Regular FTS5 table, separate search index
 Impact: Requires sync triggers on INSERT/UPDATE/DELETE; content_rowid=rowid (implicit integer)
+**SUPERSEDED (as-built):** implemented instead as a **standalone** FTS5 table (`posts_fts` with `post_id UNINDEXED`), synced at application level — incremental INSERT/DELETE on post create/edit/delete, full `rebuildFtsIndex()` from `/api/init`. No triggers. (Caveat until Phase 12c: incremental writes index `body` as empty string.)
 
 ### 2025-01-01
 Decision: Project lives at `apps/thehoecks/` in the monorepo
@@ -308,7 +309,49 @@ Reason: Today dates collapse to one tz-less string read three ways; videos/photo
 Alternatives Considered: Spot-fix timezone only; do nothing
 Impact: Full plan in `docs/rich-metadata-plan.md`; roadmap Phase 10. Schema additions are additive/nullable; historical backfill is a separate, opt-in track via perceptual-hash matching to local originals (Apple Photos/Dropbox/iCloud/etc.).
 
+## 2026-07-09 — App review & roadmap restructure
+
+### 2026-07-09
+Decision: Bank untouched full-resolution originals in R2 (`originals/` prefix, never served) — forward at upload (Phase 11c) + historical via backfill (Phase 10.3d)
+Reason: client-side compression (1920px JPEG q0.82) permanently discards the full-res original before R2 ever sees it — a quiet, irreversible quality loss for a keepsake archive. The original file is the ultimate metadata record. R2 cost is trivial (~$0.015/GB, zero egress).
+Alternatives Considered: Keep discarding (status quo); archive only going forward (loses historical); external cold storage (new vendor)
+Impact: Presign a second key per upload; `original_r2_key` on media; enables future "full-res on zoom" in the lightbox; allows the served copy to be safely re-encoded/GPS-stripped (11d)
+
+### 2026-07-09
+Decision: Feed keeps serving full-size stored images; no default downsizing. srcset only if cellular scroll ever hurts (Phase 14), and never in the lightbox
+Reason: R2 egress is free, so large images cost nothing but load time; the family explicitly values pinch-zoom detail (the Lightbox has purpose-built pinch handling and serves originals; the page viewport also allows pinch). Serving originals in the feed was a deliberate Phase 4h quality decision.
+Alternatives Considered: ~1080px feed variant (softer under page pinch-zoom); next/image (Vercel optimization cap)
+Impact: Reverses the review's initial recommendation; image-perf work is demand-driven, not scheduled
+
+### 2026-07-09
+Decision: Share links stay persistent (no auto-expiry) but become revocable — `revoked` flag + admin list/revoke UI (Phase 11e)
+Reason: old iMessage links must keep working (upholds the 2026-06 "stable/persistent" decision); revocation alone covers the leak scenario.
+Alternatives Considered: Auto-expiry (breaks old family links); per-link TTL choice (complexity)
+Impact: `revoked` column on `post_share_links` + `day_share_links`; small admin UI
+
+### 2026-07-09
+Decision: Cut invite links entirely; drop the dead `invite_links` table (Phase 13)
+Reason: documented since v1 as a core viewer-auth path but never implemented — no route, no UI, not in middleware, 18 months unused. Shared password + share links cover the real use cases.
+Alternatives Considered: Build it (no demand); leave the dead table (schema noise)
+Impact: ARCHITECTURE auth section corrected; trivial to rebuild later if ever wanted
+
+### 2026-07-09
+Decision: One `/admin/review` surface (Phase 10.3c) merges three planned features: backfill ambiguous-match confirmation, post flagging/review queue (old 5d-flag), and estimated-date quick-fix (10.2c's loose end)
+Reason: three queues, one UI pattern; 10.3 needs the confirm flow anyway.
+Impact: 5d-flag retired as a standalone phase; review UI ships with the backfill
+
+### 2026-07-09
+Decision: Defer feed-query index work to the post-backfill audited "promote" step (Phase 10.3e); no interim generated columns or expression indexes
+Reason: the read-time COALESCE (`lib/order.ts`) is non-sargable (full scan + filesort per feed page) but the scan is milliseconds at current scale; SQLite cannot `ALTER TABLE ADD` a STORED generated column; the promote step was already planned and makes ordering columns real + indexable.
+Alternatives Considered: Expression indexes now (must match expressions exactly, adds migration surface); VIRTUAL generated columns (indexable but more moving parts)
+Impact: Perf work lands exactly once, after backfill coverage makes it meaningful
+
+### 2026-07-09
+Decision: Retire roadmap Phases 5–8 as written; rewrite Phase 6 (iOS Shortcut) around the real endpoints
+Reason: Phase 5 mostly shipped via other routes (`/settings`); 5e/5f/5g (tech-stack page, changelog, admin tabs) add no value over the docs; Phase 7 was a grab-bag (absorbed into 12/14); Phase 8 happened; the documented `POST /api/posts` never existed — the real flow is presign → direct R2 PUT → `/api/admin/upload/complete`, plus the shipped `/api/admin/upload/ingest-fetch` share-to-upload route.
+Impact: ROADMAP restructured to Phases 11–14 around the Phase 10 spine
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)
-- Phase 10 open decisions: original full-res archival in R2? backfill auto-apply confidence threshold? indexer stack (Python+osxphotos vs Node)? per-stage enrichment backend (on-device vs cloud). See `docs/rich-metadata-plan.md`.
+- Phase 10 open decisions: backfill auto-apply confidence threshold? indexer stack (Python+osxphotos vs Node)? per-stage enrichment backend (on-device vs cloud). See `docs/rich-metadata-plan.md`. (Original full-res archival in R2 — **decided 2026-07-09: yes**, see Phase 11c/10.3d above.)
