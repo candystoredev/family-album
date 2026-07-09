@@ -489,7 +489,13 @@ export default function EditPostPage() {
       if (!res.ok) throw new Error(data.error || "Save failed");
 
       setSaveState("success");
-      setTimeout(() => router.back(), 600);
+      // router.back() alone replays the Next.js client Router Cache — the feed
+      // snapshot captured before this edit — so the change wouldn't show.
+      // refresh() invalidates that cache first, so the feed re-renders fresh.
+      setTimeout(() => {
+        router.refresh();
+        router.back();
+      }, 600);
     } catch (err) {
       setSaveState("error");
       setSaveError(err instanceof Error ? err.message : "Network error");
@@ -506,6 +512,8 @@ export default function EditPostPage() {
         const data = await res.json();
         throw new Error(data.error || "Delete failed");
       }
+      // Invalidate the cached feed so the deleted post is gone when we land.
+      router.refresh();
       router.push("/");
     } catch (err) {
       setDeleting(false);

@@ -61,6 +61,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
   const [albumsExpanded, setAlbumsExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [sidebarFits, setSidebarFits] = useState(false);
   const [sidebarHovered, setSidebarHovered] = useState(false);
@@ -186,6 +187,17 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
     window.location.href = "/login";
   }
 
+  function handleRefresh() {
+    setRefreshing(true);
+    // Invalidate the Router Cache and re-fetch the current route's server data —
+    // the manual reload the standalone PWA otherwise has no button for.
+    router.refresh();
+    setTimeout(() => {
+      setRefreshing(false);
+      handleClose();
+    }, 700);
+  }
+
   // Close panel on navigation (mobile only)
   useEffect(() => {
     if (!isDesktop) handleClose();
@@ -295,6 +307,31 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           </svg>
           <span className="flex-1 text-[15px] font-medium text-[#c9c4ba]">On This Day</span>
         </Link>
+
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="w-full flex items-center gap-3 px-2 min-h-[44px] rounded-lg text-left transition-colors hover:bg-[#211e1b] disabled:opacity-60"
+        >
+          <svg
+            width="19"
+            height="19"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#a0b8cc"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`flex-none ${refreshing ? "animate-spin" : ""}`}
+          >
+            <path d="M23 4v6h-6" />
+            <path d="M1 20v-6h6" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          <span className="flex-1 text-[15px] font-medium text-[#c9c4ba]">
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </span>
+        </button>
       </div>
 
       {loading && !data && (
