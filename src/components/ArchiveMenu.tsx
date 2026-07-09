@@ -307,31 +307,6 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           </svg>
           <span className="flex-1 text-[15px] font-medium text-[#c9c4ba]">On This Day</span>
         </Link>
-
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="w-full flex items-center gap-3 px-2 min-h-[44px] rounded-lg text-left transition-colors hover:bg-[#211e1b] disabled:opacity-60"
-        >
-          <svg
-            width="19"
-            height="19"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#a0b8cc"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`flex-none ${refreshing ? "animate-spin" : ""}`}
-          >
-            <path d="M23 4v6h-6" />
-            <path d="M1 20v-6h6" />
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-          </svg>
-          <span className="flex-1 text-[15px] font-medium text-[#c9c4ba]">
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </span>
-        </button>
       </div>
 
       {loading && !data && (
@@ -589,14 +564,20 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
   }
 
   // ─── Mobile: FAB cluster + slide-out overlay ───
-  // Pack the present bubbles into the arc (12 o'clock → 10:30 → 9 o'clock) in
-  // order, so there's never a gap — e.g. with no albums, Settings moves up into
-  // the 10:30 slot instead of sitting alone at 9 o'clock.
-  const fabSlots = ["translate(0, -76px)", "translate(-54px, -54px)", "translate(-76px, 0px)"];
+  // Pack the present bubbles into the arc (12 o'clock → 9 o'clock, evenly spaced)
+  // in order, so there's never a gap — e.g. with no albums, later bubbles move up
+  // to fill the vacated slot instead of leaving a hole.
+  const fabSlots = [
+    "translate(0, -76px)",
+    "translate(-38px, -66px)",
+    "translate(-66px, -38px)",
+    "translate(-76px, 0px)",
+  ];
   let fabIdx = 0;
   const uploadXform = isAdmin ? fabSlots[fabIdx++] : null;
   const albumsXform = data && data.albums.length > 0 ? fabSlots[fabIdx++] : null;
   const settingsXform = isLoggedIn ? fabSlots[fabIdx++] : null;
+  const refreshXform = isLoggedIn ? fabSlots[fabIdx++] : null;
 
   return (
     <>
@@ -678,6 +659,40 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
             <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </Link>
+      )}
+
+      {/* Secondary FAB — Refresh. Invalidates the Router Cache and re-fetches
+          the current route — the manual reload the chrome-less PWA otherwise
+          lacks. handleRefresh spins the icon briefly, then closes the cluster. */}
+      {isLoggedIn && (
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="fixed bottom-6 right-6 z-[49] w-[46px] h-[46px] rounded-full bg-[#211e1b] border border-[#322e29] shadow-lg shadow-black/45 flex items-center justify-center [@media(hover:hover)]:lg:hidden"
+          style={{
+            transform: open ? `${refreshXform} scale(1)` : "translate(0,0) scale(0)",
+            opacity: open ? 1 : 0,
+            pointerEvents: open ? "auto" : "none",
+            transition: open
+              ? "transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.15s ease-out"
+              : "transform 0.2s ease-in, opacity 0.15s ease-in",
+          }}
+          aria-label="Refresh"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#c2a467"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`}
+          >
+            <path d="M23 4v6h-6" />
+            <path d="M1 20v-6h6" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+        </button>
       )}
 
       {/* Primary Floating Action Button — gold */}
