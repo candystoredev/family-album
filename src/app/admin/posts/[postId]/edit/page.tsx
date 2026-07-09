@@ -489,12 +489,14 @@ export default function EditPostPage() {
       if (!res.ok) throw new Error(data.error || "Save failed");
 
       setSaveState("success");
-      // router.back() alone replays the Next.js client Router Cache — the feed
-      // snapshot captured before this edit — so the change wouldn't show.
-      // refresh() invalidates that cache first, so the feed re-renders fresh.
+      // Don't return via router.back(): back/forward navigation restores the
+      // feed from the Router Cache (the pre-edit snapshot) and bypasses the
+      // refresh() invalidation, so the edit wouldn't show until a manual
+      // refresh. Clear the cache and navigate *forward* to the feed — a dynamic
+      // route with no cached entry left, so it refetches fresh from the server.
       setTimeout(() => {
         router.refresh();
-        router.back();
+        router.replace("/");
       }, 600);
     } catch (err) {
       setSaveState("error");
@@ -512,9 +514,10 @@ export default function EditPostPage() {
         const data = await res.json();
         throw new Error(data.error || "Delete failed");
       }
-      // Invalidate the cached feed so the deleted post is gone when we land.
+      // Clear the Router Cache and navigate forward (not back) so the feed
+      // refetches without the deleted post — see the note in handleSave.
       router.refresh();
-      router.push("/");
+      router.replace("/");
     } catch (err) {
       setDeleting(false);
       setConfirmDelete(false);
