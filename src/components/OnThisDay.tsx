@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
+import { formatDisplayDate } from "@/lib/datetime";
 
 interface MediaItem {
   id: string;
@@ -19,6 +20,8 @@ interface OnThisDayPost {
   title: string | null;
   body: string | null;
   date: string;
+  /** Effective capture day (tz-independent `YYYY-MM-DD`); see lib/onThisDay.ts. */
+  localDate: string;
   photosetLayout: string | null;
   thumbnailUrl: string | null;
   media: MediaItem[];
@@ -270,8 +273,9 @@ export default function OnThisDay() {
         >
           <div className="flex gap-3 px-4 sm:px-0 overflow-x-auto pb-2 scrollbar-hide touch-pan-x">
             {posts.map((post, i) => {
-              const d = new Date(post.date);
-              const yearsAgo = new Date().getFullYear() - d.getFullYear();
+              // Year math off the tz-independent effective day, not
+              // `new Date(post.date)` (which can shift near midnight/DST).
+              const yearsAgo = new Date().getFullYear() - Number(post.localDate.slice(0, 4));
               const timeLabel =
                 yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
               return (
@@ -443,14 +447,9 @@ function MemoryCard({
     if (dx * dx + dy * dy > 100) onCaptionPointerUp();
   }
 
-  const d = new Date(post.date);
-  const yearsAgo = new Date().getFullYear() - d.getFullYear();
+  const yearsAgo = new Date().getFullYear() - Number(post.localDate.slice(0, 4));
   const timeLabel = yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
-  const dateFormatted = d.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const dateFormatted = formatDisplayDate(post.date, post.localDate, { long: true });
 
   return (
     <div className="px-1 sm:px-0 w-full min-w-0">

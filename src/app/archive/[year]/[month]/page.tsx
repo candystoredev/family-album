@@ -4,6 +4,7 @@ import { getInitialFeed, getImessageRecipients } from "@/lib/feed";
 import Link from "next/link";
 import Feed from "@/components/Feed";
 import { db } from "@/lib/db";
+import { EFF_DAY_SQL } from "@/lib/order";
 
 export const dynamic = "force-dynamic";
 
@@ -13,27 +14,30 @@ const MONTH_NAMES = [
 ];
 
 async function getAdjacentMonths(year: number, month: number) {
-  // Find previous and next months that have posts
+  // Find previous and next months that have posts, grouped/bounded by the
+  // effective capture day (local_date ?? legacy day) — the same expression
+  // getInitialFeed uses to fill this month's page — so prev/next never link
+  // to a month that's actually empty under effective-day filtering (Phase 12a).
   const [prevResult, nextResult] = await Promise.all([
     db.execute({
       sql: `SELECT
-              CAST(strftime('%Y', date) AS INTEGER) AS year,
-              CAST(strftime('%m', date) AS INTEGER) AS month
-            FROM posts
-            WHERE date < ?
+              CAST(substr(eff_day, 1, 4) AS INTEGER) AS year,
+              CAST(substr(eff_day, 6, 2) AS INTEGER) AS month
+            FROM (SELECT ${EFF_DAY_SQL} AS eff_day FROM posts p)
+            WHERE eff_day < ?
             GROUP BY year, month
-            ORDER BY date DESC
+            ORDER BY eff_day DESC
             LIMIT 1`,
       args: [`${year}-${String(month).padStart(2, "0")}-01`],
     }),
     db.execute({
       sql: `SELECT
-              CAST(strftime('%Y', date) AS INTEGER) AS year,
-              CAST(strftime('%m', date) AS INTEGER) AS month
-            FROM posts
-            WHERE date >= ?
+              CAST(substr(eff_day, 1, 4) AS INTEGER) AS year,
+              CAST(substr(eff_day, 6, 2) AS INTEGER) AS month
+            FROM (SELECT ${EFF_DAY_SQL} AS eff_day FROM posts p)
+            WHERE eff_day >= ?
             GROUP BY year, month
-            ORDER BY date ASC
+            ORDER BY eff_day ASC
             LIMIT 1`,
       args: [
         month === 12

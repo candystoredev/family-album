@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import Link from "next/link";
+import { EFF_DAY_SQL } from "@/lib/order";
 
 export const dynamic = "force-dynamic";
 
@@ -26,11 +27,14 @@ export default async function ArchivePage() {
   if (!session) redirect("/login");
 
   const result = await db.execute({
+    // Group by the effective capture day (local_date ?? legacy day) — the same
+    // expression /api/archive uses — so the two never disagree about which
+    // month/year a corrected-capture-date post belongs to (Phase 12a).
     sql: `SELECT
-            CAST(strftime('%Y', date) AS INTEGER) AS year,
-            CAST(strftime('%m', date) AS INTEGER) AS month,
+            CAST(substr(eff_day, 1, 4) AS INTEGER) AS year,
+            CAST(substr(eff_day, 6, 2) AS INTEGER) AS month,
             COUNT(*) AS count
-          FROM posts
+          FROM (SELECT ${EFF_DAY_SQL} AS eff_day FROM posts p)
           GROUP BY year, month
           ORDER BY year DESC, month DESC`,
     args: [],
