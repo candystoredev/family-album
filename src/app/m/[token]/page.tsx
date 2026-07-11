@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { ensureDayShareSchema } from "@/lib/schema";
+import { isShareLinkUsable } from "@/lib/shareLinks";
 import { getMemoriesForDate, type OnThisDayPost } from "@/lib/onThisDay";
 import TodayMemory from "@/components/TodayMemory";
 
@@ -17,11 +18,15 @@ interface DayShare {
 async function getDayShare(token: string): Promise<DayShare | null> {
   await ensureDayShareSchema();
   const result = await db.execute({
-    sql: `SELECT year, month, day FROM day_share_links WHERE token = ? LIMIT 1`,
+    sql: `SELECT year, month, day, revoked FROM day_share_links WHERE token = ? LIMIT 1`,
     args: [token],
   });
   if (result.rows.length === 0) return null;
-  return result.rows[0] as unknown as DayShare;
+  const share = result.rows[0] as unknown as DayShare & { revoked: number | boolean | null };
+  if (!isShareLinkUsable({ revoked: share.revoked, expires_at: undefined }, Date.now())) {
+    return null;
+  }
+  return share;
 }
 
 function dayLabel(share: DayShare): string {

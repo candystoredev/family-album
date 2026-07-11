@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { baseUrlFromRequest } from "@/lib/baseUrl";
+import { ensurePostShareSchema } from "@/lib/schema";
 
 export async function POST(request: Request) {
   try {
@@ -9,6 +10,8 @@ export async function POST(request: Request) {
     if (!postId) {
       return NextResponse.json({ error: "postId required" }, { status: 400 });
     }
+
+    await ensurePostShareSchema();
 
     const post = await db.execute({
       sql: "SELECT id FROM posts WHERE id = ? LIMIT 1",

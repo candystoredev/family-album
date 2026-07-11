@@ -93,7 +93,8 @@ const statements = [
     token TEXT UNIQUE NOT NULL,
     post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at TEXT
+    expires_at TEXT,
+    revoked INTEGER NOT NULL DEFAULT 0
   )`,
 
   // Site settings (key-value)
@@ -233,6 +234,9 @@ const migrations = [
   ...sourceTaggedJunctions.map(
     (tbl) => `ALTER TABLE ${tbl} ADD COLUMN source TEXT NOT NULL DEFAULT 'human'`
   ),
+  // Phase 11e — share-link revocation (post_share_links only lives in the static
+  // `statements` array with no lazy ensure, so already-deployed DBs need this).
+  `ALTER TABLE post_share_links ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`,
 ];
 
 // Statements that depend on migrations having run first
@@ -313,12 +317,38 @@ export async function ensureDayShareSchema() {
     year INTEGER NOT NULL,
     month INTEGER NOT NULL,
     day INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked INTEGER NOT NULL DEFAULT 0
   )`);
   await db.execute(
     `CREATE INDEX IF NOT EXISTS idx_day_share_ymd ON day_share_links(year, month, day)`
   );
+  // Phase 11e — revocation column, guarded for tables created before this change.
+  try {
+    await db.execute(`ALTER TABLE day_share_links ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
   dayShareSchemaReady = true;
+}
+
+let postShareSchemaReady = false;
+
+/**
+ * Lazily ensure the `revoked` column exists on post_share_links. The mint route
+ * and the public /share/[token] page don't run the full migrations list, so on
+ * an already-deployed database the column may be missing without this.
+ */
+export async function ensurePostShareSchema() {
+  if (postShareSchemaReady) return;
+  try {
+    await db.execute(
+      `ALTER TABLE post_share_links ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`
+    );
+  } catch {
+    // Column already exists — safe to ignore
+  }
+  postShareSchemaReady = true;
 }
 
 let richMetadataSchemaReady = false;
