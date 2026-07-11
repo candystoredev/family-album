@@ -17,6 +17,7 @@ import { getMediaDate, getVideoDate } from "@/lib/media/exif";
 import { buildCaptureInput, sha256Hex, extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
 import type { CaptureDateInput } from "@/lib/media/capture-date";
 import { defaultLayout } from "@/lib/media/layout";
+import { MAX_UPLOAD_BYTES } from "@/lib/media/upload-limits";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -250,10 +251,32 @@ export default function UploadPage() {
 
   /** Process raw originals into MediaFile rows and append them to the queue.
    *  Shared by the file picker and the share-to-upload ?ingest= flow. */
-  const ingestFiles = useCallback(async (newFiles: File[]) => {
-    if (!newFiles.length) return;
+  const ingestFiles = useCallback(async (newFiles: File[]): Promise<{ oversizedCount: number }> => {
+    if (!newFiles.length) return { oversizedCount: 0 };
+
+    // Reject oversized photos up front — a friendlier, earlier version of
+    // the size cap the server enforces for real in
+    // src/app/api/admin/upload/complete/route.ts. Checked against the
+    // ORIGINAL file (before compression), since that's what the server sees
+    // for the originals-upload path. Videos aren't capped here.
+    const oversized = newFiles.filter(
+      (f) => !isVideoFile(f) && f.size > MAX_UPLOAD_BYTES
+    );
+    const acceptedFiles = newFiles.filter((f) => !oversized.includes(f));
+    if (oversized.length > 0) {
+      // Reuse the informational banner (rather than the full error state) —
+      // this is a per-file warning, not a failure of the whole page; any
+      // accepted files below should still queue up normally.
+      const limitMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+      const names = oversized.map((f) => `"${f.name}"`).join(", ");
+      setIngestStatus(
+        `${names} ${oversized.length === 1 ? "is" : "are"} over the ${limitMb} MB limit and ${oversized.length === 1 ? "wasn't" : "weren't"} added.`
+      );
+    }
+    if (acceptedFiles.length === 0) return { oversizedCount: oversized.length };
+
     const mediaFiles: MediaFile[] = await Promise.all(
-      newFiles.map(async (f) => {
+      acceptedFiles.map(async (f) => {
         const isVideo = isVideoFile(f);
         // Capture date must be read from the original — for photos, compression
         // re-encodes via canvas and strips EXIF; videos carry their date in the
@@ -290,8 +313,11 @@ export default function UploadPage() {
         ? defaultLayout(mediaFiles)
         : [...prev, ...defaultLayout(mediaFiles)]
     );
+    // Don't clobber the oversized-file warning we may have just set above.
+    if (oversized.length === 0) setIngestStatus(null);
     setError("");
     setState("idle");
+    return { oversizedCount: oversized.length };
   }, []);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -353,8 +379,9 @@ export default function UploadPage() {
         setIngestStatus("Couldn't load the shared items — try again from the app.");
         return;
       }
-      await ingestFiles(files);
-      setIngestStatus(null);
+      const { oversizedCount } = await ingestFiles(files);
+      // Leave the oversized-file warning ingestFiles just set in place.
+      if (oversizedCount === 0) setIngestStatus(null);
     })();
   }, [ingestFiles]);
 
