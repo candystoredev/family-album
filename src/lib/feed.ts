@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { ORDER_KEY_SQL, EFF_DAY_SQL } from "./order";
+import { attachMediaTagsPeople } from "./postAssembly";
 
 const PAGE_SIZE = 20;
 
@@ -16,29 +17,6 @@ interface PostRow {
   date_source: string | null;
   /** Effective ordering key (taken_at ?? normalized date); also the cursor. */
   order_key: string;
-}
-
-interface MediaRow {
-  id: string;
-  post_id: string;
-  r2_key: string;
-  thumbnail_r2_key: string | null;
-  type: string;
-  width: number | null;
-  height: number | null;
-  display_order: number;
-}
-
-interface TagRow {
-  post_id: string;
-  name: string;
-  slug: string;
-}
-
-interface PersonRow {
-  post_id: string;
-  name: string;
-  slug: string;
 }
 
 function encodeCursor(orderKey: string, id: string): string {
@@ -59,8 +37,6 @@ export interface FeedFilter {
  * Month pages use oldest-first ordering.
  */
 export async function getInitialFeed(filter?: FeedFilter) {
-  const r2PublicUrl = process.env.R2_PUBLIC_URL!;
-
   let filterJoin = "";
   const filterArgs: (string | number)[] = [];
   let dateWhere = "";
@@ -113,74 +89,11 @@ export async function getInitialFeed(filter?: FeedFilter) {
 
   if (posts.length === 0) return { posts: [], nextCursor: null };
 
-  // Fetch all media for these posts in one query
-  const postIds = posts.map((p) => p.id);
-  const placeholders = postIds.map(() => "?").join(",");
-
-  const [mediaResult, tagsResult, peopleResult] = await Promise.all([
-    db.execute({
-      sql: `SELECT id, post_id, r2_key, thumbnail_r2_key, type, width, height, display_order
-            FROM media WHERE post_id IN (${placeholders}) ORDER BY display_order`,
-      args: postIds,
-    }),
-    db.execute({
-      sql: `SELECT pt.post_id, t.name, t.slug
-            FROM post_tags pt
-            INNER JOIN tags t ON t.id = pt.tag_id
-            WHERE pt.post_id IN (${placeholders})`,
-      args: postIds,
-    }),
-    db.execute({
-      sql: `SELECT pp.post_id, pe.name, pe.slug
-            FROM post_people pp
-            INNER JOIN people pe ON pe.id = pp.person_id
-            WHERE pp.post_id IN (${placeholders})`,
-      args: postIds,
-    }),
-  ]);
-
-  const mediaRows = mediaResult.rows as unknown as MediaRow[];
-  const tagRows = tagsResult.rows as unknown as TagRow[];
-  const personRows = peopleResult.rows as unknown as PersonRow[];
-
-  const mediaByPost = new Map<string, MediaRow[]>();
-  for (const m of mediaRows) {
-    const arr = mediaByPost.get(m.post_id) || [];
-    arr.push(m);
-    mediaByPost.set(m.post_id, arr);
-  }
-
-  const tagsByPost = new Map<string, { name: string; slug: string }[]>();
-  for (const t of tagRows) {
-    const arr = tagsByPost.get(t.post_id) || [];
-    arr.push({ name: t.name, slug: t.slug });
-    tagsByPost.set(t.post_id, arr);
-  }
-
-  const peopleByPost = new Map<string, { name: string; slug: string }[]>();
-  for (const p of personRows) {
-    const arr = peopleByPost.get(p.post_id) || [];
-    arr.push({ name: p.name, slug: p.slug });
-    peopleByPost.set(p.post_id, arr);
-  }
-
-  const postsWithMedia = posts.map((post) => ({
-    ...post,
-    media: (mediaByPost.get(post.id) || []).map((m) => ({
-      id: m.id,
-      type: m.type,
-      url: `${r2PublicUrl}/${m.r2_key}`,
-      // For videos with no thumbnail, return "" — a video URL used as a poster
-      // fails silently and shows black. PhotoGrid skips poster="" cleanly.
-      thumbnailUrl: m.thumbnail_r2_key
-        ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
-        : m.type === "video" ? "" : `${r2PublicUrl}/${m.r2_key}`,
-      width: m.width,
-      height: m.height,
-    })),
-    tags: tagsByPost.get(post.id) || [],
-    people: peopleByPost.get(post.id) || [],
-  }));
+  // Enrich with media/tags/people. "empty" video-thumbnail fallback: a video URL
+  // used as a <video> poster renders black; PhotoGrid skips poster="" cleanly.
+  const postsWithMedia = await attachMediaTagsPeople(posts, {
+    videoThumbnailFallback: "empty",
+  });
 
   return { posts: postsWithMedia, nextCursor };
 }

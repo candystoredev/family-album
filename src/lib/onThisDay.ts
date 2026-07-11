@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { ORDER_KEY_SQL, EFF_DAY_SQL } from "./order";
+import { fetchPostRelations } from "./postAssembly";
 
 export interface OnThisDayMedia {
   id: string;
@@ -35,7 +36,6 @@ export async function getMemoriesForDate(
   limit: number = 3,
   maxPerYear: number = 2
 ): Promise<OnThisDayPost[]> {
-  const r2PublicUrl = process.env.R2_PUBLIC_URL!;
   const mm = String(month).padStart(2, "0");
   const dd = String(day).padStart(2, "0");
 
@@ -81,44 +81,24 @@ export async function getMemoriesForDate(
 
   if (selected.length === 0) return [];
 
-  // Fetch all media for selected posts.
-  const postIds = selected.map((p) => p.id);
-  const placeholders = postIds.map(() => "?").join(",");
-  const mediaResult = await db.execute({
-    sql: `SELECT id, post_id, r2_key, thumbnail_r2_key, type, width, height
-          FROM media
-          WHERE post_id IN (${placeholders})
-          ORDER BY display_order`,
-    args: postIds,
-  });
-
-  const mediaByPostId = new Map<string, OnThisDayMedia[]>();
-  for (const row of mediaResult.rows) {
-    const m = row as unknown as {
-      id: string;
-      post_id: string;
-      r2_key: string;
-      thumbnail_r2_key: string | null;
-      type: string;
-      width: number | null;
-      height: number | null;
-    };
-    const arr = mediaByPostId.get(m.post_id) || [];
-    arr.push({
-      id: m.id,
-      type: m.type,
-      url: `${r2PublicUrl}/${m.r2_key}`,
-      thumbnailUrl: m.thumbnail_r2_key
-        ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
-        : `${r2PublicUrl}/${m.r2_key}`,
-      width: m.width,
-      height: m.height,
-    });
-    mediaByPostId.set(m.post_id, arr);
-  }
+  // Fetch media only (no tags/people). "self" video-thumbnail fallback (video
+  // with no thumbnail → its own url) preserves this surface's behavior.
+  const { mediaByPost } = await fetchPostRelations(
+    selected.map((p) => p.id),
+    { withTags: false, withPeople: false, videoThumbnailFallback: "self" }
+  );
 
   return selected.map((post) => {
-    const media = mediaByPostId.get(post.id) || [];
+    // OnThisDayMedia intentionally omits display_order that the shared builder
+    // adds — strip it back off so this surface's output shape is unchanged.
+    const media: OnThisDayMedia[] = (mediaByPost.get(post.id) || []).map((m) => ({
+      id: m.id,
+      type: m.type,
+      url: m.url,
+      thumbnailUrl: m.thumbnailUrl,
+      width: m.width,
+      height: m.height,
+    }));
     return {
       slug: post.slug,
       title: post.title,
