@@ -8,11 +8,17 @@ Settings page, a gold "keepsake" design pass over the chrome, and unguessable
 On-This-Day share links are all live. The project is its own repo
 (`candystoredev/family-album`) with source at repo-root `src/...`.
 
-**2026-07-09: full app review restructured the roadmap.** See ROADMAP.md. Next
-up: **Phase 11 (Archive Safety)** — automated backups, `npm audit` fixes +
-auth-middleware tests, bank full-res originals, GPS-strip served copies,
-share-link revocation — then **Phase 12 (metadata correctness completion)**,
-then **Phase 10.3 (historical backfill)**, still the centerpiece.
+**2026-07-09: full app review restructured the roadmap.** See ROADMAP.md.
+
+**2026-07-11: Phase 11 (Archive Safety) DONE.** Shipped & merged: 11a automated
+backups (private `thehoecks-backups` bucket + cron + restore drill, verified
+green end-to-end), 11b `npm audit fix` + 40 auth-middleware tests, 11d GPS/EXIF
+strip on served photos + 50 MB upload cap, 11e share-link revocation. **11c
+(bank originals at upload) was deferred** — folded into 10.3d, which now archives
+originals (historical + going-forward) to the private bucket's `originals/`
+prefix during the backfill (see DECISIONS 2026-07-11). Next up: **Phase 12
+(metadata correctness completion)**, then **Phase 10.3 (historical backfill)**,
+still the centerpiece.
 
 ## ⏸ PAUSED — read this first when you come back (2026-06-26, reviewed 2026-07-09)
 
@@ -71,8 +77,11 @@ a future audited "promote" step.
 each push auto-deploys to production).
 
 ## Current Task
-**Roadmap restructured 2026-07-09** (see ROADMAP.md) — next session starts
-**Phase 11a (automated backups)**.
+**Phase 11 (Archive Safety) shipped 2026-07-11** (11a/11b/11d/11e merged; 11c
+deferred → 10.3d). **Next session starts Phase 12 (metadata correctness
+completion)**: 12a archive page → `EFF_DAY`, 12b all date display via
+`formatDisplayDate`, 12c FTS body indexing, 12d feed `Promise.all` + shared
+enrichment fn. See ROADMAP.md.
 
 Prior task, still true: **Phase 10 — Rich Media Metadata & Enrichment** (see
 `docs/rich-metadata-plan.md`). 10.0, 10.1 (a–d), and 10.2 (a–c) all shipped &
@@ -107,6 +116,35 @@ None.
   disagree for posts with corrected capture dates. → Phase 12a.
 
 ## Recent Changes
+
+### 2026-07-11 session — Phase 11 (Archive Safety) shipped
+All merged to `master` and (where verifiable) confirmed. Test suite 69 → 116.
+- **11a Backups (#35, #36):** daily GitHub Actions cron dumps Turso via the
+  turso CLI's native `.dump` → gzip → private `thehoecks-backups` R2 bucket →
+  prune to 30. `scripts/restore-drill.ts` (`npm run restore-drill`, `--self-test`).
+  First real run failed (turso `.dump` needs an `https://` URL, not `libsql://`);
+  fixed in #36 and re-run **green end-to-end**. Tom created the private bucket +
+  6 GitHub secrets.
+- **11b Hardening (#37):** `npm audit fix` 6 vulns→3 (0 high; Next.js
+  middleware-bypass CVEs + `ws` gone; residual 3 upstream-unfixed/dev-only).
+  `tests/auth-middleware.test.ts` — 40 tests driving the real `middleware()`.
+- **11d Serve clean (#38):** removed the `alreadyProcessed` fast path that served
+  raw EXIF/GPS bytes; every served photo now re-encodes via
+  `src/lib/media/process-photo.ts` (strips EXIF). 50 MB upload cap
+  (`MAX_UPLOAD_BYTES`) server-enforced + client pre-check. **Videos not stripped**
+  (no server ffmpeg — documented limitation). `tests/process-photo.test.ts`.
+- **11e Share revocation (#39):** `revoked` on `post_share_links` +
+  `day_share_links` (lazy-ensured); `/share/[token]` + `/m/[token]` reject revoked
+  via `src/lib/shareLinks.ts` `isShareLinkUsable()`; admin `GET/POST
+  /api/admin/share-links` + Settings UI section. No expiry change.
+- **11c DEFERRED → 10.3d:** banking full-res originals at upload would add a
+  private third copy per photo; deferred because originals still live in the
+  family's photo library (10.3 Indexer walks it). 10.3d now archives originals
+  (historical + going-forward) to the private bucket's `originals/` prefix. See
+  DECISIONS 2026-07-11.
+- **Not verified in-sandbox (need prod R2 / a running app):** 11d served-photo
+  GPS strip on a real geotagged upload + the >50 MB 413; 11e revoke→404 flow.
+  Manual checklists in PRs #38/#39. All unit tests + builds pass locally.
 
 ### 2026-07-09 session — full app review + roadmap restructure
 Full four-way review of the whole app (tech debt, security re-verification,

@@ -116,10 +116,11 @@ Beyond the original v1 plan; all live in production. Details in DECISIONS.md / A
 - **Navigation redesign** — serif monogram, compact rows, Albums expand-in-place, classic + **rail** timeline layouts (shared `useTimelineStyle` pref), packed FAB cluster.
 - **Video capture dates** — MP4/MOV container parsing (mvhd + Apple `creationdate` w/ tz offset), full-timestamp ordering; `tests/video-date.test.ts`.
 
-### Next initiative — Phase 11 → 12 → 10.3 (see below)
-Archive Safety (backups + hardening) → metadata-correctness completion → the Phase 10
-historical backfill. Phase 10 (Rich Media Metadata & Enrichment) stays the spine —
-full design in `docs/rich-metadata-plan.md`.
+### Next initiative — Phase 12 → 10.3 (see below)
+~~Phase 11 Archive Safety~~ **DONE** (2026-07-11) → next is **Phase 12** metadata-correctness
+completion → the Phase 10 historical backfill (which now also banks originals, absorbing 11c).
+Phase 10 (Rich Media Metadata & Enrichment) stays the spine — full design in
+`docs/rich-metadata-plan.md`.
 
 ## Up Next
 
@@ -276,7 +277,7 @@ verified on prod.** The correctness core of Phase 10 is complete. Remaining:
   - **10.3a Tool A — Indexer** — osxphotos/filesystem/Takeout/XMP adapters, portable index file, read-only, idempotent, resumable.
   - **10.3b Tool B — Matcher/Applier** — phash match to stored thumbnails, confidence thresholds, applies to new columns only via an authed admin endpoint.
   - **10.3c Review queue** — one `/admin/review` surface with three queues: ambiguous backfill matches + flagged posts (absorbs old 5d-flag) + estimated-date quick-fix (absorbs 10.2c's loose end).
-  - **10.3d Originals archival option in Tool B** — matched local originals → `originals/` prefix (closes the historical half of 11c; Tumblr-era photos regain a full-res source).
+  - **10.3d Originals archival option in Tool B** — matched local originals → private `originals/` prefix (in the `thehoecks-backups` bucket, never served). **Now the home for banking originals generally** (absorbs deferred 11c): archives both historical (Tumblr-era, backfill-matched) AND newly-uploaded originals from the family's photo library, since compression discards the full-res original at upload. Enables future "full-res on zoom" in the lightbox.
   - **10.3e Promote + index** — the audited promote step: with coverage high, order/group by real indexed columns and retire the read-time `COALESCE` hot path (fallback kept for stragglers). Perf note: interim expression indexes were considered and rejected — SQLite can't ALTER-ADD stored generated columns and the scan is milliseconds at current scale.
 - **10.4 Features on banked data (optional)** — map view, dedup warnings,
   auto-trip albums, place/camera/date-range search, quality-ranked teasers.
@@ -305,18 +306,16 @@ then 10.2. Backfill (10.3) and semantic enrichment (10.5) are separate opt-in tr
 
 ---
 
-### Phase 11 — Archive Safety — **NEXT UP**
+### Phase 11 — Archive Safety — **DONE** (11a/11b/11d/11e shipped 2026-07-11; 11c deferred → 10.3d)
 Small; protects everything else.
 
-- **11a Backups** — ~~GitHub Actions cron → `turso db dump` → private R2 prefix (e.g. `backups/`), keep last ~30 daily dumps; document one manual restore drill in ARCHITECTURE.~~ — **DONE** (`.github/workflows/backup.yml` + `npm run restore-drill`; see ARCHITECTURE "Backup Strategy"). **User setup still required**: create the private `thehoecks-backups` R2 bucket and add the GitHub Actions secrets (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BACKUP_BUCKET`) before the workflow can run.
-  - Verify: dump lands in R2 on schedule; app boots locally against a restored scratch DB.
-- **11b Dependency + auth hardening** — `npm audit fix` (Next.js middleware-bypass CVEs matter — all auth is middleware-enforced); add the long-promised auth-middleware tests (viewer/admin/public-path matrix).
-  - Verify: audit clean; tests cover every public path.
-- **11c Bank originals going forward** — upload flows presign a second key and PUT the untouched file to an `originals/` prefix (never served; `original_r2_key` on `media`). Rationale: client compression (1920px JPEG) currently discards full-res originals forever; the original file is the ultimate metadata record; R2 cost trivial.
-- **11d Serve clean, keep raw** — with 11c, the upload-complete "already-processed" fast path (iOS-shortcut/originals path) can re-encode its *served* copy, stripping GPS/EXIF like the edit route already does, with zero information loss. Plus an upload size cap on presign/complete.
-  - Verify: served original of a geotagged upload has no GPS tags; oversized presign rejected.
-- **11e Share-link revocation** — `revoked` flag on both `post_share_links` and `day_share_links` + small admin list/revoke UI. NO auto-expiry — links stay persistent by design (old iMessage links must keep working; upholds the 2026-06 decision).
-  - Verify: revoked `/m/` link 404s; others unaffected.
+- **11a Backups** — ~~GitHub Actions cron → `turso db dump` → private R2 `backups/`, keep last ~30 daily dumps; restore drill.~~ — **DONE & verified 2026-07-11** (`.github/workflows/backup.yml` + `npm run restore-drill`; private `thehoecks-backups` bucket + secrets set up by Tom; first run green end-to-end). See ARCHITECTURE "Backup Strategy".
+- **11b Dependency + auth hardening** — ~~`npm audit fix` + auth-middleware tests.~~ — **DONE** (#37): 6 vulns→3 (0 high; Next.js middleware-bypass CVEs + `ws` resolved); 40 auth-middleware tests (public-path matrix, JWT reject paths, admin gating, bearer path). Residual 3 are upstream-unfixed/dev-only.
+- **11c Bank originals going forward** — **DEFERRED → folded into 10.3d** (2026-07-11). Rationale: banking the untouched full-res original at upload would add a private third copy per photo, but uploaded photos still live in the family's photo library (which the 10.3 Indexer walks), so 10.3d can archive originals during the backfill with no new upload-path risk. If ever built standalone, reuse the private `thehoecks-backups` bucket under an `originals/` prefix — no new bucket. See DECISIONS 2026-07-11.
+- **11d Serve clean, keep raw** — ~~re-encode the served copy to strip GPS/EXIF; upload size cap.~~ — **DONE** (#38): every served `original.jpg` now always re-encodes via `lib/media/process-photo.ts` (`sharp().rotate().jpeg()`, no `withMetadata` → strips EXIF/GPS); the old `alreadyProcessed` fast-path leak is gone. Server-side 50 MB cap (`MAX_UPLOAD_BYTES`) with R2 cleanup + client pre-check. **Video metadata NOT stripped** (would need ffmpeg/transcoding, which the architecture avoids) — documented known limitation.
+  - Verify (manual, needs prod R2): served original of a geotagged upload has no GPS; >50 MB rejected.
+- **11e Share-link revocation** — ~~`revoked` flag on both share tables + admin list/revoke UI.~~ — **DONE** (#39): `revoked` on `post_share_links` + `day_share_links`, lazy-ensured; public `/share/[token]` + `/m/[token]` reject revoked links via shared `isShareLinkUsable()`; admin list/revoke endpoint + Settings UI. NO auto-expiry (links stay persistent by design).
+  - Verify (manual): revoked link 404s/invalid; others unaffected.
 
 ---
 
