@@ -1,0 +1,14 @@
+# Python virtualenv (created locally; not part of the tool)
+.venv/
+venv/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated index files (this tool's output) — never commit user data
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
