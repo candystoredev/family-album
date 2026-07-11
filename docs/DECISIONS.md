@@ -351,6 +351,20 @@ Decision: Retire roadmap Phases 5–8 as written; rewrite Phase 6 (iOS Shortcut)
 Reason: Phase 5 mostly shipped via other routes (`/settings`); 5e/5f/5g (tech-stack page, changelog, admin tabs) add no value over the docs; Phase 7 was a grab-bag (absorbed into 12/14); Phase 8 happened; the documented `POST /api/posts` never existed — the real flow is presign → direct R2 PUT → `/api/admin/upload/complete`, plus the shipped `/api/admin/upload/ingest-fetch` share-to-upload route.
 Impact: ROADMAP restructured to Phases 11–14 around the Phase 10 spine
 
+## 2026-07-11 — Phase 11 shipped; 11c deferred
+
+### 2026-07-11
+Decision: Defer 11c (bank full-res originals at upload); fold "bank originals" into the 10.3d backfill instead
+Reason: Banking the untouched original at upload adds a private THIRD copy per photo (thumb + 1920px served + full-res original), needs its own private storage (the served media bucket is public, so GPS-bearing originals can't live there), and changes the client upload flow in two pages. But newly-uploaded photos still exist at full resolution in the family's photo library, which the 10.3 Indexer already walks — so 10.3d can archive those originals during the backfill with near-zero loss and no upload-path risk. Only a photo deleted from the library before the backfill runs would be missed.
+Alternatives Considered: Build 11c now with a dedicated private `thehoecks-originals` bucket; build 11c now reusing the `thehoecks-backups` bucket under an `originals/` prefix (no new bucket); store originals in the public media bucket (rejected — undermines 11d's GPS strip).
+Impact: Phase 11 completes as 11a/11b/11d/11e; 10.3d becomes the single home for banking originals (historical + going-forward), targeting the private `thehoecks-backups` bucket under `originals/`. Note the backups bucket holds the DB dump, not images — originals would be a separate prefix in the same private bucket.
+
+### 2026-07-11
+Decision: 11d strips EXIF/GPS from the SERVED photo only; videos are left as-is
+Reason: The complete route never downloads video bytes (direct R2 serve, no transcoding — a standing architecture decision), so stripping video-container GPS would require adding server-side ffmpeg. Not worth it for the photo-dominant leak; photos are the concrete exposure (home coordinates in served JPEGs). The served video remaining metadata-bearing is an accepted, documented limitation.
+Alternatives Considered: Add ffmpeg to strip video metadata (rejected — cost/latency, contradicts the no-transcoding decision); block geotagged video uploads (too blunt).
+Impact: `lib/media/process-photo.ts` always re-encodes served photos; a code comment + ROADMAP note record the video limitation for a future ffmpeg-based pass if ever wanted.
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)
