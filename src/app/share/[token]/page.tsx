@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { ensurePostShareSchema } from "@/lib/schema";
+import { isShareLinkUsable } from "@/lib/shareLinks";
 import PostContent from "@/components/PostContent";
 import type { Metadata } from "next";
 
@@ -28,16 +30,24 @@ interface MediaRow {
 async function getSharedPost(token: string) {
   const r2PublicUrl = process.env.R2_PUBLIC_URL!;
 
+  await ensurePostShareSchema();
+
   const linkResult = await db.execute({
-    sql: `SELECT post_id, expires_at FROM post_share_links WHERE token = ? LIMIT 1`,
+    sql: `SELECT post_id, expires_at, revoked FROM post_share_links WHERE token = ? LIMIT 1`,
     args: [token],
   });
 
   if (linkResult.rows.length === 0) return { status: "invalid" as const };
 
-  const link = linkResult.rows[0] as unknown as { post_id: string; expires_at: string | null };
+  const link = linkResult.rows[0] as unknown as {
+    post_id: string;
+    expires_at: string | null;
+    revoked: number | boolean | null;
+  };
 
-  if (link.expires_at && new Date(link.expires_at) < new Date()) {
+  if (link.revoked) return { status: "invalid" as const };
+
+  if (!isShareLinkUsable(link, Date.now())) {
     return { status: "expired" as const };
   }
 

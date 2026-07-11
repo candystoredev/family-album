@@ -501,6 +501,7 @@ function AdminSettings({
   const notifOn = form.daily_notifications_enabled === "1";
 
   return (
+    <>
     <section>
       <h2 className={sectionLabel}>Admin</h2>
       <div className="rounded-[18px] bg-[#1c1a18] border border-[#2b2722] p-5">
@@ -655,6 +656,229 @@ function AdminSettings({
         >
           {saving ? "Saving…" : "Save settings"}
         </button>
+      </div>
+    </section>
+
+    <ShareLinksSection setMessage={setMessage} />
+    </>
+  );
+}
+
+// ─── Share links (Phase 11e) ────────────────────────────────────────────────
+
+interface PostShareLink {
+  token: string;
+  post_id: string;
+  slug: string | null;
+  title: string | null;
+  created_at: string;
+  expires_at: string | null;
+  revoked: number;
+}
+
+interface DayShareLink {
+  token: string;
+  year: number;
+  month: number;
+  day: number;
+  created_at: string;
+  revoked: number;
+}
+
+function formatShareDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function ShareLinkRow({
+  label,
+  path,
+  createdAt,
+  revoked,
+  busy,
+  onRevoke,
+}: {
+  label: string;
+  path: string;
+  createdAt: string;
+  revoked: boolean;
+  busy: boolean;
+  onRevoke: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-3 py-3 border-b border-[#2b2722] last:border-b-0"
+      style={revoked ? { opacity: 0.45 } : undefined}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="text-[15px] font-semibold text-[#e5e0d6] truncate">{label}</div>
+        <div className="text-[12px] text-[#7d7468] mt-0.5 truncate">
+          {path} · {formatShareDate(createdAt)}
+        </div>
+      </div>
+      {revoked ? (
+        <span className="flex-none text-[11px] font-bold tracking-[0.1em] uppercase text-[#8a7d6a]">
+          Revoked
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onRevoke}
+          disabled={busy}
+          className="flex-none min-h-[36px] px-4 rounded-[10px] text-[13px] font-semibold text-[#d98a87] border border-[rgba(217,101,95,0.35)] transition-colors hover:bg-[rgba(217,101,95,0.08)] disabled:opacity-50"
+        >
+          Revoke
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ShareLinksSection({ setMessage }: { setMessage: (m: string | null) => void }) {
+  const [postLinks, setPostLinks] = useState<PostShareLink[]>([]);
+  const [dayLinks, setDayLinks] = useState<DayShareLink[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [revokingToken, setRevokingToken] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/share-links");
+      if (!res.ok) throw new Error("load failed");
+      const data = await res.json();
+      setPostLinks(data.postLinks ?? []);
+      setDayLinks(data.dayLinks ?? []);
+    } catch {
+      setMessage("Couldn't load share links.");
+    } finally {
+      setLoading(false);
+    }
+  }, [setMessage]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function revoke(type: "post" | "day", token: string) {
+    setRevokingToken(token);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/share-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, token }),
+      });
+      if (!res.ok) throw new Error("revoke failed");
+      // Optimistic update — avoids a full reload for a single flag flip.
+      if (type === "post") {
+        setPostLinks((links) => links.map((l) => (l.token === token ? { ...l, revoked: 1 } : l)));
+      } else {
+        setDayLinks((links) => links.map((l) => (l.token === token ? { ...l, revoked: 1 } : l)));
+      }
+      setMessage("Link revoked.");
+    } catch {
+      setMessage("Couldn't revoke link — try again.");
+    } finally {
+      setRevokingToken(null);
+    }
+  }
+
+  function postLabel(l: PostShareLink): string {
+    return l.title || l.slug || `/share/${l.token.slice(0, 8)}…`;
+  }
+
+  function dayShareLabel(l: DayShareLink): string {
+    const mm = String(l.month).padStart(2, "0");
+    const dd = String(l.day).padStart(2, "0");
+    return `On this day — ${l.year}-${mm}-${dd}`;
+  }
+
+  const activePostLinks = postLinks.filter((l) => !l.revoked);
+  const revokedPostLinks = postLinks.filter((l) => l.revoked);
+  const activeDayLinks = dayLinks.filter((l) => !l.revoked);
+  const revokedDayLinks = dayLinks.filter((l) => l.revoked);
+  const hasAnyLinks = postLinks.length > 0 || dayLinks.length > 0;
+  const hasActiveLinks = activePostLinks.length > 0 || activeDayLinks.length > 0;
+  const hasRevokedLinks = revokedPostLinks.length > 0 || revokedDayLinks.length > 0;
+
+  return (
+    <section className="mt-9">
+      <h2 className={sectionLabel}>Share links</h2>
+      <div className="rounded-[18px] bg-[#1c1a18] border border-[#2b2722] p-5">
+        {loading ? (
+          <p className="text-[13px] text-[#7d7468]">Loading…</p>
+        ) : !hasAnyLinks ? (
+          <p className="text-[13px] text-[#7d7468]">No share links yet.</p>
+        ) : (
+          <>
+            {hasActiveLinks ? (
+              <div>
+                {activePostLinks.map((l) => (
+                  <ShareLinkRow
+                    key={`post-${l.token}`}
+                    label={postLabel(l)}
+                    path={`/share/${l.token.slice(0, 8)}…`}
+                    createdAt={l.created_at}
+                    revoked={false}
+                    busy={revokingToken === l.token}
+                    onRevoke={() => revoke("post", l.token)}
+                  />
+                ))}
+                {activeDayLinks.map((l) => (
+                  <ShareLinkRow
+                    key={`day-${l.token}`}
+                    label={dayShareLabel(l)}
+                    path={`/m/${l.token.slice(0, 8)}…`}
+                    createdAt={l.created_at}
+                    revoked={false}
+                    busy={revokingToken === l.token}
+                    onRevoke={() => revoke("day", l.token)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-[13px] text-[#7d7468]">No active links.</p>
+            )}
+
+            {hasRevokedLinks && (
+              <>
+                <div className="h-px bg-[#2b2722] my-3" />
+                <p className="text-xs font-bold tracking-[0.1em] uppercase text-[#8a8378] mb-1">
+                  Revoked
+                </p>
+                {revokedPostLinks.map((l) => (
+                  <ShareLinkRow
+                    key={`post-${l.token}`}
+                    label={postLabel(l)}
+                    path={`/share/${l.token.slice(0, 8)}…`}
+                    createdAt={l.created_at}
+                    revoked={true}
+                    busy={false}
+                    onRevoke={() => {}}
+                  />
+                ))}
+                {revokedDayLinks.map((l) => (
+                  <ShareLinkRow
+                    key={`day-${l.token}`}
+                    label={dayShareLabel(l)}
+                    path={`/m/${l.token.slice(0, 8)}…`}
+                    createdAt={l.created_at}
+                    revoked={true}
+                    busy={false}
+                    onRevoke={() => {}}
+                  />
+                ))}
+              </>
+            )}
+          </>
+        )}
       </div>
     </section>
   );
