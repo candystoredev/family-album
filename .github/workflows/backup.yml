@@ -22,14 +22,15 @@ jobs:
         run: curl -sSfL https://get.tur.so/install.sh | bash
 
       - name: Dump database
-        # NOTE: this exact invocation (raw-URL form, so no separate Turso
-        # platform token is needed) has not been exercised on a real Actions
-        # run yet — confirm it works on the first scheduled/manual run and
-        # adjust if the turso CLI's shell/dump syntax has changed.
         run: |
           set -euo pipefail
           export PATH="$HOME/.turso:$PATH"
-          turso db shell "$TURSO_DATABASE_URL?authToken=$TURSO_AUTH_TOKEN" ".dump" > dump.sql
+          # `turso db shell ... .dump` issues an HTTP GET to <url>/dump, which
+          # requires an http(s):// scheme — a libsql:// URL is rejected with
+          # "unsupported protocol scheme libsql". Swap the scheme to https://;
+          # the ?authToken= query still authenticates (no platform token needed).
+          DUMP_URL=$(printf '%s' "$TURSO_DATABASE_URL" | sed 's#^libsql://#https://#')
+          turso db shell "$DUMP_URL?authToken=$TURSO_AUTH_TOKEN" ".dump" > dump.sql
 
           # Guard: a backup job must never silently upload a truncated/empty
           # file. Fail loudly instead.
