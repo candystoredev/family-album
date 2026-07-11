@@ -81,8 +81,22 @@ each push auto-deploys to production).
 11a/11b/11d/11e merged; 11c deferred → 10.3d. Phase 12 (metadata correctness):
 12a archive→`EFF_DAY` (#42), 12b date display via `formatDisplayDate` (#42), 12c
 FTS body indexing (#41), 12d feed `postAssembly` unify + `/api/feed` parallelize
-(#43). **Next session starts Phase 10.3 (historical backfill — the centerpiece;
-now also banks originals).** See ROADMAP.md + docs/rich-metadata-plan.md.
+(#43).
+
+**Phase 10.3 (historical backfill) is PARKED — waiting on Tom, not code.** It
+needs the source photo files gathered across several computers/apps; Tom is
+traveling and can't organize them yet. This is a data-gathering blocker, not an
+engineering one — do NOT start building 10.3 until the sources are mapped. Prep
+checklist (fill in opportunistically): **[docs/backfill-prep.md](backfill-prep.md)**.
+When the sources are mapped, resume with 10.3a (Indexer). See ROADMAP.md +
+docs/rich-metadata-plan.md.
+
+**Meanwhile, active track = Phase 13 (debt paydown)** — self-contained code
+cleanup, no user files/infra needed (edit-page shared `compressImage`/HEIC fix +
+`MetadataFields`; delete dead `invite_links`; SeedButton out of prod + seed logic
+→ scripts; drop `@types/sharp`; dedupe `slugify`; collapse `ensure*Schema` into
+one `PRAGMA user_version`; security hygiene leftovers). Then parts of Phase 14
+that need no originals (SW caching, a11y, On-This-Day→SSR).
 
 **Post-deploy TODO (Tom):** run one `POST /api/init` (admin bearer) to rebuild
 FTS so historical bodies erased by prior edits get re-indexed (12c). Then smoke
