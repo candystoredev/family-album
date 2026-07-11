@@ -20,7 +20,7 @@ Private family photo album replacing a Tumblr blog at thehoecks.com (~15 years, 
 
 ### Improvements Over Tumblr
 - Self-hosted (no platform dependency)
-- Privacy controls (auth, invite links)
+- Privacy controls (auth, share links)
 - Direct iPhone upload via iOS Shortcut
 - Album/gallery grouping beyond tags
 - FTS5 search
@@ -42,22 +42,27 @@ Private family photo album replacing a Tumblr blog at thehoecks.com (~15 years, 
 
 #### R2 Key Convention
 ```
-media/{media_id}/original.{ext}   — full-size original
-media/{media_id}/thumb.{ext}      — optimized thumbnail for feed
+media/{media_id}/original.{ext}      — full-size original (served)
+media/{media_id}/thumb.{ext}         — optimized thumbnail for feed
+originals/{media_id}/original.{ext}  — planned (Phase 11c): untouched full-res original, private, never served
 ```
 Extensible: future variants added as sibling files without schema changes.
+
+Backups (`backups/thehoecks-YYYY-MM-DD.sql.gz`) do **not** live under this bucket —
+they're in a separate private bucket, `thehoecks-backups`. See "Backup Strategy" below.
 
 ### Database (Turso / SQLite)
 - **Turso** free Starter plan with FTS5 full-text search
 - FTS5 standalone table (`posts_fts`) — not external content mode, synced at application level
 - Indexed fields: `post_id` (unindexed key), `title`, `body`, `tags` (space-separated names), `people` (space-separated names)
 - `rebuildFtsIndex()` rebuilds from `posts` + `post_tags`/`tags` + `post_people`/`people` joins
-- Rebuild triggered by `POST /api/init`; future: also after post create/update/delete
+- Incremental sync exists on create/edit/delete: upload complete inserts a row; editing a post (`PUT`) deletes + reinserts; deleting a post removes the row. **Caveat (until Phase 12c)**: incremental writes index `body` as an empty string — only a full `rebuildFtsIndex()` backfills real body text.
+- Full rebuild still triggered by `POST /api/init` (used for backfill/repair, not just first-run init)
 
 ### Authentication & Access Control
-- **Viewer access (two paths)**:
-  1. **Invite link**: `/invite/[token]` — auto-sets session cookie, no password needed. Admin can label, expire, revoke.
-  2. **Shared password**: Admin-changeable from settings page. Stored as bcrypt hash in `site_settings`.
+- **Viewer access**: Shared password. Admin-changeable from settings page. Stored as bcrypt hash in `site_settings`.
+- **Public read-only access**: Unguessable share links — `/share/[token]` per-post (30-day expiry) and `/m/[token]` per-day (persistent). No login required.
+  (Invite links were planned but never built; cut 2026-07-09 — see DECISIONS.)
 - **Admin access**: Separate admin password (env var). Gates admin panel + settings.
 - **API/iOS**: Bearer token (`ADMIN_API_TOKEN`) for iOS Shortcut uploads
 - All browsing routes protected by default
@@ -71,13 +76,13 @@ Client request → Middleware (JWT check) → Next.js API → Turso query → R2
 ```
 
 ### Upload Flow (Admin Panel / iOS Shortcut)
-1. Client requests presigned upload URL(s) from API
-2. Client uploads original directly to R2 via presigned URL
-3. Client calls `POST /api/posts` with metadata + R2 keys
-4. API route fetches original from R2, generates thumbnail via `sharp`, uploads thumbnail to R2
-5. API saves post record with both R2 keys
+1. Client calls `POST /api/admin/upload/presign` → presigned R2 PUT URL(s)
+2. Client uploads (PUTs) the file(s) directly to R2
+3. Client calls `POST /api/admin/upload/complete` with metadata + R2 keys — server re-encodes/generates thumbnails via `sharp`, writes the post + media records, and syncs FTS
 
-Step 4 constraints: R2 → Vercel fetch is fast (Cloudflare network), `sharp` resizes typical iPhone photo (3-8MB) in <1 second, thumbnail upload (~100KB) near-instant. Within Vercel 10-second function timeout. For unusually large files, the API can stream the download rather than buffering the full file.
+(There is no `POST /api/posts` — that route never existed. The real flow is presign → direct R2 PUT → `/api/admin/upload/complete`.)
+
+Step 3 constraints: R2 → Vercel fetch is fast (Cloudflare network), `sharp` resizes typical iPhone photo (3-8MB) in <1 second, thumbnail upload (~100KB) near-instant. Within Vercel 10-second function timeout. For unusually large files, the API can stream the download rather than buffering the full file.
 
 ### Video Handling
 - **Migration**: `ffmpeg` locally extracts poster frame
@@ -145,11 +150,13 @@ Step 4 constraints: R2 → Vercel fetch is fast (Cloudflare network), `sharp` re
 ### iOS Shortcut
 1. Select photos/videos → Share → "Post to Family Album"
 2. Mini form: title (optional), tags, people
-3. `GET /api/presigned-upload` (Bearer token auth) → presigned R2 URL per file
+3. `POST /api/admin/upload/presign` (Bearer token auth) → presigned R2 PUT URL per file
 4. Upload each file directly to R2
-5. `POST /api/posts` with metadata + media keys
-6. Server generates thumbnails; continues in background if user switches apps
+5. `POST /api/admin/upload/complete` with metadata + R2 keys
+6. Server re-encodes/generates thumbnails via `sharp`; continues in background if user switches apps
 7. EXIF date extracted → pre-fills post date
+
+**Share-to-upload** (shipped): sharing photos/videos into the Shortcut from another app presigns and PUTs directly to R2, then opens `/admin/upload?ingest=…` in the browser — backed by `POST /api/admin/upload/ingest-fetch`, which pulls the R2 object(s) into the normal upload-review flow.
 
 ### Privacy & Crawler Blocking (3 layers)
 1. `robots.txt`: Blocks well-behaved crawlers from entire site
@@ -223,7 +230,7 @@ albums
 
 post_albums (junction: post_id, album_id)
 
-invite_links
+invite_links                  -- dead, never used; dropped in Phase 13
 ├── id (PK, nanoid)
 ├── token (unique, random)
 ├── label (optional, e.g., "Grandma's link")
@@ -385,6 +392,18 @@ until the 10.3 backfill.
 `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`. `NEXT_PUBLIC_SITE_URL`
 canonical is `https://thehoecks.com`.
 
+### Additions (2026-07)
+Shipped but previously undocumented:
+- `/favorites` page + `POST /api/favorites` — session-gated per-user favorites
+- `/share/[token]` — public single-post share links, backed by `post_share_links` +
+  `POST /api/admin/share` (admin mint, 30-day expiry)
+- `/api/version` — build SHA surfaced in the nav
+- `/api/admin/upload/ingest-fetch` — share-to-upload R2 proxy (see iOS Shortcut)
+- Photo cropping on the edit page (PR #28, 2026-07-07) — server-side `sharp` crop;
+  re-encodes and strips ALL EXIF from the served file, since capture data already
+  lives in the DB
+- PWA refresh/back controls (PRs #31–33)
+
 ## Constraints
 
 - Vercel free tier: 10-second function timeout, 4.5MB body limit (bypassed via presigned R2 URLs), 1,000 image optimizations/month (bypassed via pre-generated thumbnails)
@@ -417,7 +436,7 @@ R2_PUBLIC_URL              = https://pub-[hash].r2.dev
 JWT_SECRET                 = [random 32+ char string]
 ADMIN_API_TOKEN            = [random 32+ char string]
 ADMIN_PASSWORD             = [random string]
-NEXT_PUBLIC_SITE_URL       = https://dev.thehoecks.com
+NEXT_PUBLIC_SITE_URL       = https://thehoecks.com
 ```
 
 ### Operational Settings (DB `site_settings`, admin-changeable)
@@ -428,9 +447,9 @@ NEXT_PUBLIC_SITE_URL       = https://dev.thehoecks.com
 
 ### Setup Steps
 
-**Vercel**: Import GitHub repo `tom-playground` → Root Directory: `apps/thehoecks` → Framework: Next.js
-- Production: `dev.thehoecks.com` mapped to master branch (old Tumblr site still on `www.thehoecks.com`)
-- Future: `thehoecks.com` will point here at go-live (Phase 8)
+**Vercel**: Import GitHub repo `candystoredev/family-album` → Root Directory: `/` (repo root) → Framework: Next.js
+- Production: `thehoecks.com` mapped to `master` branch
+- (Historical: launched on `dev.thehoecks.com` while the old Tumblr site held `www.thehoecks.com`; `thehoecks.com` now points here.)
 
 **Cloudflare R2**: Create bucket `thehoecks-media` → enable public access → create R2 API token (read + write)
 - **CORS Policy** (required for browser uploads): In Cloudflare dashboard → R2 → bucket → Settings → CORS Policy, add a policy allowing `PUT` from all site origins. If the site domain changes, this must be updated or uploads will silently fail with a "Network error".
@@ -451,7 +470,34 @@ NEXT_PUBLIC_SITE_URL       = https://dev.thehoecks.com
 
 ### Backup Strategy
 - **Baseline**: `turso db dump` immediately after migration — known-good snapshot
-- **Ongoing**: Periodic `turso db dump` — manual monthly reminder for v1; automated cron in V2 backlog
+- **Ongoing (Phase 11a — built)**: `.github/workflows/backup.yml` runs daily (04:00 UTC,
+  plus manual `workflow_dispatch`). It installs the turso CLI, runs
+  `turso db shell "$TURSO_DATABASE_URL?authToken=$TURSO_AUTH_TOKEN" ".dump"` (the raw-URL
+  form needs no separate Turso platform token), validates the dump is non-empty and
+  contains `CREATE TABLE` (fails loudly otherwise — a truncated silent upload is worse
+  than no backup), gzips it, and uploads to a **separate, PRIVATE** R2 bucket,
+  `thehoecks-backups` (public access OFF) — **backups must never go in the public
+  `thehoecks-media` bucket**. Key: `backups/thehoecks-YYYY-MM-DD.sql.gz`.
+  `.dump` is used (not a hand-rolled row export) because it's the only thing that
+  correctly serializes the `embedding` BLOB column and the `posts_fts` FTS5 virtual
+  table. After upload, the workflow prunes the bucket to the most recent 30 dumps.
+- **Restore drill**: `npm run restore-drill` downloads the latest backup (or takes
+  `--file <path>` for a local `.sql`/`.sql.gz`), restores it into a throwaway local
+  SQLite file via `@libsql/client`, and checks: `posts`/`media` tables exist and have
+  rows, `posts_fts` is present, and an FTS `MATCH` query runs cleanly. Run
+  `npm run restore-drill -- --self-test` to exercise the same restore/verify logic
+  against a generated fixture with no prod credentials.
+- **Restore procedure (runbook)**: gunzip the chosen `backups/*.sql.gz`, load it into a
+  fresh Turso DB (`turso db shell "$URL?authToken=$TOKEN" < dump.sql`), repoint
+  `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`, then **run `POST /api/init` to rebuild the FTS
+  index** rather than trusting the dumped index — `posts_fts` is derived data and its
+  restore fidelity from a `.dump` is version-dependent, whereas `rebuildFtsIndex()`
+  reconstructs it deterministically from `posts`/`post_tags`/`post_people`. Everything
+  that matters (posts, media, tags, people, junctions, `site_settings`) is source-of-truth
+  in the dump; the FTS index is the one thing you rebuild afterward.
+- **Required GitHub Actions secrets** (repo Settings → Secrets → Actions):
+  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+  `R2_SECRET_ACCESS_KEY`, `R2_BACKUP_BUCKET` (= `thehoecks-backups`).
 - R2 media is durable (Cloudflare infrastructure); database is single point of failure
 - Store dumps locally and/or in R2
 

@@ -5,14 +5,16 @@ Live in production, auto-deployed from `master` via Vercel (project `thehoecks`,
 canonical `thehoecks.com`). Tumblr migration completed 2026-03-07. Beyond the
 original v1: an installable iOS PWA, daily "On this day" push notifications, a
 Settings page, a gold "keepsake" design pass over the chrome, and unguessable
-On-This-Day share links are all live.
+On-This-Day share links are all live. The project is its own repo
+(`candystoredev/family-album`) with source at repo-root `src/...`.
 
-> **Repo move:** the project is now its own repo (`candystoredev/family-album`)
-> with source at repo-root `src/...`. The `apps/thehoecks/` prefix throughout the
-> older "Relevant Files" / "Recent Changes" entries below is historical — read it
-> as `src/...`.
+**2026-07-09: full app review restructured the roadmap.** See ROADMAP.md. Next
+up: **Phase 11 (Archive Safety)** — automated backups, `npm audit` fixes +
+auth-middleware tests, bank full-res originals, GPS-strip served copies,
+share-link revocation — then **Phase 12 (metadata correctness completion)**,
+then **Phase 10.3 (historical backfill)**, still the centerpiece.
 
-## ⏸ PAUSED — read this first when you come back (2026-06-26)
+## ⏸ PAUSED — read this first when you come back (2026-06-26, reviewed 2026-07-09)
 
 Taking a few weeks off mid–**Phase 10 (Rich Media Metadata & Enrichment)**. Full
 design: [`docs/rich-metadata-plan.md`](rich-metadata-plan.md). Status table in
@@ -40,13 +42,17 @@ re-runnable.**
   No production data was mutated — reads use a read-time `COALESCE` fallback, so
   historical posts (which have no new columns yet) keep their exact prior order.
 
-**WHERE TO RESUME — pick one (none is urgent):**
-1. **10.3 Historical backfill** — *the big payoff.* Phash-match the album's
-   re-encoded thumbnails to your local original files (Apple Photos via
-   `osxphotos`, Dropbox, folders) on a Claude-less machine, then apply real
-   capture dates / GPS / faces to the thousands of historical posts that are
-   currently `NULL`. Separate two-tool design (Indexer + Matcher/Applier) already
-   spec'd in the plan doc. This is what makes 10.1/10.2 pay off for old content.
+**WHERE TO RESUME — updated 2026-07-09 per restructured ROADMAP.md: Phase 11 →
+Phase 12 → Phase 10.3.**
+1. **Phase 11 (Archive Safety) then Phase 12 (metadata correctness completion)
+   come first — both small.** Then **10.3 Historical backfill** — still *the big
+   payoff*. Phash-match the album's re-encoded thumbnails to your local original
+   files (Apple Photos via `osxphotos`, Dropbox, folders) on a Claude-less
+   machine, then apply real capture dates / GPS / faces to the thousands of
+   historical posts that are currently `NULL`. Separate two-tool design (Indexer
+   + Matcher/Applier) already spec'd in the plan doc; now expanded to sub-phases
+   10.3a–e (adds review-queue merge, originals archival, post-backfill promote
+   step) — see ROADMAP.md. This is what makes 10.1/10.2 pay off for old content.
 2. **10.1e Async enrichment queue + Railway worker** — deferred on purpose: its
    ML backends (faces/scene/caption/embedding) are stubs until **10.5**, so build
    the two together or not yet.
@@ -65,7 +71,10 @@ a future audited "promote" step.
 each push auto-deploys to production).
 
 ## Current Task
-**Phase 10 — Rich Media Metadata & Enrichment** (see ROADMAP.md +
+**Roadmap restructured 2026-07-09** (see ROADMAP.md) — next session starts
+**Phase 11a (automated backups)**.
+
+Prior task, still true: **Phase 10 — Rich Media Metadata & Enrichment** (see
 `docs/rich-metadata-plan.md`). 10.0, 10.1 (a–d), and 10.2 (a–c) all shipped &
 verified on prod.
 - **10.0 (schema) — DONE**, deployed + `/api/init` run on prod 2026-06-25.
@@ -85,17 +94,52 @@ verified on prod.
 None.
 
 ## Known Issues
-- Docs (DECISIONS/ROADMAP) predate the standalone-repo move; paths reference
-  `apps/thehoecks/` — actual paths are `src/...`. (ARCHITECTURE updated.)
+- A couple of historical mentions of `apps/thehoecks/` remain in older docs'
+  completed/decision entries (ROADMAP/DECISIONS) — kept for history, not
+  current paths. STATE.md itself is now fully corrected to `src/...`.
 - New columns are populated only for posts uploaded since 10.1 (a handful);
   historical/migrated content is `NULL` until the 10.3 backfill. Reads handle
   this via `COALESCE` fallback, so the feed is correct either way.
+- **FTS `body` not searchable for posts created since the last rebuild** —
+  incremental indexing on new posts never wired up. → Phase 12c.
+- **Archive page vs archive API grouping disagreement** — archive page still
+  groups by legacy `posts.date`, archive API uses effective `EFF_DAY`; they can
+  disagree for posts with corrected capture dates. → Phase 12a.
 
 ## Recent Changes
 
+### 2026-07-09 session — full app review + roadmap restructure
+Full four-way review of the whole app (tech debt, security re-verification,
+performance, docs-vs-code drift) — no code changes beyond docs; all 69 tests
+pass.
+- **Roadmap restructured:** Phases 5–8 retired/absorbed; new **Phases 11–14**
+  added; **Phase 10.3 expanded to 10.3a–e** (adds review-queue merge, originals
+  archival, post-backfill promote step). Full rationale in ROADMAP.md +
+  DECISIONS.md 2026-07-09 entries.
+- **Security re-verification:** `sw.js` off-origin navigation is **FIXED** (URL
+  re-based to origin — the old Phase 3 item is stale); `/posts/[slug]` in-page
+  session gating confirmed working as designed; remaining open items re-homed to
+  Phases 11d/11e/13. `npm audit` currently: **3 high** (Next.js
+  middleware-bypass class CVEs + `ws`) → Phase 11b.
+- **Key review findings driving the new plan:**
+  - Full-res originals are discarded at upload (client compresses to 1920px
+    before R2) → bank originals (Phase 11c / 10.3d).
+  - FTS `body` never indexed incrementally — search gap → Phase 12c.
+  - Archive page still groups by legacy date while archive API uses `EFF_DAY`
+    (they can disagree) → Phase 12a.
+  - ~6 date-display sites bypass `formatDisplayDate` → Phase 12b.
+  - Edit page's private `compressImage` lacks HEIC support (real bug) → Phase 13.
+  - `invite_links` confirmed dead → delete in Phase 13.
+  - Feed images intentionally stay full-size (pinch-zoom detail valued; R2
+    egress is free) — srcset only if needed later → Phase 14.
+- **Also merged this week** (unrelated to the review, see 2026-07-06 entry for
+  detail): PR #31 (2026-07-09), PR #32 (2026-07-09), PR #33 (2026-07-09); PR #28
+  merged 2026-07-07.
+
 ### 2026-07-06 session — notifications hardening + Security Phase 1 (parallel track, not Phase 10)
 A batch of fixes on top of the daily-notifications feature, then a full security
-audit + first hardening pass. All merged to `master` and live except the crop PR.
+audit + first hardening pass. All merged to `master` and live, including the
+crop PR (merged 2026-07-07 — see below).
 - **Notifications fixes:** manual "Send today's memory now" 401 fixed (daily
   endpoint now also accepts an admin session, not just the cron bearer);
   emojis removed from notification titles; **scheduling made reliable** — the
@@ -135,25 +179,37 @@ audit + first hardening pass. All merged to `master` and live except the crop PR
   (needs login + the sandbox proxy blocks headless Chromium) — recommend a manual
   console glance on home/post/**upload** (the R2 PUT under CSP).
 
-**DEFERRED / OPEN from this session:**
-- **PR #28 — Add photo cropping to the edit page: OPEN, not merged.** Server-side
-  `sharp` crop-on-Save with `withMetadata` (preserves EXIF). ⚠️ **Conflicts with
-  Security Phase 2 finding #4 (strip GPS from public images)** — reconcile
-  (strip GPS specifically while keeping other EXIF + DB metadata) before merging.
-- **Security Phase 2 (privacy & integrity):** strip GPS/EXIF from publicly-served
+**DEFERRED / OPEN from this session — updated 2026-07-09:**
+- **PR #28 — Add photo cropping to the edit page: MERGED 2026-07-07.** Server-side
+  `sharp` crop-on-Save. ✓ **GPS conflict resolved correctly** — as merged, the
+  crop path re-encodes and strips *all* EXIF (sharp's default without
+  `withMetadata`, documented in the route; the PR's original preserve-EXIF
+  approach was dropped), so cropped images carry no GPS.
+- **Also merged since (2026-07-09):** PR #31 "Show edits after save; add PWA
+  refresh + back controls"; PR #32 "Move Refresh from the nav sidebar to the FAB
+  cluster"; PR #33 "Fix stale feed after editing a post: navigate forward, not
+  back."
+- **`/posts/[slug]` in-page session gating** (Security Phase 1) — re-verified
+  2026-07-09, confirmed working as designed. No further action.
+- **Security Phase 2 (privacy & integrity)** — items now live in ROADMAP Phases
+  11d + 13. Kept here for history: strip GPS/EXIF from publicly-served
   originals *and videos* (upload `complete` "already-processed" fast path serves
   raw bytes with EXIF intact — `complete/route.ts`, `lib/media/compress.ts`);
   lengthen R2 key entropy (`nanoid(4)`→21 in `presign`); validate client-supplied
   `r2Key`/`keyPrefix` in `upload/complete` + posts `PUT` (arbitrary bucket
   read/write); sanitize post `body` (DOMPurify) at the 4 `dangerouslySetInnerHTML`
   sites.
-- **Security Phase 3 (hygiene):** session revocation (`tokenVersion` epoch,
+- **Security Phase 3 (hygiene)** — items now live in ROADMAP Phases 11b (`npm
+  audit`), 11d (size cap), 11e (share-link revocation) + 13. Kept here for
+  history: session revocation (`tokenVersion` epoch,
   shorter expiry) — 90-day JWTs currently unrevocable; share-link revocation +
   expiry (`post_share_links` no revoke, `day_share_links` never expire);
   push-subscribe SSRF allow-list (`endpoint` is an unvalidated URL the cron POSTs
   to); `npm audit fix` (Next/`ws`/`postcss`); remove/implement dead `invite_links`
-  table; upload size cap; CSP nonce (drop `'unsafe-inline'` scripts); constrain
-  `sw.js` nav to same-origin; stop echoing `String(error)` to clients.
+  table; upload size cap; CSP nonce (drop `'unsafe-inline'` scripts); ~~constrain
+  `sw.js` nav to same-origin~~ — ✓ already fixed (URL re-based to origin;
+  verified 2026-07-09, the old Phase 3 item is stale); stop echoing
+  `String(error)` to clients.
 
 ### 2026-06-25 session — Phase 10.0 + 10.1(a–d) + 10.2(a–c)
 - **10.0** additive rich-metadata schema (media + posts columns,
@@ -264,46 +320,46 @@ audit + first hardening pass. All merged to `master` and live except the crop PR
 - Post detail page simplified to permalink-only (OG tags for link previews)
 
 ## Relevant Files
-- `apps/thehoecks/src/app/admin/posts/[postId]/edit/page.tsx` — edit page: pre-populated form, manage existing+new media, drag-reorder, delete post
-- `apps/thehoecks/src/app/api/admin/posts/[postId]/route.ts` — GET (post data for edit form), PUT (save edits), DELETE (post + R2 cleanup)
-- `apps/thehoecks/src/app/admin/upload/page.tsx` — multi-file upload page with drag-reorder, tag/people/album pickers, video poster capture
-- `apps/thehoecks/src/app/api/admin/upload/presign/route.ts` — presigned URL generation (photos + videos)
-- `apps/thehoecks/src/app/api/admin/upload/complete/route.ts` — multi-file processing, tag/people/album assignment, FTS update
-- `apps/thehoecks/src/app/api/admin/tags/route.ts` — tag autocomplete API
-- `apps/thehoecks/src/app/api/admin/people/route.ts` — people autocomplete API
-- `apps/thehoecks/src/app/api/admin/albums/route.ts` — album autocomplete API
-- `apps/thehoecks/src/app/page.tsx` — home feed (SSR first page)
-- `apps/thehoecks/src/components/Feed.tsx` — infinite scroll client component with tag/people links
-- `apps/thehoecks/src/app/api/feed/route.ts` — cursor-based feed API with filter support
-- `apps/thehoecks/src/lib/feed.ts` — shared server-side feed fetching logic
-- `apps/thehoecks/src/app/tags/[slug]/page.tsx` — tag filtered page
-- `apps/thehoecks/src/app/people/[slug]/page.tsx` — person filtered page
-- `apps/thehoecks/src/app/albums/[slug]/page.tsx` — album filtered page
-- `apps/thehoecks/src/app/archive/page.tsx` — archive index (year/month grid)
-- `apps/thehoecks/src/app/archive/[year]/[month]/page.tsx` — month page (oldest-first)
-- `apps/thehoecks/src/app/api/archive/route.ts` — archive API (years/months/counts + albums)
-- `apps/thehoecks/src/components/ArchiveMenu.tsx` — floating menu button + slide-out panel + search
-- `apps/thehoecks/src/app/api/search/route.ts` — FTS5 search API
-- `apps/thehoecks/src/app/search/page.tsx` — search results page (server wrapper)
-- `apps/thehoecks/src/app/search/SearchResults.tsx` — search results client component
-- `apps/thehoecks/tests/cursor-pagination.test.ts` — cursor pagination tests
-- `apps/thehoecks/src/app/login/page.tsx` — login page
-- `apps/thehoecks/src/middleware.ts` — auth middleware
-- `apps/thehoecks/src/lib/auth.ts` — session/JWT/password logic
-- `apps/thehoecks/src/lib/db.ts` — Turso client
-- `apps/thehoecks/src/lib/r2.ts` — R2 upload/delete
-- `apps/thehoecks/src/lib/schema.ts` — all table definitions + FTS5
-- `apps/thehoecks/src/app/posts/[slug]/page.tsx` — individual post page with OG tags
-- `apps/thehoecks/src/components/PhotoGrid.tsx` — multi-photo grid + layout parser
-- `apps/thehoecks/src/components/Lightbox.tsx` — fullscreen image viewer with swipe
-- `apps/thehoecks/src/components/LogoutButton.tsx` — logout UI
-- `apps/thehoecks/src/components/SeedButton.tsx` — seed test data UI
-- `apps/thehoecks/src/app/api/init/route.ts` — schema init + settings seed
-- `apps/thehoecks/src/app/api/seed/route.ts` — test data seeder (25 posts)
-- `apps/thehoecks/src/app/api/auth/login/route.ts` — login endpoint
-- `apps/thehoecks/src/app/api/auth/logout/route.ts` — logout endpoint
-- `apps/thehoecks/src/app/robots.txt/route.ts` — crawler blocking
-- `apps/thehoecks/scripts/migrate.ts` — Tumblr migration script
+- `src/app/admin/posts/[postId]/edit/page.tsx` — edit page: pre-populated form, manage existing+new media, drag-reorder, delete post
+- `src/app/api/admin/posts/[postId]/route.ts` — GET (post data for edit form), PUT (save edits), DELETE (post + R2 cleanup)
+- `src/app/admin/upload/page.tsx` — multi-file upload page with drag-reorder, tag/people/album pickers, video poster capture
+- `src/app/api/admin/upload/presign/route.ts` — presigned URL generation (photos + videos)
+- `src/app/api/admin/upload/complete/route.ts` — multi-file processing, tag/people/album assignment, FTS update
+- `src/app/api/admin/tags/route.ts` — tag autocomplete API
+- `src/app/api/admin/people/route.ts` — people autocomplete API
+- `src/app/api/admin/albums/route.ts` — album autocomplete API
+- `src/app/page.tsx` — home feed (SSR first page)
+- `src/components/Feed.tsx` — infinite scroll client component with tag/people links
+- `src/app/api/feed/route.ts` — cursor-based feed API with filter support
+- `src/lib/feed.ts` — shared server-side feed fetching logic
+- `src/app/tags/[slug]/page.tsx` — tag filtered page
+- `src/app/people/[slug]/page.tsx` — person filtered page
+- `src/app/albums/[slug]/page.tsx` — album filtered page
+- `src/app/archive/page.tsx` — archive index (year/month grid)
+- `src/app/archive/[year]/[month]/page.tsx` — month page (oldest-first)
+- `src/app/api/archive/route.ts` — archive API (years/months/counts + albums)
+- `src/components/ArchiveMenu.tsx` — floating menu button + slide-out panel + search
+- `src/app/api/search/route.ts` — FTS5 search API
+- `src/app/search/page.tsx` — search results page (server wrapper)
+- `src/app/search/SearchResults.tsx` — search results client component
+- `tests/cursor-pagination.test.ts` — cursor pagination tests
+- `src/app/login/page.tsx` — login page
+- `src/middleware.ts` — auth middleware
+- `src/lib/auth.ts` — session/JWT/password logic
+- `src/lib/db.ts` — Turso client
+- `src/lib/r2.ts` — R2 upload/delete
+- `src/lib/schema.ts` — all table definitions + FTS5
+- `src/app/posts/[slug]/page.tsx` — individual post page with OG tags
+- `src/components/PhotoGrid.tsx` — multi-photo grid + layout parser
+- `src/components/Lightbox.tsx` — fullscreen image viewer with swipe
+- `src/components/LogoutButton.tsx` — logout UI
+- `src/components/SeedButton.tsx` — seed test data UI
+- `src/app/api/init/route.ts` — schema init + settings seed
+- `src/app/api/seed/route.ts` — test data seeder (25 posts)
+- `src/app/api/auth/login/route.ts` — login endpoint
+- `src/app/api/auth/logout/route.ts` — logout endpoint
+- `src/app/robots.txt/route.ts` — crawler blocking
+- `scripts/migrate.ts` — Tumblr migration script
 
 ## AI Guardrails
 Assumptions:
@@ -321,6 +377,8 @@ Constraints:
 - `JWT_SECRET` must be ≥32 chars or auth throws (fail-closed); login is
   rate-limited; no hardcoded default passwords; `/api/seed` is prod-blocked
 - Do not break existing auth flow
+- Never serve `originals/` prefix objects publicly (Phase 11c bank-originals)
+- Share links are persistent by design — revocation yes, auto-expiry no
 
 Do Not:
 - Add new services or paid dependencies without explicit approval
