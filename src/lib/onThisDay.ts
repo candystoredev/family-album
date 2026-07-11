@@ -16,6 +16,10 @@ export interface OnThisDayPost {
   title: string | null;
   body: string | null;
   date: string;
+  /** Effective capture day (`local_date` ?? legacy day), tz-independent
+   *  `YYYY-MM-DD`. Always populated — feed formatDisplayDate/year-math with
+   *  this instead of `new Date(date)` to avoid day-shift bugs (Phase 12b). */
+  localDate: string;
   photosetLayout: string | null;
   thumbnailUrl: string | null;
   media: OnThisDayMedia[];
@@ -104,6 +108,7 @@ export async function getMemoriesForDate(
       title: post.title,
       body: post.body,
       date: post.date,
+      localDate: post.eff_day,
       photosetLayout: post.photoset_layout,
       thumbnailUrl: media[0]?.thumbnailUrl || null,
       media,

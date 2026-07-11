@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { ensurePostShareSchema } from "@/lib/schema";
 import { isShareLinkUsable } from "@/lib/shareLinks";
+import { formatDisplayDate } from "@/lib/datetime";
 import PostContent from "@/components/PostContent";
 import type { Metadata } from "next";
 
@@ -15,6 +16,8 @@ interface PostRow {
   date: string;
   type: string;
   photoset_layout: string | null;
+  local_date: string | null;
+  date_source: string | null;
 }
 
 interface MediaRow {
@@ -52,7 +55,8 @@ async function getSharedPost(token: string) {
   }
 
   const postResult = await db.execute({
-    sql: `SELECT id, slug, title, body, date, type, photoset_layout FROM posts WHERE id = ? LIMIT 1`,
+    sql: `SELECT id, slug, title, body, date, type, photoset_layout, local_date, date_source
+          FROM posts WHERE id = ? LIMIT 1`,
     args: [link.post_id],
   });
 
@@ -98,11 +102,7 @@ export async function generateMetadata({
 
   const { post } = result;
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
-  const date = new Date(post.date).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const date = formatDisplayDate(post.date, post.local_date, { long: true });
   const ogImage = post.media.map((m) => m.ogImageUrl).find(Boolean);
 
   return {
@@ -117,14 +117,6 @@ export async function generateMetadata({
       type: "article",
     },
   };
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
 }
 
 export default async function SharePage({
@@ -159,7 +151,7 @@ export default async function SharePage({
           layout={post.photoset_layout}
           title={post.title}
           body={post.body}
-          dateFormatted={formatDate(post.date)}
+          dateFormatted={formatDisplayDate(post.date, post.local_date, { long: true })}
         />
       </article>
       <footer className="text-center py-6">

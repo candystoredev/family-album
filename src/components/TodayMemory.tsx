@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
+import { formatDisplayDate } from "@/lib/datetime";
 
 interface MediaItem {
   id: string;
@@ -19,6 +20,8 @@ interface Memory {
   title: string | null;
   body: string | null;
   date: string;
+  /** Effective capture day (tz-independent `YYYY-MM-DD`); see lib/onThisDay.ts. */
+  localDate: string;
   photosetLayout: string | null;
   thumbnailUrl: string | null;
   media: MediaItem[];
@@ -46,14 +49,11 @@ export default function TodayMemory({
   return (
     <div className="space-y-6">
       {memories.map((memory) => {
-        const d = new Date(memory.date);
-        const yearsAgo = baseYear - d.getFullYear();
+        // Year math off the tz-independent effective day, not
+        // `new Date(memory.date)` (which can shift near midnight/DST).
+        const yearsAgo = baseYear - Number(memory.localDate.slice(0, 4));
         const timeLabel = yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
-        const dateFormatted = d.toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        });
+        const dateFormatted = formatDisplayDate(memory.date, memory.localDate, { long: true });
 
         return (
           <article
