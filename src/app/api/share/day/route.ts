@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
     return NextResponse.json({ shareUrl: `${siteUrl}/m/${token}` });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("Create day share link error:", error);
+    return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
   }
 }

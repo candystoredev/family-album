@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("Test push failed:", err);
     return NextResponse.json(
-      { error: "Failed to send test notification", details: String(err) },
+      { error: "Failed to send test notification" },
       { status: 500 }
     );
   }

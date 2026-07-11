@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     const siteUrl = baseUrlFromRequest(request);
     return NextResponse.json({ shareUrl: `${siteUrl}/share/${token}` });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("Create share link error:", error);
+    return NextResponse.json({ error: "Something went wrong" }, { status: 500 });
   }
 }
