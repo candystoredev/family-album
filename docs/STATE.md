@@ -77,26 +77,30 @@ a future audited "promote" step.
 each push auto-deploys to production).
 
 ## Current Task
-**Phases 11 + 12 both shipped 2026-07-11.** Phase 11 (Archive Safety):
-11a/11b/11d/11e merged; 11c deferred → 10.3d. Phase 12 (metadata correctness):
-12a archive→`EFF_DAY` (#42), 12b date display via `formatDisplayDate` (#42), 12c
-FTS body indexing (#41), 12d feed `postAssembly` unify + `/api/feed` parallelize
-(#43).
+**Phases 11, 12, 13 all shipped 2026-07-11; Indexer (10.3a) built.** Phase 11
+(Archive Safety) 11a/11b/11d/11e; Phase 12 (metadata correctness) #41/#42/#43;
+Phase 13 (debt paydown) #46/#47/#48 (edit HEIC fix, dead-code removal, schema
+`user_version` guard, security hygiene). **10.3a Indexer built** (#49,
+`tools/backfill-indexer/`, phash byte-identical to the app).
 
-**Phase 10.3 (historical backfill) is PARKED — waiting on Tom, not code.** It
-needs the source photo files gathered across several computers/apps; Tom is
-traveling and can't organize them yet. This is a data-gathering blocker, not an
-engineering one — do NOT start building 10.3 until the sources are mapped. Prep
-checklist (fill in opportunistically): **[docs/backfill-prep.md](backfill-prep.md)**.
-When the sources are mapped, resume with 10.3a (Indexer). See ROADMAP.md +
-docs/rich-metadata-plan.md.
+**Phase 10.3 (historical backfill) is PARKED — waiting on Tom, not code.** Needs
+source photos gathered across computers/apps; a data-gathering blocker, not
+engineering. Prep checklist: **[docs/backfill-prep.md](backfill-prep.md)**. Tool A
+(Indexer) is DONE; when sources are mapped, run it per source (PR #49 README) then
+build **10.3b Tool B (Matcher/Applier)**. See ROADMAP.md + rich-metadata-plan.md.
 
-**Meanwhile, active track = Phase 13 (debt paydown)** — self-contained code
-cleanup, no user files/infra needed (edit-page shared `compressImage`/HEIC fix +
-`MetadataFields`; delete dead `invite_links`; SeedButton out of prod + seed logic
-→ scripts; drop `@types/sharp`; dedupe `slugify`; collapse `ensure*Schema` into
-one `PRAGMA user_version`; security hygiene leftovers). Then parts of Phase 14
-that need no originals (SW caching, a11y, On-This-Day→SSR).
+**What remains (see ROADMAP for the full map):**
+- **Parked on Tom (data):** 10.3b Matcher · 10.3c review queue · 10.3d originals
+  archival (absorbs 11c) · 10.3e promote+index.
+- **Deferred (paired, no backend yet):** 10.1e enrichment queue + 10.5 semantic.
+- **After backfill:** 10.4 (map, dedup, date-range/place search, trip albums).
+- **Available now, no dependencies — Phase 14:** SW caching/offline · a11y pass ·
+  On-This-Day → SSR · iOS Shortcut setup guide. (Feed `srcset` and "full-res on
+  zoom" are demand-/originals-gated.)
+- **Deferred debt (from Phase 13):** CSP nonce (only if a body-editing feature
+  lands) · `tokenVersion` enforcement.
+- **V2 backlog:** category management, bulk multi-select ops, video thumb-frame
+  picker, favorites-heart-in-action-sheet, slide-out redesign, analytics, staging.
 
 **Post-deploy TODO (Tom):** run one `POST /api/init` (admin bearer) to rebuild
 FTS so historical bodies erased by prior edits get re-indexed (12c). Then smoke
