@@ -351,7 +351,7 @@ Decision: Retire roadmap Phases 5–8 as written; rewrite Phase 6 (iOS Shortcut)
 Reason: Phase 5 mostly shipped via other routes (`/settings`); 5e/5f/5g (tech-stack page, changelog, admin tabs) add no value over the docs; Phase 7 was a grab-bag (absorbed into 12/14); Phase 8 happened; the documented `POST /api/posts` never existed — the real flow is presign → direct R2 PUT → `/api/admin/upload/complete`, plus the shipped `/api/admin/upload/ingest-fetch` share-to-upload route.
 Impact: ROADMAP restructured to Phases 11–14 around the Phase 10 spine
 
-## 2026-07-11 — Phase 11 shipped; 11c deferred
+## 2026-07-11 — Phases 11–13 shipped; backfill Indexer built
 
 ### 2026-07-11
 Decision: Defer 11c (bank full-res originals at upload); fold "bank originals" into the 10.3d backfill instead
@@ -364,6 +364,24 @@ Decision: 11d strips EXIF/GPS from the SERVED photo only; videos are left as-is
 Reason: The complete route never downloads video bytes (direct R2 serve, no transcoding — a standing architecture decision), so stripping video-container GPS would require adding server-side ffmpeg. Not worth it for the photo-dominant leak; photos are the concrete exposure (home coordinates in served JPEGs). The served video remaining metadata-bearing is an accepted, documented limitation.
 Alternatives Considered: Add ffmpeg to strip video metadata (rejected — cost/latency, contradicts the no-transcoding decision); block geotagged video uploads (too blunt).
 Impact: `lib/media/process-photo.ts` always re-encodes served photos; a code comment + ROADMAP note record the video limitation for a future ffmpeg-based pass if ever wanted.
+
+### 2026-07-11
+Decision: The backfill Indexer computes its perceptual hash with pyvips (the same libvips sharp wraps), reproducing the app's `perceptualHash` byte-for-byte — not a generic phash library
+Reason: Tool B matches local originals to the album's stored thumbnails by perceptual hash; that only works if both sides compute the SAME hash. Different imaging stacks disagree on greyscale weights (libvips uses linear-light Rec.709, PIL uses Rec.601), resize kernels, and JPEG shrink-on-load. Using the same libvips guarantees parity with a plain `pip install pyvips[binary]` (no system packages); verified byte-identical against the real TS code via a `tsx` oracle.
+Alternatives Considered: `imagehash`/other phash libs (different algorithm — won't match); approximate + widen the matcher's Hamming threshold (loses precision, more false matches); Pillow-only (kept as a fallback but flagged `phash_engine='pillow-fallback'` since it's ~close, not exact).
+Impact: `tools/backfill-indexer/indexer/phash.py`; the parity is a load-bearing invariant for 10.3b — a Pillow-fallback run is never silent.
+
+### 2026-07-11
+Decision: Gate the cold-start schema DDL sweeps behind `PRAGMA user_version` rather than restructuring them (13b)
+Reason: The four `ensure*Schema()` functions re-ran ~50 guarded `ALTER TABLE` statements on every serverless cold start. A `user_version` fast-path skips them once the DB is current, with minimal change and no new failure surface. Safe because `initializeSchema()` (`/api/init`) applies EVERYTHING the ensure* functions manage before stamping the version — including `ensureDayShareSchema()` (`day_share_links` was the one table that lived only in a lazy function). Fresh and existing prod DBs both keep running full idempotent DDL until `/api/init` stamps `SCHEMA_VERSION`, so neither can be left half-migrated.
+Alternatives Considered: Full restructure into one migration list (more risk); leave as-is (wasteful cold starts); per-function version columns (over-engineered).
+Impact: `SCHEMA_VERSION=1` in `schema.ts`; bump it + extend `initializeSchema()` whenever a new schema object is added. Perf benefit kicks in after the first `/api/init` post-deploy.
+
+### 2026-07-11
+Decision: Unify the 4 feed-enrichment copies into `src/lib/postAssembly.ts`, but preserve each caller's video-thumbnail fallback via an option rather than standardizing it (12d)
+Reason: The "attach media/tags/people" block was duplicated across the SSR feed, `/api/feed`, `/api/search`, and on-this-day, and had drifted (`display_order` present in some). Centralizing removes the drift. A SECOND, unflagged drift surfaced during the refactor — feed paths use `""` for a thumbnail-less video (a video URL as a `<video>` poster renders black), search/on-this-day fall back to the media URL. Changing that silently could regress rendering, so it's preserved per-caller behind a `videoThumbnailFallback` option; the refactor is otherwise behavior-preserving (feed-order + cursor tests unchanged).
+Alternatives Considered: Standardize the video fallback to `""` everywhere (defensible, but a behavior change out of scope for a refactor — flagged as a future decision); leave the duplication (ongoing drift).
+Impact: One shared module; `/api/feed` also parallelized (one `Promise.all`). Standardizing the video fallback is an open follow-up.
 
 ## Open Questions
 

@@ -37,9 +37,21 @@ Fill in as you remember them. Rough is fine.
 - [ ] Which **date ranges predate the Tumblr blog** (~2012) — the migration never had those?
 - [ ] Old phones / a partner's devices with photos not in the shared library?
 
-## When you're back — what happens next (no action needed now)
-1. I build the **Indexer** (Tool A): a read-only script you run on each source above; it emits one portable index file (phashes + metadata + Apple Photos richness). You run it per place, whenever convenient, and collect the output files.
-2. You hand the index files back; I build the **Matcher/Applier** (Tool B): phash-matches them to the migrated thumbnails, you confirm ambiguous cases, and it writes real capture dates / GPS / faces to the new columns (and banks full-res originals to the private `originals/` prefix).
+## When you're back — what happens next
+1. **The Indexer (Tool A) is already built** — `tools/backfill-indexer/` (read-only,
+   phash byte-identical to the app). Run it per source you mapped above, whenever
+   convenient, and collect the output index files:
+   ```
+   cd tools/backfill-indexer && pip install -r requirements.txt
+   python index.py /path/to/photos --output index-<source>.sqlite            # folders/Dropbox/iCloud Drive
+   python index.py --source-kind apple_photos --output index-photos.sqlite    # + pip install osxphotos, Full Disk Access
+   ```
+   See `tools/backfill-indexer/README.md` for per-source details.
+2. Hand the index files back; then I build the **Matcher/Applier** (Tool B, 10.3b):
+   phash-matches them to the migrated thumbnails, you confirm ambiguous cases in a
+   `/admin/review` queue (10.3c), and it writes real capture dates / GPS / faces to
+   the new columns (10.3b) + banks full-res originals to the private `originals/`
+   prefix (10.3d). A final promote step (10.3e) flips ordering to indexed columns.
 
-Nothing here is urgent. The roadmap keeps moving (Phase 13 debt paydown, parts of
-Phase 14) without any of this.
+Nothing here is urgent. Phases 11–13 shipped without any of this; the remaining
+no-dependency work (parts of Phase 14) can proceed independently too.
