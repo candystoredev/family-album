@@ -6,6 +6,29 @@ import { nanoid } from "nanoid";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The subscription endpoint is a URL the daily-push cron later POSTs to, so an
+ * arbitrary one would be an SSRF vector (make the server hit any host). Restrict
+ * it to the known Web Push services. Match on the hostname suffix so per-region
+ * subdomains (e.g. updates.push.services.mozilla.com, web.push.apple.com) are
+ * accepted, but nothing else is.
+ */
+function isAllowedPushEndpoint(endpoint: string): boolean {
+  let host: string;
+  try {
+    host = new URL(endpoint).hostname.toLowerCase();
+  } catch {
+    return false; // not a parseable absolute URL
+  }
+  return (
+    host === "fcm.googleapis.com" || // Chrome/FCM
+    host.endsWith(".fcm.googleapis.com") ||
+    host.endsWith(".push.services.mozilla.com") || // Firefox
+    host.endsWith(".notify.windows.com") || // Edge/WNS
+    host.endsWith(".push.apple.com") // Safari
+  );
+}
+
 interface SubscribeBody {
   subscription?: {
     endpoint?: string;
@@ -32,6 +55,10 @@ export async function POST(req: NextRequest) {
 
   if (!endpoint || !p256dh || !auth) {
     return NextResponse.json({ error: "Invalid subscription" }, { status: 400 });
+  }
+
+  if (!isAllowedPushEndpoint(endpoint)) {
+    return NextResponse.json({ error: "Unsupported push endpoint" }, { status: 400 });
   }
 
   const label = (body.label || "").slice(0, 100) || null;

@@ -10,6 +10,7 @@ import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
 import { extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
 import { processUploadPhoto, MAX_UPLOAD_BYTES } from "@/lib/media/process-photo";
 import { ensureRichMetadataSchema, ftsRowFor } from "@/lib/schema";
+import { slugify } from "@/lib/slugify";
 import {
   resolveCaptureDate,
   type CaptureDate,
@@ -17,6 +18,16 @@ import {
 } from "@/lib/media/capture-date";
 
 const THUMB_WIDTH = 400;
+
+/**
+ * A client-supplied R2 key/prefix is only safe if it stays under the media/
+ * prefix (where presign writes) and can't escape it with "..". Without this an
+ * authenticated admin could read (downloadFromR2) or overwrite (uploadToR2) any
+ * object in the bucket. Mirrors the guard in ../ingest-fetch/route.ts.
+ */
+function isSafeR2Path(p: string | undefined): boolean {
+  return typeof p === "string" && p.startsWith("media/") && !p.includes("..");
+}
 
 /**
  * Thrown when a photo's downloaded original exceeds MAX_UPLOAD_BYTES
@@ -32,15 +43,6 @@ class UploadTooLargeError extends Error {
     );
     this.name = "UploadTooLargeError";
   }
-}
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 100);
 }
 
 async function uniqueSlug(base: string): Promise<string> {
@@ -152,6 +154,18 @@ export async function POST(request: NextRequest) {
         { error: "No media items provided" },
         { status: 400 }
       );
+    }
+
+    // Reject any client-supplied key/prefix that escapes the media/ prefix
+    // before we hand it to downloadFromR2/uploadToR2 (arbitrary bucket
+    // read/write otherwise). A single bad item fails the whole request.
+    for (const item of items) {
+      if (!isSafeR2Path(item.r2Key) || !isSafeR2Path(item.keyPrefix)) {
+        return NextResponse.json(
+          { error: "Invalid media key" },
+          { status: 400 }
+        );
+      }
     }
 
     // Phase 10.1a — make sure the rich-metadata columns exist before we write

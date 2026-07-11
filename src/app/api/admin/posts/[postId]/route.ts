@@ -4,10 +4,21 @@ import sharp from "sharp";
 import { downloadFromR2, uploadToR2, deleteFromR2, PUBLIC_URL } from "@/lib/r2";
 import { db } from "@/lib/db";
 import { ftsRowFor } from "@/lib/schema";
+import { slugify } from "@/lib/slugify";
 
 const THUMB_WIDTH = 400;
 
 interface CropBox { x: number; y: number; w: number; h: number }
+
+/**
+ * A client-supplied R2 key/prefix (for added media) is only safe if it stays
+ * under the media/ prefix and can't escape it with "..". Without this an
+ * authenticated admin could read (downloadFromR2) or overwrite (uploadToR2) any
+ * object in the bucket. Mirrors the guard in ../../upload/ingest-fetch/route.ts.
+ */
+function isSafeR2Path(p: string | undefined): boolean {
+  return typeof p === "string" && p.startsWith("media/") && !p.includes("..");
+}
 
 function clampInt(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Math.round(n)));
@@ -53,15 +64,6 @@ async function processPhoto(
   ]);
 
   return { originalBuffer: orig.data, thumbBuffer: thumb, width: orig.info.width, height: orig.info.height };
-}
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 100);
 }
 
 async function findOrCreateTag(name: string): Promise<string> {
@@ -268,6 +270,15 @@ export async function PUT(
 
     // Process new media items, keyed by keyPrefix
     const newItemsToProcess = mediaList.filter((item) => item.kind === "new" && item.r2Key && item.keyPrefix);
+
+    // Reject any client-supplied key/prefix that escapes the media/ prefix
+    // before we hand it to downloadFromR2/uploadToR2 (arbitrary bucket
+    // read/write otherwise). A single bad item fails the whole request.
+    for (const item of newItemsToProcess) {
+      if (!isSafeR2Path(item.r2Key) || !isSafeR2Path(item.keyPrefix)) {
+        return NextResponse.json({ error: "Invalid media key" }, { status: 400 });
+      }
+    }
     const processedNewMap = new Map<string, { id: string; r2Key: string; thumbKey: string; type: "photo" | "video"; width: number; height: number; fileSize: number }>();
 
     await Promise.all(

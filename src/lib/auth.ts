@@ -21,10 +21,15 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 90; // 90 days
 export interface SessionPayload {
   role: "viewer" | "admin";
   iat: number;
+  // Forward-prep for session revocation (bump a stored version to invalidate
+  // all outstanding tokens). Present in newly-issued tokens but NOT yet
+  // verified anywhere — enforcement lands in a later phase. Optional so tokens
+  // issued before this claim existed still type-check.
+  tokenVersion?: number;
 }
 
 export async function createSession(role: "viewer" | "admin") {
-  const token = await new SignJWT({ role } as Record<string, unknown>)
+  const token = await new SignJWT({ role, tokenVersion: 0 } as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("90d")
