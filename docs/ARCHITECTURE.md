@@ -45,9 +45,11 @@ Private family photo album replacing a Tumblr blog at thehoecks.com (~15 years, 
 media/{media_id}/original.{ext}      — full-size original (served)
 media/{media_id}/thumb.{ext}         — optimized thumbnail for feed
 originals/{media_id}/original.{ext}  — planned (Phase 11c): untouched full-res original, private, never served
-backups/...                          — planned (Phase 11a): private Turso dumps
 ```
 Extensible: future variants added as sibling files without schema changes.
+
+Backups (`backups/thehoecks-YYYY-MM-DD.sql.gz`) do **not** live under this bucket —
+they're in a separate private bucket, `thehoecks-backups`. See "Backup Strategy" below.
 
 ### Database (Turso / SQLite)
 - **Turso** free Starter plan with FTS5 full-text search
@@ -468,8 +470,34 @@ NEXT_PUBLIC_SITE_URL       = https://thehoecks.com
 
 ### Backup Strategy
 - **Baseline**: `turso db dump` immediately after migration — known-good snapshot
-- **Ongoing (planned, Phase 11a — not yet built)**: GitHub Actions cron → `turso db dump` →
-  private R2 `backups/` prefix, retention ~12 dumps, plus one documented restore drill
+- **Ongoing (Phase 11a — built)**: `.github/workflows/backup.yml` runs daily (04:00 UTC,
+  plus manual `workflow_dispatch`). It installs the turso CLI, runs
+  `turso db shell "$TURSO_DATABASE_URL?authToken=$TURSO_AUTH_TOKEN" ".dump"` (the raw-URL
+  form needs no separate Turso platform token), validates the dump is non-empty and
+  contains `CREATE TABLE` (fails loudly otherwise — a truncated silent upload is worse
+  than no backup), gzips it, and uploads to a **separate, PRIVATE** R2 bucket,
+  `thehoecks-backups` (public access OFF) — **backups must never go in the public
+  `thehoecks-media` bucket**. Key: `backups/thehoecks-YYYY-MM-DD.sql.gz`.
+  `.dump` is used (not a hand-rolled row export) because it's the only thing that
+  correctly serializes the `embedding` BLOB column and the `posts_fts` FTS5 virtual
+  table. After upload, the workflow prunes the bucket to the most recent 30 dumps.
+- **Restore drill**: `npm run restore-drill` downloads the latest backup (or takes
+  `--file <path>` for a local `.sql`/`.sql.gz`), restores it into a throwaway local
+  SQLite file via `@libsql/client`, and checks: `posts`/`media` tables exist and have
+  rows, `posts_fts` is present, and an FTS `MATCH` query runs cleanly. Run
+  `npm run restore-drill -- --self-test` to exercise the same restore/verify logic
+  against a generated fixture with no prod credentials.
+- **Restore procedure (runbook)**: gunzip the chosen `backups/*.sql.gz`, load it into a
+  fresh Turso DB (`turso db shell "$URL?authToken=$TOKEN" < dump.sql`), repoint
+  `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`, then **run `POST /api/init` to rebuild the FTS
+  index** rather than trusting the dumped index — `posts_fts` is derived data and its
+  restore fidelity from a `.dump` is version-dependent, whereas `rebuildFtsIndex()`
+  reconstructs it deterministically from `posts`/`post_tags`/`post_people`. Everything
+  that matters (posts, media, tags, people, junctions, `site_settings`) is source-of-truth
+  in the dump; the FTS index is the one thing you rebuild afterward.
+- **Required GitHub Actions secrets** (repo Settings → Secrets → Actions):
+  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+  `R2_SECRET_ACCESS_KEY`, `R2_BACKUP_BUCKET` (= `thehoecks-backups`).
 - R2 media is durable (Cloudflare infrastructure); database is single point of failure
 - Store dumps locally and/or in R2
 

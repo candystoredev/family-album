@@ -308,7 +308,7 @@ then 10.2. Backfill (10.3) and semantic enrichment (10.5) are separate opt-in tr
 ### Phase 11 — Archive Safety — **NEXT UP**
 Small; protects everything else.
 
-- **11a Backups** — GitHub Actions cron → `turso db dump` → private R2 prefix (e.g. `backups/`), keep last ~12; document one manual restore drill in ARCHITECTURE.
+- **11a Backups** — ~~GitHub Actions cron → `turso db dump` → private R2 prefix (e.g. `backups/`), keep last ~30 daily dumps; document one manual restore drill in ARCHITECTURE.~~ — **DONE** (`.github/workflows/backup.yml` + `npm run restore-drill`; see ARCHITECTURE "Backup Strategy"). **User setup still required**: create the private `thehoecks-backups` R2 bucket and add the GitHub Actions secrets (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BACKUP_BUCKET`) before the workflow can run.
   - Verify: dump lands in R2 on schedule; app boots locally against a restored scratch DB.
 - **11b Dependency + auth hardening** — `npm audit fix` (Next.js middleware-bypass CVEs matter — all auth is middleware-enforced); add the long-promised auth-middleware tests (viewer/admin/public-path matrix).
   - Verify: audit clean; tests cover every public path.

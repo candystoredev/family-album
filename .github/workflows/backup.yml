@@ -1,0 +1,97 @@
+name: Database backup
+
+# Runs daily at 04:00 UTC. Dumps the Turso DB via the turso CLI (the DB has a
+# BLOB `embedding` column and an FTS5 virtual table `posts_fts`; only SQLite's
+# native `.dump` serializes these correctly — a hand-rolled row export would
+# not), gzips it, uploads to the PRIVATE `thehoecks-backups` R2 bucket, and
+# prunes to the most recent 30 dumps. This job must fail loudly — a backup
+# workflow that silently succeeds while uploading nothing is worse than no
+# backup at all.
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    # No checkout — the dump doesn't need repo contents, just secrets + the
+    # turso/aws CLIs (aws is preinstalled on ubuntu-latest runners).
+    steps:
+      - name: Install turso CLI
+        run: curl -sSfL https://get.tur.so/install.sh | bash
+
+      - name: Dump database
+        # NOTE: this exact invocation (raw-URL form, so no separate Turso
+        # platform token is needed) has not been exercised on a real Actions
+        # run yet — confirm it works on the first scheduled/manual run and
+        # adjust if the turso CLI's shell/dump syntax has changed.
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.turso:$PATH"
+          turso db shell "$TURSO_DATABASE_URL?authToken=$TURSO_AUTH_TOKEN" ".dump" > dump.sql
+
+          # Guard: a backup job must never silently upload a truncated/empty
+          # file. Fail loudly instead.
+          if [ ! -s dump.sql ] || ! grep -q "CREATE TABLE" dump.sql; then
+            echo "::error::dump.sql is empty or missing CREATE TABLE statements — aborting backup"
+            exit 1
+          fi
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+
+      - name: Gzip dump
+        run: gzip dump.sql
+
+      - name: Upload to R2 (private backups bucket)
+        run: |
+          set -euo pipefail
+          aws s3 cp dump.sql.gz \
+            "s3://$R2_BACKUP_BUCKET/backups/thehoecks-$(date -u +%F).sql.gz" \
+            --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BACKUP_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
+
+      - name: Prune to most recent 30 dumps
+        run: |
+          set -euo pipefail
+          endpoint="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+
+          # aws s3 ls sorts by filename, and our filenames are YYYY-MM-DD, so
+          # a reverse lexical sort (`sort -r`) is a reverse-chronological
+          # sort — newest first. Guard: if there are <=30 objects, there's
+          # nothing to prune; `tail -n +31` naturally yields nothing in that
+          # case, but we also short-circuit explicitly for a clear log line.
+          count=$(
+            aws s3 ls "s3://$R2_BACKUP_BUCKET/backups/" --endpoint-url "$endpoint" \
+              | awk '{print $4}' | grep -c -v '^$' || true
+          )
+
+          if [ "$count" -le 30 ]; then
+            echo "Only $count backup(s) present — nothing to prune."
+            exit 0
+          fi
+
+          echo "Pruning $((count - 30)) old backup(s), keeping the newest 30."
+
+          # Skip the newest 30 (tail -n +31 == "from line 31 on"), delete the rest.
+          aws s3 ls "s3://$R2_BACKUP_BUCKET/backups/" --endpoint-url "$endpoint" \
+            | awk '{print $4}' \
+            | grep -v '^$' \
+            | sort -r \
+            | tail -n +31 \
+            | while IFS= read -r key; do
+                echo "  deleting backups/$key"
+                aws s3 rm "s3://$R2_BACKUP_BUCKET/backups/$key" --endpoint-url "$endpoint"
+              done
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BACKUP_BUCKET: ${{ secrets.R2_BACKUP_BUCKET }}
