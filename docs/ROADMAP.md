@@ -274,7 +274,7 @@ verified on prod.** The correctness core of Phase 10 is complete. Remaining:
   `osxphotos` (faces, scene labels, keywords, albums, captions, favorites, quality
   scores — on device), filesystem (Dropbox/iCloud Drive), Google Takeout JSON, XMP
   sidecars. Surfaces un-uploaded originals as an optional "rediscover" queue. Sub-phases:
-  - **10.3a Tool A — Indexer** — osxphotos/filesystem/Takeout/XMP adapters, portable index file, read-only, idempotent, resumable.
+  - **10.3a Tool A — Indexer** — ~~osxphotos/filesystem/Takeout/XMP adapters, portable index file, read-only, idempotent, resumable.~~ **BUILT** (#49, `tools/backfill-indexer/`, Python). Read-only; phash **byte-identical to the app** (pyvips = same libvips; verified vs the real TS `perceptualHash`). Filesystem adapter done + tested; apple_photos/google_takeout/xmp scaffolded (need a real Mac Photos library / Takeout / Lightroom to exercise). **Runs on Tom's machines** once sources are mapped (`docs/backfill-prep.md`).
   - **10.3b Tool B — Matcher/Applier** — phash match to stored thumbnails, confidence thresholds, applies to new columns only via an authed admin endpoint.
   - **10.3c Review queue** — one `/admin/review` surface with three queues: ambiguous backfill matches + flagged posts (absorbs old 5d-flag) + estimated-date quick-fix (absorbs 10.2c's loose end).
   - **10.3d Originals archival option in Tool B** — matched local originals → private `originals/` prefix (in the `thehoecks-backups` bucket, never served). **Now the home for banking originals generally** (absorbs deferred 11c): archives both historical (Tumblr-era, backfill-matched) AND newly-uploaded originals from the family's photo library, since compression discards the full-res original at upload. Enables future "full-res on zoom" in the lightbox.
@@ -330,13 +330,13 @@ Small; finishes what 10.2 claims.
 
 ---
 
-### Phase 13 — Debt paydown
+### Phase 13 — Debt paydown — **DONE** (2026-07-11)
 Opportunistic, no deadline.
 
-- Edit page adopts shared `compressImage` (fixes a real bug: the edit page's private copy has no HEIC support) + shared `MetadataFields` (currently hand-rolls its own form). Do **NOT** unify the three drag-and-drop implementations — documented deliberate divergences.
-- Delete dead `invite_links` table; remove SeedButton from prod UI and move `/api/seed`'s seed/dedup/clean logic to `scripts/` (552 lines of test tooling in the prod bundle; button always 403s in prod).
-- Drop stale `@types/sharp` devDep; dedupe `slugify` (defined in both create and edit routes); collapse the three `ensure*Schema` functions into one `PRAGMA user_version` check (currently ~50 sequential guarded DDL statements on first upload per cold start, and schema DDL duplicated with `initializeSchema`).
-- Security hygiene leftovers: stop echoing `String(error)` to clients (7 sites, 5 authed routes); push-subscribe endpoint allow-list (weak blind-SSRF, session-gated); add JWT `tokenVersion` claim now / enforce later; CSP nonce only if a body-editing feature ever lands (today `posts.body` is never user-writable, so the 4 `dangerouslySetInnerHTML` sites are latent); validate `r2Key`/`keyPrefix` in upload-complete + posts PUT (copy the guard `ingest-fetch` already has).
+- ~~Edit page adopts shared `compressImage` (HEIC bug) + shared `MetadataFields`.~~ **DONE** (#46). Did NOT unify the three drag-and-drop implementations (documented deliberate divergences).
+- ~~Delete dead `invite_links`; remove SeedButton from prod; move seed logic to `scripts/`.~~ **DONE** (#48): `invite_links` gone, `SeedButton`/`/api/seed` deleted, seed logic → `scripts/seed.ts` (`npm run seed`).
+- ~~Drop `@types/sharp`; dedupe `slugify`; collapse `ensure*Schema` DDL sweeps.~~ **DONE** (#47 slugify → `src/lib/slugify.ts`; #48 `@types/sharp` dropped + `PRAGMA user_version` guard skips the ~50 cold-start DDL statements once `/api/init` stamps `SCHEMA_VERSION`).
+- ~~Security hygiene leftovers.~~ **DONE** (#47): `String(error)` echoes removed; push-subscribe host allow-list; `r2Key`/`keyPrefix` validated in both write routes; JWT `tokenVersion` claim added (inert — enforcement is a later phase). **NOT done (still latent, deferred):** CSP nonce / drop `'unsafe-inline'` — only matters once a body-editing feature exists (`posts.body` is never user-writable today, so the 4 `dangerouslySetInnerHTML` sites are inert); session-revocation *enforcement* of `tokenVersion`; share-link *expiry* choice (revocation shipped in 11e).
 
 ---
 
