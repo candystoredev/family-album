@@ -3,11 +3,12 @@ import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import exifr from "exifr";
-import { downloadFromR2, uploadToR2 } from "@/lib/r2";
+import { downloadFromR2, uploadToR2, deleteFromR2 } from "@/lib/r2";
 import { db } from "@/lib/db";
 import { generatePhotosetLayout } from "@/lib/media/layout";
 import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
 import { extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
+import { processUploadPhoto, MAX_UPLOAD_BYTES } from "@/lib/media/process-photo";
 import { ensureRichMetadataSchema } from "@/lib/schema";
 import {
   resolveCaptureDate,
@@ -16,6 +17,22 @@ import {
 } from "@/lib/media/capture-date";
 
 const THUMB_WIDTH = 400;
+
+/**
+ * Thrown when a photo's downloaded original exceeds MAX_UPLOAD_BYTES
+ * (Phase 11d). Caught in the POST handler and turned into a 413 — the
+ * client also pre-checks this (src/app/admin/upload/page.tsx) but that's a
+ * friendliness optimization, not the enforcement boundary.
+ */
+class UploadTooLargeError extends Error {
+  constructor(filename: string, size: number) {
+    const mb = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    super(
+      `"${filename}" is ${mb(size)} MB, which exceeds the ${mb(MAX_UPLOAD_BYTES)} MB upload limit.`
+    );
+    this.name = "UploadTooLargeError";
+  }
+}
 
 function slugify(s: string): string {
   return s
@@ -152,6 +169,15 @@ export async function POST(request: NextRequest) {
         const mediaId = nanoid();
 
         if (item.type === "video") {
+          // Served videos are the raw uploaded file, byte-for-byte (r2Key
+          // below), so any GPS/EXIF/location metadata embedded in the video
+          // container is NOT stripped — unlike photos (see processUploadPhoto
+          // in src/lib/media/process-photo.ts). Stripping it would require
+          // server-side ffmpeg/transcoding, which this architecture
+          // deliberately avoids (docs/DECISIONS.md, "Direct R2 serve for
+          // video, no transcoding" — no cost/latency for encoding, modern
+          // devices handle MP4 natively). Tracked as a known limitation of
+          // Phase 11d rather than solved here.
           let thumbKey = "";
           let phash: string | null = null;
           let domColor: string | null = null;
@@ -196,27 +222,38 @@ export async function POST(request: NextRequest) {
 
         // Photo: download, extract EXIF, process, thumbnail — all at once
         const buffer = await downloadFromR2(item.r2Key);
+
+        // Server-side enforcement of the upload size cap (Phase 11d). The
+        // client pre-checks this too (src/app/admin/upload/page.tsx), but a
+        // stale client or a direct API call must still be blocked here. Clean
+        // up the staged R2 object(s) for this item before failing the request.
+        if (buffer.length > MAX_UPLOAD_BYTES) {
+          await Promise.allSettled([
+            deleteFromR2(item.r2Key),
+            deleteFromR2(`${item.keyPrefix}/thumb.jpg`),
+          ]);
+          throw new UploadTooLargeError(
+            item.capture?.filename ?? item.r2Key,
+            buffer.length
+          );
+        }
+
         const exifDate = await extractExifDate(buffer);
         const capture = await resolveServerCapture(item, buffer, nowMs);
-
-        // Client uploads are already ≤1920px JPEGs with orientation baked in
-        // (canvas re-encode) — re-encoding those again just burns time and
-        // quality. Only re-encode when rotation or format conversion is needed.
         const meta = await sharp(buffer).metadata();
-        const alreadyProcessed =
-          meta.format === "jpeg" && (!meta.orientation || meta.orientation === 1);
 
+        // Every served original goes through processUploadPhoto — no
+        // "already a clean JPEG" fast path. That old fast path skipped the
+        // sharp re-encode for already-upright JPEGs, which meant the RAW
+        // downloaded bytes (EXIF/GPS intact) were served as the public
+        // original.jpg. See src/lib/media/process-photo.ts for why the
+        // re-encode strips EXIF/GPS deliberately.
         const [processed, thumbBuffer] = await Promise.all([
-          alreadyProcessed
-            ? Promise.resolve({
-                data: buffer,
-                info: { width: meta.width ?? 0, height: meta.height ?? 0 },
-              })
-            : sharp(buffer).rotate().jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true }),
+          processUploadPhoto(buffer),
           sharp(buffer).rotate().resize(THUMB_WIDTH, null, { withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
         ]);
 
-        const { width, height } = processed.info;
+        const { width, height } = processed;
         const originalBuffer = processed.data;
         const processedKey = `${item.keyPrefix}/original.jpg`;
         const thumbKey = `${item.keyPrefix}/thumb.jpg`;
@@ -471,6 +508,9 @@ export async function POST(request: NextRequest) {
       type: postType,
     });
   } catch (error) {
+    if (error instanceof UploadTooLargeError) {
+      return NextResponse.json({ error: error.message }, { status: 413 });
+    }
     console.error("Upload complete error:", error);
     return NextResponse.json(
       { error: "Processing failed" },
