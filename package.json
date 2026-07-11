@@ -10,7 +10,8 @@
     "test": "tsx --test tests/*.test.ts",
     "migrate": "tsx scripts/migrate.ts",
     "migrate:dry": "tsx scripts/migrate.ts --dry-run",
-    "restore-drill": "tsx scripts/restore-drill.ts"
+    "restore-drill": "tsx scripts/restore-drill.ts",
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
@@ -36,7 +37,6 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/sharp": "^0.31.1",
     "@types/web-push": "^3.6.4",
     "tailwindcss": "^4",
     "tsx": "^4",

@@ -2,7 +2,6 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getInitialFeed, getImessageRecipients } from "@/lib/feed";
 import { db } from "@/lib/db";
-import SeedButton from "@/components/SeedButton";
 import Feed from "@/components/Feed";
 import BannerMessage from "@/components/BannerMessage";
 
@@ -45,23 +44,15 @@ export default async function Home() {
             <p className="text-[#555]">
               No posts yet. The feed will appear here.
             </p>
-            {session.role === "admin" && <SeedButton />}
           </div>
         ) : (
-          <>
-            <Feed
-              initialPosts={posts}
-              initialCursor={nextCursor}
-              siteUrl={siteUrl}
-              imessageRecipients={imessageRecipients}
-              isAdmin={session.role === "admin"}
-            />
-            {session.role === "admin" && (
-              <div className="flex justify-center pt-8">
-                <SeedButton />
-              </div>
-            )}
-          </>
+          <Feed
+            initialPosts={posts}
+            initialCursor={nextCursor}
+            siteUrl={siteUrl}
+            imessageRecipients={imessageRecipients}
+            isAdmin={session.role === "admin"}
+          />
         )}
       </div>
     </main>
