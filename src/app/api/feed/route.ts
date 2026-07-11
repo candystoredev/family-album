@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { ORDER_KEY_SQL, EFF_DAY_SQL } from "@/lib/order";
+import { attachMediaTagsPeople } from "@/lib/postAssembly";
 
 const PAGE_SIZE = 20;
 
@@ -15,29 +16,6 @@ interface PostRow {
   local_date: string | null;
   date_source: string | null;
   order_key: string;
-}
-
-interface MediaRow {
-  id: string;
-  post_id: string;
-  r2_key: string;
-  thumbnail_r2_key: string | null;
-  type: string;
-  width: number | null;
-  height: number | null;
-  display_order: number;
-}
-
-interface TagRow {
-  post_id: string;
-  name: string;
-  slug: string;
-}
-
-interface PersonRow {
-  post_id: string;
-  name: string;
-  slug: string;
 }
 
 /**
@@ -61,7 +39,6 @@ function encodeCursor(orderKey: string, id: string): string {
 }
 
 export async function GET(request: NextRequest) {
-  const r2PublicUrl = process.env.R2_PUBLIC_URL!;
   const cursor = request.nextUrl.searchParams.get("cursor");
   const tagSlug = request.nextUrl.searchParams.get("tag");
   const personSlug = request.nextUrl.searchParams.get("person");
@@ -174,76 +151,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ posts: [], nextCursor: null });
   }
 
-  // Fetch all media for these posts in one query
-  const postIds = posts.map((p) => p.id);
-  const placeholders = postIds.map(() => "?").join(",");
-  const mediaResult = await db.execute({
-    sql: `SELECT id, post_id, r2_key, thumbnail_r2_key, type, width, height, display_order
-          FROM media WHERE post_id IN (${placeholders}) ORDER BY display_order`,
-    args: postIds,
+  // Enrich with media/tags/people in one parallel round trip. "empty"
+  // video-thumbnail fallback: a video URL used as a <video> poster renders
+  // black; PhotoGrid skips poster="" cleanly.
+  const postsWithMedia = await attachMediaTagsPeople(posts, {
+    videoThumbnailFallback: "empty",
   });
-  const mediaRows = mediaResult.rows as unknown as MediaRow[];
-
-  // Fetch tags for these posts
-  const tagsResult = await db.execute({
-    sql: `SELECT pt.post_id, t.name, t.slug
-          FROM post_tags pt
-          INNER JOIN tags t ON t.id = pt.tag_id
-          WHERE pt.post_id IN (${placeholders})`,
-    args: postIds,
-  });
-  const tagRows = tagsResult.rows as unknown as TagRow[];
-
-  // Fetch people for these posts
-  const peopleResult = await db.execute({
-    sql: `SELECT pp.post_id, pe.name, pe.slug
-          FROM post_people pp
-          INNER JOIN people pe ON pe.id = pp.person_id
-          WHERE pp.post_id IN (${placeholders})`,
-    args: postIds,
-  });
-  const personRows = peopleResult.rows as unknown as PersonRow[];
-
-  // Group media by post_id
-  const mediaByPost = new Map<string, MediaRow[]>();
-  for (const m of mediaRows) {
-    const arr = mediaByPost.get(m.post_id) || [];
-    arr.push(m);
-    mediaByPost.set(m.post_id, arr);
-  }
-
-  // Group tags by post_id
-  const tagsByPost = new Map<string, { name: string; slug: string }[]>();
-  for (const t of tagRows) {
-    const arr = tagsByPost.get(t.post_id) || [];
-    arr.push({ name: t.name, slug: t.slug });
-    tagsByPost.set(t.post_id, arr);
-  }
-
-  // Group people by post_id
-  const peopleByPost = new Map<string, { name: string; slug: string }[]>();
-  for (const p of personRows) {
-    const arr = peopleByPost.get(p.post_id) || [];
-    arr.push({ name: p.name, slug: p.slug });
-    peopleByPost.set(p.post_id, arr);
-  }
-
-  const postsWithMedia = posts.map((post) => ({
-    ...post,
-    media: (mediaByPost.get(post.id) || []).map((m) => ({
-      id: m.id,
-      type: m.type,
-      url: `${r2PublicUrl}/${m.r2_key}`,
-      thumbnailUrl: m.thumbnail_r2_key
-        ? `${r2PublicUrl}/${m.thumbnail_r2_key}`
-        : m.type === "video" ? "" : `${r2PublicUrl}/${m.r2_key}`,
-      width: m.width,
-      height: m.height,
-      display_order: m.display_order,
-    })),
-    tags: tagsByPost.get(post.id) || [],
-    people: peopleByPost.get(post.id) || [],
-  }));
 
   return NextResponse.json({ posts: postsWithMedia, nextCursor });
 }

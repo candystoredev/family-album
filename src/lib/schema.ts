@@ -260,6 +260,38 @@ const postMigrationStatements = [
   `CREATE INDEX IF NOT EXISTS idx_posts_local_date ON posts(local_date)`,
 ];
 
+/** Input for {@link ftsRowFor} — the raw fields of a single post plus its current tag/person names. */
+export interface FtsRowInput {
+  title: string | null | undefined;
+  body: string | null | undefined;
+  tagNames: string[];
+  peopleNames: string[];
+}
+
+/** A `posts_fts` row's non-key columns, ready to bind into an INSERT. */
+export interface FtsRow {
+  title: string;
+  body: string;
+  tags: string;
+  people: string;
+}
+
+/**
+ * Build a `posts_fts` row for a single post, matching {@link rebuildFtsIndex}'s
+ * semantics exactly: title/body COALESCE to '', tag/people names space-joined.
+ * Used by the incremental insert sites (post create, post edit) so their
+ * rows are identical to what a full rebuild would produce — Phase 12c fixed
+ * a bug where those sites hardcoded body to '' instead of indexing it.
+ */
+export function ftsRowFor(input: FtsRowInput): FtsRow {
+  return {
+    title: input.title ?? "",
+    body: input.body ?? "",
+    tags: input.tagNames.filter((n) => n.trim()).join(" "),
+    people: input.peopleNames.filter((n) => n.trim()).join(" "),
+  };
+}
+
 /**
  * Rebuild the FTS5 index from scratch.
  * Call after migration, bulk inserts, or when tags/people change.

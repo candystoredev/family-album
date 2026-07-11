@@ -9,7 +9,7 @@ import { generatePhotosetLayout } from "@/lib/media/layout";
 import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
 import { extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
 import { processUploadPhoto, MAX_UPLOAD_BYTES } from "@/lib/media/process-photo";
-import { ensureRichMetadataSchema } from "@/lib/schema";
+import { ensureRichMetadataSchema, ftsRowFor } from "@/lib/schema";
 import {
   resolveCaptureDate,
   type CaptureDate,
@@ -404,6 +404,12 @@ export async function POST(request: NextRequest) {
       personIds.push(...res.rows.map((r) => r.id as string));
     }
 
+    // New posts from this route are created with body = NULL (no caption
+    // field on upload) — ftsRowFor COALESCEs that to '', matching
+    // rebuildFtsIndex(). If a body field is ever added here, pass its real
+    // value instead of null.
+    const ftsRow = ftsRowFor({ title: postTitle, body: null, tagNames: cleanTags, peopleNames: cleanPeople });
+
     await db.batch(
       [
         {
@@ -491,8 +497,8 @@ export async function POST(request: NextRequest) {
         })),
         {
           sql: `INSERT INTO posts_fts(post_id, title, body, tags, people)
-                VALUES (?, ?, '', ?, ?)`,
-          args: [postId, postTitle || "", cleanTags.join(" "), cleanPeople.join(" ")],
+                VALUES (?, ?, ?, ?, ?)`,
+          args: [postId, ftsRow.title, ftsRow.body, ftsRow.tags, ftsRow.people],
         },
       ],
       "write"
