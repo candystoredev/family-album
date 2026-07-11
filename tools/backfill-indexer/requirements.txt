@@ -1,0 +1,18 @@
+# Runtime dependencies for the backfill Indexer (Tool A).
+#   pip install -r requirements.txt
+#
+# Runs standalone on a plain Mac/Linux with Python 3.9+ — no system packages.
+
+# Perceptual-hash parity engine. The [binary] extra bundles libvips — the SAME
+# image library the album app's `sharp` wraps — so the Indexer's phash is
+# BYTE-IDENTICAL to the app's. This is the guarantee Tool B (the Matcher) relies
+# on; install it. (A Pillow-only fallback exists but is only approximate.)
+pyvips[binary]>=2.2.3
+
+# EXIF / metadata extraction, image dimensions, and the phash fallback.
+Pillow>=10.0.0
+
+# --- optional ---------------------------------------------------------------
+# Apple Photos / iCloud adapter (macOS only). Uncomment to enable
+#   python index.py "" --source-kind apple_photos
+# osxphotos>=0.68.0
