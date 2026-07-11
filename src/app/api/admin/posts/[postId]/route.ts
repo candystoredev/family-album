@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { downloadFromR2, uploadToR2, deleteFromR2, PUBLIC_URL } from "@/lib/r2";
 import { db } from "@/lib/db";
+import { ftsRowFor } from "@/lib/schema";
 
 const THUMB_WIDTH = 400;
 
@@ -218,12 +219,17 @@ export async function PUT(
 
   try {
     const postRes = await db.execute({
-      sql: "SELECT id FROM posts WHERE id = ?",
+      sql: "SELECT id, body FROM posts WHERE id = ?",
       args: [postId],
     });
     if (postRes.rows.length === 0) {
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
+    // This route doesn't expose a body/caption field to edit — posts.body is
+    // set at creation (or by other flows like import) and left untouched
+    // here. Keep the existing value so the FTS re-index below doesn't wipe
+    // it out to '' on every title/tag/people edit.
+    const existingBody = postRes.rows[0].body as string | null;
 
     const body = await request.json();
     const title: string | undefined = body.title;
@@ -425,16 +431,14 @@ export async function PUT(
       await db.execute({ sql: "INSERT OR IGNORE INTO post_albums (post_id, album_id) VALUES (?, ?)", args: [postId, albumId] });
     }
 
-    // Update FTS
+    // Update FTS — re-index the post's real title/body/tags/people so this
+    // matches what a full rebuildFtsIndex() would produce (Phase 12c: this
+    // used to hardcode body to '', losing any existing caption on every edit).
+    const ftsRow = ftsRowFor({ title: postTitle, body: existingBody, tagNames, peopleNames });
     await db.execute({ sql: "DELETE FROM posts_fts WHERE post_id = ?", args: [postId] });
     await db.execute({
-      sql: "INSERT INTO posts_fts(post_id, title, body, tags, people) VALUES (?, ?, '', ?, ?)",
-      args: [
-        postId,
-        postTitle || "",
-        tagNames.filter((n) => n.trim()).join(" "),
-        peopleNames.filter((n) => n.trim()).join(" "),
-      ],
+      sql: "INSERT INTO posts_fts(post_id, title, body, tags, people) VALUES (?, ?, ?, ?, ?)",
+      args: [postId, ftsRow.title, ftsRow.body, ftsRow.tags, ftsRow.people],
     });
 
     return NextResponse.json({ success: true });
