@@ -116,11 +116,11 @@ Beyond the original v1 plan; all live in production. Details in DECISIONS.md / A
 - **Navigation redesign** — serif monogram, compact rows, Albums expand-in-place, classic + **rail** timeline layouts (shared `useTimelineStyle` pref), packed FAB cluster.
 - **Video capture dates** — MP4/MOV container parsing (mvhd + Apple `creationdate` w/ tz offset), full-timestamp ordering; `tests/video-date.test.ts`.
 
-### Next initiative — Phase 12 → 10.3 (see below)
-~~Phase 11 Archive Safety~~ **DONE** (2026-07-11) → next is **Phase 12** metadata-correctness
-completion → the Phase 10 historical backfill (which now also banks originals, absorbing 11c).
-Phase 10 (Rich Media Metadata & Enrichment) stays the spine — full design in
-`docs/rich-metadata-plan.md`.
+### Next initiative — Phase 10.3 historical backfill (see below)
+~~Phase 11 Archive Safety~~ **DONE** + ~~Phase 12 metadata-correctness completion~~ **DONE**
+(both 2026-07-11) → next is the **Phase 10.3 historical backfill** (the centerpiece — which
+now also banks originals, absorbing 11c). Phase 10 (Rich Media Metadata & Enrichment) stays
+the spine — full design in `docs/rich-metadata-plan.md`.
 
 ## Up Next
 
@@ -319,14 +319,14 @@ Small; protects everything else.
 
 ---
 
-### Phase 12 — Metadata correctness completion
+### Phase 12 — Metadata correctness completion — **DONE** (2026-07-11)
 Small; finishes what 10.2 claims.
 
-- **12a Archive page → effective day** — `/archive` page still groups by legacy `strftime(date)` while the archive API uses `EFF_DAY_SQL` — reconcile to one source (the API's). Becomes user-visible after the 10.3 backfill.
-- **12b All date display through `formatDisplayDate`** — ~6 raw `new Date(post.date)` call sites (/today, /m/[token], /share/[token], OnThisDay, TodayMemory, bulk-import) bypass the tz-safe helper — exactly the day-shift class Phase 10 exists to kill.
-- **12c FTS body indexing** — incremental FTS writes insert `body=''`, so body text is only searchable after a full rebuild. Index body on create/edit + one rebuild.
-- **12d Feed pipeline** — `/api/feed` runs its three enrichment queries sequentially (the SSR path already uses `Promise.all`) — parallelize; extract the one shared "attach media/tags/people" function (currently ~5 near-identical copies across `lib/feed.ts`, `api/feed`, `api/search`, `lib/onThisDay` — already drifted on `display_order`).
-- Verify: a late-night photo lands on the same day in feed, archive page, archive API, and /today; body text of a fresh post is searchable; feed scroll round-trips reduced.
+- **12a Archive page → effective day** — ~~reconcile.~~ **DONE** (#42): `/archive` now groups by the same `EFF_DAY_SQL` subquery as `/api/archive`; also fixed the `/archive/[year]/[month]` prev/next nav (computed from raw `date` → could point at an effectively-empty month).
+- **12b All date display through `formatDisplayDate`** — **DONE** (#42): `share/[token]`, `OnThisDay`, `TodayMemory` now use the tz-safe helper (with `local_date` exposed via `OnThisDayPost.localDate`). `/today` + `/m/[token]` day labels (built from explicit y/m/d via `Date.UTC`) and `bulk-import` (client `Date` before a post row exists) left alone — already tz-safe.
+- **12c FTS body indexing** — **DONE** (#41): incremental writes now index the real body via shared `ftsRowFor()`. Found + fixed a sharper bug — the edit route was *erasing* existing captions from the index on every edit. One `POST /api/init` after deploy backfills historical bodies.
+- **12d Feed pipeline** — **DONE** (#43): the ~5 duplicated enrichment blocks unified into `src/lib/postAssembly.ts`; `/api/feed` parallelized. Behavior-preserving (feed-order + cursor tests unchanged); `display_order` drift reconciled; a second video-thumbnail-fallback drift preserved per-caller via an option (candidate for a future standardization).
+- ~~Verify~~ (manual, post-deploy): a fresh post's caption is searchable; a corrected-date post lands in the right archive month; feed scroll/pagination still smooth.
 
 ---
 

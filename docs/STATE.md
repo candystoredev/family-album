@@ -77,11 +77,16 @@ a future audited "promote" step.
 each push auto-deploys to production).
 
 ## Current Task
-**Phase 11 (Archive Safety) shipped 2026-07-11** (11a/11b/11d/11e merged; 11c
-deferred → 10.3d). **Next session starts Phase 12 (metadata correctness
-completion)**: 12a archive page → `EFF_DAY`, 12b all date display via
-`formatDisplayDate`, 12c FTS body indexing, 12d feed `Promise.all` + shared
-enrichment fn. See ROADMAP.md.
+**Phases 11 + 12 both shipped 2026-07-11.** Phase 11 (Archive Safety):
+11a/11b/11d/11e merged; 11c deferred → 10.3d. Phase 12 (metadata correctness):
+12a archive→`EFF_DAY` (#42), 12b date display via `formatDisplayDate` (#42), 12c
+FTS body indexing (#41), 12d feed `postAssembly` unify + `/api/feed` parallelize
+(#43). **Next session starts Phase 10.3 (historical backfill — the centerpiece;
+now also banks originals).** See ROADMAP.md + docs/rich-metadata-plan.md.
+
+**Post-deploy TODO (Tom):** run one `POST /api/init` (admin bearer) to rebuild
+FTS so historical bodies erased by prior edits get re-indexed (12c). Then smoke
+the feed refactor (12d), GPS strip on a new upload (11d), and share revoke (11e).
 
 Prior task, still true: **Phase 10 — Rich Media Metadata & Enrichment** (see
 `docs/rich-metadata-plan.md`). 10.0, 10.1 (a–d), and 10.2 (a–c) all shipped &
@@ -116,6 +121,24 @@ None.
   disagree for posts with corrected capture dates. → Phase 12a.
 
 ## Recent Changes
+
+### 2026-07-11 session — Phase 12 (metadata correctness) shipped
+All merged to `master`. Suite 116 → 135.
+- **12a/12b (#42):** archive page groups by `EFF_DAY_SQL` (matches `/api/archive`)
+  + `/archive/[year]/[month]` prev/next nav fixed; post-date display routed
+  through `formatDisplayDate` at `share/[token]`/`OnThisDay`/`TodayMemory`
+  (`OnThisDayPost.localDate` added); tz-safe day-label sites left alone.
+- **12c (#41):** incremental FTS writes index the real body via `ftsRowFor()`.
+  Root cause was worse than framed — the edit route erased existing captions from
+  the index on every edit. **Post-deploy: one `POST /api/init` rebuild** backfills
+  historical bodies.
+- **12d (#43):** feed enrichment unified into `src/lib/postAssembly.ts` (4 read
+  paths); `/api/feed` parallelized. Behavior-preserving — `feed-order` +
+  `cursor-pagination` tests unchanged; reviewed line-by-line. Two drifts:
+  `display_order` unified (inert), video-thumbnail fallback preserved per-caller
+  via a `videoThumbnailFallback` option (future standardization candidate).
+- **Merge order:** #41 → #43 → #42 (#42 reconciled against #43's `onThisDay.ts`
+  refactor; auto-merge verified: 135/135 tests, clean build).
 
 ### 2026-07-11 session — Phase 11 (Archive Safety) shipped
 All merged to `master` and (where verifiable) confirmed. Test suite 69 → 116.
