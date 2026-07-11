@@ -77,16 +77,6 @@ const statements = [
     PRIMARY KEY (post_id, album_id)
   )`,
 
-  // Invite links
-  `CREATE TABLE IF NOT EXISTS invite_links (
-    id TEXT PRIMARY KEY,
-    token TEXT UNIQUE NOT NULL,
-    label TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at TEXT,
-    revoked INTEGER NOT NULL DEFAULT 0
-  )`,
-
   // Post share links (single-post public access, no session granted)
   `CREATE TABLE IF NOT EXISTS post_share_links (
     id TEXT PRIMARY KEY,
@@ -148,7 +138,6 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_post_tags_tag_id ON post_tags(tag_id)`,
   `CREATE INDEX IF NOT EXISTS idx_post_people_person_id ON post_people(person_id)`,
   `CREATE INDEX IF NOT EXISTS idx_post_albums_album_id ON post_albums(album_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_invite_links_token ON invite_links(token)`,
   `CREATE INDEX IF NOT EXISTS idx_post_share_links_token ON post_share_links(token)`,
   `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint ON push_subscriptions(endpoint)`,
 
@@ -311,6 +300,35 @@ export async function rebuildFtsIndex() {
   });
 }
 
+// ─── Cold-start DDL fast path ───────────────────────────────────────────
+//
+// Each ensure*Schema() below re-runs its full DDL sweep at most once per
+// process (guarded by its own module-level `*Ready` boolean) — but a fresh
+// serverless cold start means "once per process" can still mean "once per
+// request" under low-traffic conditions. `SCHEMA_VERSION` lets an
+// already-current database skip the sweep entirely: `initializeSchema()`
+// (the /api/init path) stamps `PRAGMA user_version` with this value only
+// after a full apply — including `ensureDayShareSchema()`, whose table
+// isn't part of the static `statements` list — so every table/column these
+// four functions manage is guaranteed to exist once the DB is at version.
+//
+// A brand-new DB defaults to `user_version = 0`, so ensure*Schema() runs
+// its full DDL the first time regardless (0 < SCHEMA_VERSION) — safe even
+// if /api/init is never called. An already-deployed prod DB that predates
+// this change is also at `user_version = 0`, so it likewise still gets the
+// full sweep (and only fast-paths after someone calls /api/init).
+const SCHEMA_VERSION = 1;
+
+let cachedUserVersion: number | null = null;
+
+async function isSchemaCurrent(): Promise<boolean> {
+  if (cachedUserVersion === null) {
+    const result = await db.execute(`PRAGMA user_version`);
+    cachedUserVersion = Number(result.rows[0]?.user_version ?? 0);
+  }
+  return cachedUserVersion >= SCHEMA_VERSION;
+}
+
 let pushSchemaReady = false;
 
 /**
@@ -320,6 +338,10 @@ let pushSchemaReady = false;
  */
 export async function ensurePushSchema() {
   if (pushSchemaReady) return;
+  if (await isSchemaCurrent()) {
+    pushSchemaReady = true;
+    return;
+  }
   await db.execute(`CREATE TABLE IF NOT EXISTS push_subscriptions (
     id TEXT PRIMARY KEY,
     endpoint TEXT UNIQUE NOT NULL,
@@ -344,6 +366,10 @@ let dayShareSchemaReady = false;
  */
 export async function ensureDayShareSchema() {
   if (dayShareSchemaReady) return;
+  if (await isSchemaCurrent()) {
+    dayShareSchemaReady = true;
+    return;
+  }
   await db.execute(`CREATE TABLE IF NOT EXISTS day_share_links (
     token TEXT PRIMARY KEY,
     year INTEGER NOT NULL,
@@ -373,6 +399,10 @@ let postShareSchemaReady = false;
  */
 export async function ensurePostShareSchema() {
   if (postShareSchemaReady) return;
+  if (await isSchemaCurrent()) {
+    postShareSchemaReady = true;
+    return;
+  }
   try {
     await db.execute(
       `ALTER TABLE post_share_links ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`
@@ -395,6 +425,10 @@ let richMetadataSchemaReady = false;
  */
 export async function ensureRichMetadataSchema() {
   if (richMetadataSchemaReady) return;
+  if (await isSchemaCurrent()) {
+    richMetadataSchemaReady = true;
+    return;
+  }
   await db.execute(`CREATE TABLE IF NOT EXISTS media_metadata_raw (
     id TEXT PRIMARY KEY,
     media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
@@ -466,4 +500,14 @@ export async function initializeSchema() {
   for (const sql of postMigrationStatements) {
     await db.execute(sql);
   }
+
+  // day_share_links lives only in ensureDayShareSchema(), not in the static
+  // `statements` list above — run it here too so a full apply genuinely
+  // covers everything the four ensure*Schema() functions manage. That's
+  // what makes it safe for them to skip their DDL once `user_version` is
+  // current (see the SCHEMA_VERSION comment above).
+  await ensureDayShareSchema();
+
+  await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  cachedUserVersion = SCHEMA_VERSION;
 }
