@@ -230,13 +230,8 @@ albums
 
 post_albums (junction: post_id, album_id)
 
-invite_links                  -- dead, never used; dropped in Phase 13
-├── id (PK, nanoid)
-├── token (unique, random)
-├── label (optional, e.g., "Grandma's link")
-├── created_at
-├── expires_at (nullable)
-├── revoked (boolean)
+-- invite_links: REMOVED 2026-07-11 (Phase 13b, #48) — was never implemented
+--   (no route ever read/wrote it); shared password + share links cover viewer access.
 
 site_settings (key-value)
 ├── key (PK: viewer_password_hash, imessage_recipients, site_title, site_description,
@@ -403,6 +398,42 @@ Shipped but previously undocumented:
   re-encodes and strips ALL EXIF from the served file, since capture data already
   lives in the DB
 - PWA refresh/back controls (PRs #31–33)
+
+### Additions (2026-07-11 — Phases 11–13 + backfill Indexer)
+- **Backups (11a):** nightly GitHub Actions cron dumps Turso via the turso CLI's
+  native `.dump` → gzip → private `thehoecks-backups` R2 bucket → prune to 30.
+  `scripts/restore-drill.ts` (`npm run restore-drill`). See "Backup Strategy".
+- **Served-photo EXIF strip (11d):** `src/lib/media/process-photo.ts`
+  `processUploadPhoto()` re-encodes every served `original.jpg` via `sharp` (no
+  `withMetadata`) → strips GPS/EXIF. Removed the `alreadyProcessed` fast path that
+  served raw bytes. 50 MB upload cap (`src/lib/media/upload-limits.ts`). Videos are
+  NOT stripped (no server ffmpeg — documented limitation).
+- **Share-link revocation (11e):** `revoked` on `post_share_links` +
+  `day_share_links`; public `/share/[token]` + `/m/[token]` reject revoked links via
+  `src/lib/shareLinks.ts` `isShareLinkUsable()`; admin `GET/POST /api/admin/share-links`
+  + Settings UI. No auto-expiry (links stay persistent by design).
+- **FTS body fix (12c):** incremental `posts_fts` writes index the real body via
+  `ftsRowFor()` (was `''`, which erased captions on every edit). A `/api/init`
+  rebuild backfills historical bodies.
+- **Feed enrichment unified (12d):** `src/lib/postAssembly.ts` centralizes the
+  media/tags/people attachment for the SSR feed, `/api/feed`, `/api/search`, and
+  on-this-day; `/api/feed`'s three queries now run in one `Promise.all`. Effective
+  capture date drives archive/date display (12a/12b, `EFF_DAY_SQL` + `formatDisplayDate`).
+- **Schema `PRAGMA user_version` guard (13b):** the four `ensure*Schema()` functions
+  skip their DDL sweep once the DB is at `SCHEMA_VERSION` (1), stamped by
+  `initializeSchema()` after a full apply (which now also runs `ensureDayShareSchema()`
+  — `day_share_links` was the one lazy-only table). Kills ~50 cold-start `ALTER`s.
+- **Dead code removed (13b):** `invite_links` table, `SeedButton`, `/api/seed`
+  (seed logic → `scripts/seed.ts`), `@types/sharp`.
+- **Security hygiene (13d):** shared `src/lib/slugify.ts`; `r2Key`/`keyPrefix`
+  validated in both write routes; no `String(error)` leaks; push-subscribe host
+  allow-list; inert JWT `tokenVersion` claim.
+- **Backfill Indexer (10.3a) — `tools/backfill-indexer/` (Python, standalone):**
+  the read-only Tool A for the historical backfill. Walks photo sources (filesystem
+  done; Apple Photos/Google Takeout/XMP scaffolded), emits a portable SQLite index
+  with a perceptual hash **byte-identical to the app's `perceptualHash`** (uses
+  pyvips = the same libvips sharp wraps), content hash, and metadata. Idempotent,
+  resumable, dry-run-able. Runs on the family's own machines; feeds Tool B (10.3b).
 
 ## Constraints
 

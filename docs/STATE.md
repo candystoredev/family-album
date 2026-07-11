@@ -10,22 +10,28 @@ On-This-Day share links are all live. The project is its own repo
 
 **2026-07-09: full app review restructured the roadmap.** See ROADMAP.md.
 
-**2026-07-11: Phase 11 (Archive Safety) DONE.** Shipped & merged: 11a automated
-backups (private `thehoecks-backups` bucket + cron + restore drill, verified
-green end-to-end), 11b `npm audit fix` + 40 auth-middleware tests, 11d GPS/EXIF
-strip on served photos + 50 MB upload cap, 11e share-link revocation. **11c
-(bank originals at upload) was deferred** — folded into 10.3d, which now archives
-originals (historical + going-forward) to the private bucket's `originals/`
-prefix during the backfill (see DECISIONS 2026-07-11). Next up: **Phase 12
-(metadata correctness completion)**, then **Phase 10.3 (historical backfill)**,
-still the centerpiece.
+**2026-07-11: Phases 11, 12, 13 all shipped + 10.3a Indexer built.** Phase 11
+(Archive Safety: nightly backups, audit+auth tests, served-photo GPS strip, share
+revocation), Phase 12 (metadata correctness: archive/date-display fixes, FTS body,
+feed refactor), Phase 13 (debt paydown: HEIC edit fix, dead-code removal, schema
+`user_version` guard, security hygiene). **11c (bank originals at upload) deferred
+→ 10.3d.** The read-only backfill Indexer (10.3a) is built. **Next up: Phase 10.3
+historical backfill — parked on Tom gathering source files (a data task, not
+code); see [backfill-prep.md](backfill-prep.md).** No-dependency Phase 14 polish
+(SW caching, a11y, On-This-Day→SSR) can proceed anytime.
 
-## ⏸ PAUSED — read this first when you come back (2026-06-26, reviewed 2026-07-09)
+## ⏸ PAUSED — read this first when you come back (2026-07-11)
 
-Taking a few weeks off mid–**Phase 10 (Rich Media Metadata & Enrichment)**. Full
-design: [`docs/rich-metadata-plan.md`](rich-metadata-plan.md). Status table in
-[`docs/ROADMAP.md`](ROADMAP.md). Everything below is committed, deployed, and
-verified on prod — **you are stopped at a clean, safe checkpoint.**
+Tom is traveling. Everything is committed, deployed, and verified on prod — a
+clean, safe checkpoint, nothing mid-flight. Since the original 2026-06-26 Phase 10
+pause, a full app review (2026-07-09) restructured the roadmap and Phases **11
+(Archive Safety), 12 (metadata correctness), and 13 (debt paydown) all shipped
+(2026-07-11)**, plus the **10.3a backfill Indexer** was built. The one big
+remaining piece — the **Phase 10.3 historical backfill** — is parked on Tom
+gathering source photos across his computers (a data task, not code; see
+[`docs/backfill-prep.md`](backfill-prep.md)). Full design:
+[`docs/rich-metadata-plan.md`](rich-metadata-plan.md). Status:
+[`docs/ROADMAP.md`](ROADMAP.md).
 
 **What Phase 10 is & why we're doing it.** Every photo/video used to collapse to
 one timezone-less string `posts.date`, read three inconsistent ways (ordering
@@ -41,28 +47,30 @@ bias: **capture more than we model, never overwrite, record provenance, keep it
 re-runnable.**
 
 **What's DONE (shipped + verified on prod):**
-- **10.0** additive schema · **10.1a–d** capture at upload (dates, HEIC fix,
-  identity/visual hashes, GPS/device/raw) · **10.2a–c** flipped reads to the
-  effective capture date (feed order/cursor, grouping, display + "est." badge).
-- The correctness core is complete and the feed is live and confirmed working.
-  No production data was mutated — reads use a read-time `COALESCE` fallback, so
-  historical posts (which have no new columns yet) keep their exact prior order.
+- **Phase 10 core** — 10.0 additive schema · 10.1a–d capture at upload · 10.2a–c
+  effective-date reads. No prod data mutated (read-time `COALESCE` fallback, so
+  historical posts keep their exact prior order).
+- **Phase 11** Archive Safety (nightly backups, `npm audit`+auth tests, GPS strip
+  on served photos, share-link revocation) · **Phase 12** metadata correctness
+  (archive/date-display fixes, FTS body indexing, feed `postAssembly` refactor) ·
+  **Phase 13** debt paydown (HEIC edit fix, dead-code removal, `PRAGMA
+  user_version` schema guard, security hygiene).
+- **10.3a Indexer built** (`tools/backfill-indexer/`) — read-only, phash
+  byte-identical to the app; ready to run on Tom's machines.
 
-**WHERE TO RESUME — updated 2026-07-09 per restructured ROADMAP.md: Phase 11 →
-Phase 12 → Phase 10.3.**
-1. **Phase 11 (Archive Safety) then Phase 12 (metadata correctness completion)
-   come first — both small.** Then **10.3 Historical backfill** — still *the big
-   payoff*. Phash-match the album's re-encoded thumbnails to your local original
-   files (Apple Photos via `osxphotos`, Dropbox, folders) on a Claude-less
-   machine, then apply real capture dates / GPS / faces to the thousands of
-   historical posts that are currently `NULL`. Separate two-tool design (Indexer
-   + Matcher/Applier) already spec'd in the plan doc; now expanded to sub-phases
-   10.3a–e (adds review-queue merge, originals archival, post-backfill promote
-   step) — see ROADMAP.md. This is what makes 10.1/10.2 pay off for old content.
-2. **10.1e Async enrichment queue + Railway worker** — deferred on purpose: its
-   ML backends (faces/scene/caption/embedding) are stubs until **10.5**, so build
-   the two together or not yet.
-3. **Pause / polish** — small tracked gaps below.
+**WHERE TO RESUME — updated 2026-07-11.**
+1. **10.3 Historical backfill (the big payoff, parked on data-gathering).** Tool A
+   (Indexer) is built — run it per source on Tom's machines
+   (`docs/backfill-prep.md` + `tools/backfill-indexer/README.md`), collect the
+   index files, then build **10.3b Tool B (Matcher/Applier)**: phash-match to the
+   stored thumbnails and apply real capture dates / GPS / faces to the thousands
+   of historical posts currently `NULL`, plus bank originals (10.3d). Then 10.3c
+   review queue, 10.3e promote+index. This is what makes 10.1/10.2 pay off for old
+   content.
+2. **Phase 14 polish (no dependencies, do anytime):** SW caching/offline,
+   accessibility pass, On-This-Day → SSR, iOS Shortcut setup guide.
+3. **10.1e enrichment queue + 10.5 semantic** — deferred on purpose (ML backends
+   stubbed); build together or not yet.
 
 **Mental model for resuming:** the upload path writes the new columns
 (`src/lib/media/capture-date.ts`, `extract.ts`, `image-hash.ts` →
@@ -139,6 +147,29 @@ None.
   disagree for posts with corrected capture dates. → Phase 12a.
 
 ## Recent Changes
+
+### 2026-07-11 session — Phase 13 (debt paydown) shipped + 10.3a Indexer built
+All merged to `master`. Suite 135 → 135 (app tests unaffected by the Indexer,
+which is additive under `tools/`).
+- **13a (#46):** edit page adopts the shared `compressImage` (fixes HEIC editing —
+  its private copy had no HEIC support) + shared `MetadataFields`. −167 lines.
+- **13d (#47):** `slugify` deduped → `src/lib/slugify.ts`; client-supplied
+  `r2Key`/`keyPrefix` validated (`startsWith("media/")`, no `..`) in both write
+  routes before any R2 op; `String(error)` echoes removed (init/test/share/day);
+  push-subscribe host allow-list (Apple/Firefox/FCM/Edge); inert JWT
+  `tokenVersion` claim (forward-prep, not enforced).
+- **13b (#48):** dead `invite_links` dropped; `SeedButton`/`/api/seed` removed (seed
+  logic → `scripts/seed.ts`); stale `@types/sharp` dropped; **`PRAGMA user_version`
+  guard** skips the ~50 cold-start `ALTER` sweeps once `/api/init` stamps
+  `SCHEMA_VERSION=1` (safe: init creates every `ensure*`-managed object first).
+- **10.3a Indexer (#49):** `tools/backfill-indexer/` (Python). Read-only; phash
+  **byte-identical to the app** (pyvips = same libvips; verified vs the real TS
+  `perceptualHash` via a `tsx` oracle). Filesystem adapter done + tested;
+  apple_photos/google_takeout/xmp scaffolded (need real libraries). Runs on Tom's
+  machines when sources are mapped.
+- **Deferred (not built):** CSP nonce / drop `'unsafe-inline'` (only matters once a
+  body-editing feature lands — `posts.body` is never user-writable today);
+  `tokenVersion` enforcement.
 
 ### 2026-07-11 session — Phase 12 (metadata correctness) shipped
 All merged to `master`. Suite 116 → 135.

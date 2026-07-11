@@ -8,12 +8,17 @@ backfill).
 Guiding bias: **leave as many future options open as possible** — capture more
 than we model, never overwrite, record provenance, make everything re-runnable.
 
-> **STATUS (2026-06-26): PAUSED at a clean checkpoint.** Phases 0–2 here (= ROADMAP
-> 10.0, 10.1a–d, 10.2a–c) are **DONE, shipped & verified on prod** — the live
-> upload path banks the full metadata set and reads use the effective capture
-> date. Remaining: the async enrichment worker (ROADMAP 10.1e, deferred until the
-> 10.5 backends exist) and the separate opt-in tracks below — **Phase 3
-> (historical backfill)** is the next big payoff. Implementation lives in
+> **STATUS (updated 2026-07-11).** Phases 0–2 here (= ROADMAP 10.0, 10.1a–d,
+> 10.2a–c) are **DONE, shipped & verified on prod** — the live upload path banks
+> the full metadata set and reads use the effective capture date. **Phase 3
+> (historical backfill) Tool A — the Indexer — is now BUILT** (`tools/backfill-
+> indexer/`, ROADMAP 10.3a): read-only, phash byte-identical to the app's
+> `perceptualHash` (pyvips = same libvips). Remaining for the backfill: run the
+> Indexer on the source machines (parked on Tom gathering files — see
+> `docs/backfill-prep.md`), then **Tool B (Matcher/Applier, 10.3b)**, the review
+> queue (10.3c), originals archival (10.3d), and the promote step (10.3e). The
+> async enrichment worker (10.1e) + semantic enrichment (Phase 5 / ROADMAP 10.5)
+> stay deferred until their ML backends exist. Live-path implementation lives in
 > `src/lib/media/{capture-date,extract,image-hash}.ts`, the upload `complete`
 > route, and `src/lib/order.ts`; see `docs/STATE.md` for the resume pointer.
 
