@@ -12,6 +12,8 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import { compressImage } from "@/lib/media/compress";
+import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,10 +23,6 @@ type EditItem =
   | { kind: "existing"; id: string; mediaId: string; thumbUrl: string; type: "photo" | "video"; crop?: CropBox }
   | { kind: "new"; id: string; file: File; preview: string; type: "photo" | "video"; posterDataUrl?: string; crop?: CropBox };
 
-interface TagOption { id: string; name: string; slug: string }
-interface PersonOption { id: string; name: string; slug: string }
-interface AlbumOption { id: string; title: string; slug: string }
-
 type SaveState = "idle" | "saving" | "success" | "error";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -33,34 +31,6 @@ let fileIdCounter = 0;
 function nextFileId() { return `new-${++fileIdCounter}-${Date.now()}`; }
 
 function isVideoFile(file: File) { return file.type.startsWith("video/"); }
-
-async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  return new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const { naturalWidth: w, naturalHeight: h } = img;
-      if (w <= maxPx && h <= maxPx) { resolve(file); return; }
-      const scale = maxPx / Math.max(w, h);
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(w * scale);
-      canvas.height = Math.round(h * scale);
-      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) { resolve(file); return; }
-          resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
-        },
-        "image/jpeg",
-        quality
-      );
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
-    img.src = url;
-  });
-}
 
 const NEW_ROW_ZONE = 40;
 
@@ -164,14 +134,10 @@ export default function EditPostPage() {
   const [date, setDate] = useState("");
 
   // Tags / People / Albums
-  const [allTags, setAllTags] = useState<TagOption[]>([]);
-  const [allPeople, setAllPeople] = useState<PersonOption[]>([]);
-  const [allAlbums, setAllAlbums] = useState<AlbumOption[]>([]);
+  const metadataOptions = useMetadataOptions();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<string[]>([]);
-  const [newTag, setNewTag] = useState("");
-  const [newPerson, setNewPerson] = useState("");
 
   // Save / delete state
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -196,13 +162,9 @@ export default function EditPostPage() {
   // ─── Load post data ───────────────────────────────────────────────────────
 
   useEffect(() => {
-    Promise.all([
-      fetch(`/api/admin/posts/${postId}`).then((r) => r.json()),
-      fetch("/api/admin/tags").then((r) => r.json()).catch(() => []),
-      fetch("/api/admin/people").then((r) => r.json()).catch(() => []),
-      fetch("/api/admin/albums").then((r) => r.json()).catch(() => []),
-    ])
-      .then(([post, tags, people, albums]) => {
+    fetch(`/api/admin/posts/${postId}`)
+      .then((r) => r.json())
+      .then((post) => {
         if (post.error) { setLoadError(post.error); setLoading(false); return; }
 
         setPostSlug(post.slug as string);
@@ -211,9 +173,6 @@ export default function EditPostPage() {
         setSelectedTags(post.tags || []);
         setSelectedPeople(post.people || []);
         setSelectedAlbumIds(post.albumIds || []);
-        setAllTags(tags);
-        setAllPeople(people);
-        setAllAlbums(albums);
 
         const existingItems: EditItem[] = (post.media || []).map(
           (m: { id: string; thumbUrl: string; type: "photo" | "video" }) => ({
@@ -403,26 +362,6 @@ export default function EditPostPage() {
     setInsertAt(null);
   }
 
-  // ─── Tag/People helpers ───────────────────────────────────────────────────
-
-  function addTag(name: string) {
-    const t = name.trim();
-    if (!t) return;
-    if (!selectedTags.includes(t)) setSelectedTags((prev) => [...prev, t]);
-    setNewTag("");
-  }
-
-  function addPerson(name: string) {
-    const t = name.trim();
-    if (!t) return;
-    if (!selectedPeople.includes(t)) setSelectedPeople((prev) => [...prev, t]);
-    setNewPerson("");
-  }
-
-  function toggleAlbum(id: string) {
-    setSelectedAlbumIds((prev) => prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]);
-  }
-
   // ─── Save ─────────────────────────────────────────────────────────────────
 
   async function handleSave() {
@@ -524,16 +463,6 @@ export default function EditPostPage() {
       setSaveError(err instanceof Error ? err.message : "Delete failed");
     }
   }
-
-  // ─── Suggestions ─────────────────────────────────────────────────────────
-
-  const tagSuggestions = allTags.filter(
-    (t) => !selectedTags.includes(t.name) && t.name.toLowerCase().includes(newTag.toLowerCase()) && newTag.length > 0
-  );
-
-  const peopleSuggestions = allPeople.filter(
-    (p) => !selectedPeople.includes(p.name) && p.name.toLowerCase().includes(newPerson.toLowerCase()) && newPerson.length > 0
-  );
 
   const activeItem = activeId ? flatItems.find((f) => f.id === activeId) ?? null : null;
   const isBusy = saveState === "saving" || deleting;
@@ -644,118 +573,22 @@ export default function EditPostPage() {
               <p className="text-[10px] text-[#666] text-center -mt-4">Hold to reorder</p>
             )}
 
-            {/* Title */}
-            <input
-              type="text"
-              placeholder="Title (optional)"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+            {/* Title / date / tags / people / albums */}
+            <MetadataFields
+              options={metadataOptions}
+              title={title}
+              onTitleChange={setTitle}
+              date={date}
+              onDateChange={setDate}
+              dateLabel="Date"
+              selectedTags={selectedTags}
+              onTagsChange={setSelectedTags}
+              selectedPeople={selectedPeople}
+              onPeopleChange={setSelectedPeople}
+              selectedAlbumIds={selectedAlbumIds}
+              onAlbumIdsChange={setSelectedAlbumIds}
               disabled={isBusy}
-              className="w-full bg-[#2a2929] rounded-lg px-4 py-3 text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3] disabled:opacity-50"
             />
-
-            {/* Date */}
-            <div>
-              <label className="block text-xs text-[#888] mb-1">Date</label>
-              <input
-                type="datetime-local"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                disabled={isBusy}
-                className="w-full bg-[#2a2929] rounded-lg px-4 py-3 text-[#d3d3d3] outline-none focus:ring-1 focus:ring-[#427ea3] disabled:opacity-50"
-              />
-            </div>
-
-            {/* Tags */}
-            <div>
-              <label className="block text-xs text-[#888] mb-1">Tags</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {selectedTags.map((tag) => (
-                  <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 bg-[#2a2929] rounded text-sm text-[#a0a0a0]">
-                    #{tag}
-                    {!isBusy && (
-                      <button onClick={() => setSelectedTags((p) => p.filter((t) => t !== tag))} className="text-[#666] hover:text-[#d86d6d] ml-0.5">×</button>
-                    )}
-                  </span>
-                ))}
-              </div>
-              {!isBusy && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Add tag..."
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && newTag.trim()) { e.preventDefault(); addTag(newTag); } }}
-                    className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3]"
-                  />
-                  {tagSuggestions.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-[#2a2929] rounded-lg border border-[#3a3939] max-h-40 overflow-y-auto">
-                      {tagSuggestions.map((t) => (
-                        <button key={t.id} onClick={() => addTag(t.name)} className="w-full text-left px-4 py-2 text-sm text-[#a0a0a0] hover:bg-[#333] hover:text-[#d3d3d3]">#{t.name}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* People */}
-            <div>
-              <label className="block text-xs text-[#888] mb-1">People</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {selectedPeople.map((person) => (
-                  <span key={person} className="inline-flex items-center gap-1 px-2 py-1 bg-[#2a2929] rounded text-sm text-[#a0a0a0]">
-                    @{person}
-                    {!isBusy && (
-                      <button onClick={() => setSelectedPeople((p) => p.filter((x) => x !== person))} className="text-[#666] hover:text-[#d86d6d] ml-0.5">×</button>
-                    )}
-                  </span>
-                ))}
-              </div>
-              {!isBusy && (
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Add person..."
-                    value={newPerson}
-                    onChange={(e) => setNewPerson(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && newPerson.trim()) { e.preventDefault(); addPerson(newPerson); } }}
-                    className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3]"
-                  />
-                  {peopleSuggestions.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-[#2a2929] rounded-lg border border-[#3a3939] max-h-40 overflow-y-auto">
-                      {peopleSuggestions.map((p) => (
-                        <button key={p.id} onClick={() => addPerson(p.name)} className="w-full text-left px-4 py-2 text-sm text-[#a0a0a0] hover:bg-[#333] hover:text-[#d3d3d3]">@{p.name}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Albums */}
-            {allAlbums.length > 0 && (
-              <div>
-                <label className="block text-xs text-[#888] mb-1">Albums</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {allAlbums.map((album) => (
-                    <button
-                      key={album.id}
-                      onClick={() => !isBusy && toggleAlbum(album.id)}
-                      disabled={isBusy}
-                      className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                        selectedAlbumIds.includes(album.id)
-                          ? "bg-[#427ea3] text-white"
-                          : "bg-[#2a2929] text-[#a0a0a0] hover:bg-[#333]"
-                      } disabled:opacity-50`}
-                    >
-                      {album.title}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Save button */}
             {saveState === "idle" && (
