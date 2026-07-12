@@ -11,7 +11,7 @@ export { MAX_UPLOAD_BYTES } from "./upload-limits";
  * `.withMetadata()` strips ALL EXIF from the output — including GPS. That's
  * the point, not a side effect: capture date, GPS, device info, and the raw
  * EXIF blob are already parsed and written to the DB at ingest time (see
- * `extractPhotoExtras` / `resolveServerCapture` in the upload/complete
+ * `extractPhotoExtras` / `resolveOriginalCapture` in the upload/complete
  * route), so nothing is lost — the publicly-served JPEG just no longer needs
  * to carry that data itself, and therefore can't leak a family member's home
  * GPS coordinates to anyone who downloads the image.

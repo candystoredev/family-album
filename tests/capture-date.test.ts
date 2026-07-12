@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  earliestCapture,
   parseExifWallClock,
   parseTzOffset,
   parseAppleCreationDate,
@@ -160,5 +161,28 @@ describe("resolveCaptureDate — fallbacks and priority", () => {
       exifDateTimeOriginal: "2019:07:04 18:30:00",
     });
     assert.equal(r.source, "exif");
+  });
+});
+
+describe("earliestCapture", () => {
+  // The post-rollup rule shared by the server and the upload page's
+  // "Suggested date" preview.
+  it("picks the earliest resolvable instant across media", () => {
+    const flyer = resolveCaptureDate({ exifDateTimeOriginal: "2026:07:06 09:00:00" });
+    const party = resolveCaptureDate({ exifDateTimeOriginal: "2026:07:04 20:10:00" });
+    const undated = resolveCaptureDate({}); // no nowMs → takenAt null
+    assert.equal(earliestCapture([flyer, undated, party])?.localDate, "2026-07-04");
+  });
+  it("breaks takenAt ties by array (display) order", () => {
+    const a = resolveCaptureDate({ exifDateTimeOriginal: "2026:07:04 20:10:00" });
+    const b = {
+      ...resolveCaptureDate({ exifDateTimeOriginal: "2026:07:04 20:10:00" }),
+      localDate: "marker",
+    };
+    assert.equal(earliestCapture([a, b])?.localDate, "2026-07-04");
+  });
+  it("returns null when nothing has an instant", () => {
+    assert.equal(earliestCapture([]), null);
+    assert.equal(earliestCapture([resolveCaptureDate({}), null, undefined]), null);
   });
 });

@@ -1,6 +1,10 @@
 import exifr from "exifr";
 import { getVideoCapture } from "./exif";
-import type { CaptureDateInput } from "./capture-date";
+import {
+  resolveCaptureDate,
+  type CaptureDate,
+  type CaptureDateInput,
+} from "./capture-date";
 
 /**
  * Build the raw, serializable capture-date inputs from the ORIGINAL file
@@ -55,6 +59,40 @@ export async function buildCaptureInput(
     // Corrupt/absent EXIF — server falls back to filename/mtime.
     return base;
   }
+}
+
+/**
+ * Server-side capture resolution (Phase 10.1a), shared by the upload-complete
+ * and post-edit routes. Prefers the client's raw inputs (extracted from the
+ * original before compression); when none were sent (e.g. the iOS Shortcut
+ * originals path) and we hold the original photo bytes, re-extracts EXIF with
+ * the SAME rule (reviveValues:false → naive string) so client and server can't
+ * disagree. Videos are never downloaded server-side, so they resolve from the
+ * client inputs alone.
+ */
+export async function resolveOriginalCapture(
+  capture: CaptureDateInput | undefined,
+  original: ArrayBuffer | Uint8Array | null,
+  isPhoto: boolean,
+  nowMs: number
+): Promise<CaptureDate> {
+  let input: CaptureDateInput = capture ?? {};
+  if (!capture && original && isPhoto) {
+    try {
+      const tags = await exifr.parse(original, {
+        pick: ["DateTimeOriginal", "CreateDate", "OffsetTimeOriginal", "OffsetTimeDigitized"],
+        reviveValues: false,
+      });
+      input = {
+        exifDateTimeOriginal: tags?.DateTimeOriginal ?? tags?.CreateDate ?? null,
+        exifOffsetTimeOriginal:
+          tags?.OffsetTimeOriginal ?? tags?.OffsetTimeDigitized ?? null,
+      };
+    } catch {
+      // No readable EXIF — fall through to upload_fallback.
+    }
+  }
+  return resolveCaptureDate(input, nowMs);
 }
 
 /**
