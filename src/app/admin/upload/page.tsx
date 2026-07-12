@@ -13,9 +13,14 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { compressImage } from "@/lib/media/compress";
-import { getMediaDate, getVideoDate } from "@/lib/media/exif";
 import { buildCaptureInput, sha256Hex, extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
-import type { CaptureDateInput } from "@/lib/media/capture-date";
+import {
+  earliestCapture,
+  resolveCaptureDate,
+  type CaptureDate,
+  type CaptureDateInput,
+} from "@/lib/media/capture-date";
+import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
 import { defaultLayout } from "@/lib/media/layout";
 import { MAX_UPLOAD_BYTES } from "@/lib/media/upload-limits";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
@@ -30,10 +35,12 @@ interface MediaFile {
   preview: string;
   type: "photo" | "video";
   posterDataUrl?: string;
-  /** Capture date from the original file's EXIF (compression strips EXIF). */
-  exifDate?: Date;
   /** Raw capture-date inputs from the original, resolved server-side (10.1a). */
   capture?: CaptureDateInput;
+  /** The same inputs resolved locally — feeds the "Suggested date" preview.
+   *  resolveCaptureDate is pure, so this matches the server's resolution
+   *  (minus the upload_fallback stamp, which needs the server clock). */
+  resolved?: CaptureDate;
   /** SHA-256 of the original bytes — identity for dedup/backfill (10.1b). */
   contentHash?: string;
   /** GPS + device + raw EXIF from the original (10.1c). */
@@ -153,6 +160,14 @@ export default function UploadPage() {
 
   // Flat file list for upload ordering
   const flatFiles = useMemo(() => rows.flat(), [rows]);
+
+  // "Suggested date" — what the server rollup will pick if the date field is
+  // left empty: the earliest resolved capture across the queue, in display
+  // order (the exact rule the server applies). Live as files change.
+  const suggested = useMemo(
+    () => earliestCapture(flatFiles.map((f) => f.resolved)),
+    [flatFiles]
+  );
 
   // Live preview — uses debounced insertAt so rapid zone-boundary oscillations
   // don't cause the layout to thrash; committed on drag end via pendingInsertRef
@@ -278,18 +293,12 @@ export default function UploadPage() {
     const mediaFiles: MediaFile[] = await Promise.all(
       acceptedFiles.map(async (f) => {
         const isVideo = isVideoFile(f);
-        // Capture date must be read from the original — for photos, compression
-        // re-encodes via canvas and strips EXIF; videos carry their date in the
-        // MP4/MOV container (the server can't read either from R2 cheaply).
-        let exifDate: Date | undefined;
-        if (isVideo) {
-          exifDate = (await getVideoDate(f)) ?? undefined;
-        } else {
-          const mediaDate = await getMediaDate(f);
-          exifDate = mediaDate.source === "exif" ? mediaDate.date : undefined;
-        }
-        // Rich capture inputs from the original (resolved server-side, 10.1a).
+        // Rich capture inputs must be read from the original — for photos,
+        // compression re-encodes via canvas and strips EXIF; videos carry
+        // their date in the MP4/MOV container. Resolved for real server-side
+        // (10.1a); also resolved here for the "Suggested date" preview.
         const capture = await buildCaptureInput(f, isVideo);
+        const resolved = resolveCaptureDate(capture);
         // SHA-256 of the original for dedup/backfill identity (10.1b). Photos
         // only — videos can be huge and hashing them client-side is unsafe.
         const contentHash = isVideo ? undefined : ((await sha256Hex(f)) ?? undefined);
@@ -301,8 +310,8 @@ export default function UploadPage() {
           file: processed,
           preview: URL.createObjectURL(processed),
           type: isVideo ? ("video" as const) : ("photo" as const),
-          exifDate,
           capture,
+          resolved,
           contentHash,
           extras,
         };
@@ -517,16 +526,17 @@ export default function UploadPage() {
       const photosetLayout = rows.map((r) => r.length).join("");
 
       setProgress("Finalizing...");
-      // Manual date wins; otherwise the first file's client-extracted EXIF
-      // date (uploaded files have EXIF stripped by compression)
-      const exifDateIso = flatFiles.find((f) => f.exifDate)?.exifDate?.toISOString();
+      // Only a date the user actually typed is sent — the server treats `date`
+      // as a manual override (date_source='manual'). Left empty, the server
+      // rolls up the earliest capture across the items, which is exactly what
+      // the "Suggested date" preview showed.
       const completeRes = await fetch("/api/admin/upload/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: uploadedItems,
           title: title.trim() || undefined,
-          date: date || exifDateIso || undefined,
+          date: date || undefined,
           tags: selectedTags,
           people: selectedPeople,
           albumIds: selectedAlbumIds,
@@ -818,6 +828,36 @@ export default function UploadPage() {
               onTitleChange={setTitle}
               date={date}
               onDateChange={setDate}
+              dateLabel="Date (leave empty to use the suggested date)"
+              dateHint={
+                suggested ? (
+                  date ? (
+                    <span className="text-[#888]">
+                      Your date replaces the suggested{" "}
+                      <span className="text-[#c9c4ba]">
+                        {formatDisplayDate(suggested.takenAt ?? "", suggested.localDate)}
+                      </span>{" "}
+                      and is saved as manually set.
+                    </span>
+                  ) : (
+                    <span className={isEstimatedDate(suggested.source) ? "text-[#c2a467]" : "text-[#888]"}>
+                      Suggested date:{" "}
+                      <span className="font-semibold text-[#c9c4ba]">
+                        {formatDisplayDate(suggested.takenAt ?? "", suggested.localDate)}
+                      </span>{" "}
+                      · {captureSourceLabel(suggested.source)}
+                      {isEstimatedDate(suggested.source) &&
+                        " — set the real date above if this looks wrong"}
+                    </span>
+                  )
+                ) : (
+                  <span className="text-[#c2a467]">
+                    No capture date found in{" "}
+                    {flatFiles.length === 1 ? "this file" : "these files"} — the post will be
+                    dated today unless you set one.
+                  </span>
+                )
+              }
               selectedTags={selectedTags}
               onTagsChange={setSelectedTags}
               selectedPeople={selectedPeople}

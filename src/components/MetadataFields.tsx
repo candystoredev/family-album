@@ -57,6 +57,8 @@ interface MetadataFieldsProps {
   date: string;
   onDateChange: (v: string) => void;
   dateLabel?: string;
+  /** Provenance line under the date input — e.g. "Suggested date: Jul 4, 2026 · from photo metadata". */
+  dateHint?: React.ReactNode;
   selectedTags: string[];
   onTagsChange: (v: string[]) => void;
   selectedPeople: string[];
@@ -73,6 +75,7 @@ export default function MetadataFields({
   date,
   onDateChange,
   dateLabel = "Date (auto-detected from photo EXIF if left empty)",
+  dateHint,
   selectedTags,
   onTagsChange,
   selectedPeople,
@@ -158,6 +161,7 @@ export default function MetadataFields({
           disabled={disabled}
           className="w-full bg-[#2a2929] rounded-lg px-4 py-3 text-[#d3d3d3] outline-none focus:ring-1 focus:ring-[#427ea3] disabled:opacity-50"
         />
+        {dateHint && <div className="mt-1.5 text-xs leading-relaxed">{dateHint}</div>}
       </div>
 
       {/* Tags */}

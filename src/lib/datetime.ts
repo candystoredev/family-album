@@ -40,6 +40,27 @@ export function isEstimatedDate(dateSource?: string | null): boolean {
   return !!dateSource && ESTIMATED_SOURCES.has(dateSource);
 }
 
+/** Human phrasing of a `date_source`, for the upload/edit date affordances. */
+export function captureSourceLabel(source?: string | null): string {
+  switch (source) {
+    case "exif_offset":
+    case "exif":
+      return "from photo metadata";
+    case "video_meta":
+      return "from video metadata";
+    case "filename":
+      return "estimated from the filename";
+    case "file_mtime":
+      return "estimated from the file's modified time";
+    case "manual":
+      return "set manually";
+    case "upload_fallback":
+      return "from the upload time";
+    default:
+      return "from the original import";
+  }
+}
+
 /** Current date parts in a given IANA timezone. */
 export function zonedNow(timeZone: string): {
   date: string; // YYYY-MM-DD

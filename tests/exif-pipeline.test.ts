@@ -76,3 +76,32 @@ describe("exifr reviveValues:false → raw string → resolveCaptureDate", () =>
     assert.equal(r.tzOffsetMin, 120);
   });
 });
+
+describe("resolveOriginalCapture (shared server resolver)", () => {
+  it("prefers the client's raw inputs when present", async () => {
+    const { resolveOriginalCapture } = await import("../src/lib/media/extract");
+    const buf = buildExifJpeg("2020:01:01 00:00:00", "+00:00");
+    const r = await resolveOriginalCapture(
+      { exifDateTimeOriginal: "2019:07:04 18:30:00" },
+      buf,
+      true,
+      Date.UTC(2026, 6, 6)
+    );
+    assert.equal(r.source, "exif");
+    assert.equal(r.localDate, "2019-07-04");
+  });
+  it("re-extracts from the original bytes when no client inputs were sent", async () => {
+    const { resolveOriginalCapture } = await import("../src/lib/media/extract");
+    const buf = buildExifJpeg("2019:07:04 23:30:00", "+02:00");
+    const r = await resolveOriginalCapture(undefined, buf, true, Date.UTC(2026, 6, 6));
+    assert.equal(r.source, "exif_offset");
+    assert.equal(r.localDate, "2019-07-04");
+    assert.equal(r.takenAt, "2019-07-04T21:30:00.000Z");
+  });
+  it("stamps upload_fallback when there is nothing to read", async () => {
+    const { resolveOriginalCapture } = await import("../src/lib/media/extract");
+    const r = await resolveOriginalCapture(undefined, null, false, Date.UTC(2026, 6, 6));
+    assert.equal(r.source, "upload_fallback");
+    assert.equal(r.localDate, "2026-07-06");
+  });
+});

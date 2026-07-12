@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
+import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { downloadFromR2, uploadToR2, deleteFromR2, PUBLIC_URL } from "@/lib/r2";
 import { db } from "@/lib/db";
-import { ftsRowFor } from "@/lib/schema";
+import { ensureRichMetadataSchema, ftsRowFor } from "@/lib/schema";
 import { slugify } from "@/lib/slugify";
+import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
+import {
+  extractPhotoExtras,
+  resolveOriginalCapture,
+  type MediaExtras,
+} from "@/lib/media/extract";
+import {
+  resolveCaptureDate,
+  type CaptureDate,
+  type CaptureDateInput,
+} from "@/lib/media/capture-date";
 
 const THUMB_WIDTH = 400;
 
@@ -110,7 +122,9 @@ export async function GET(
   const { postId } = await params;
 
   const postRes = await db.execute({
-    sql: "SELECT id, slug, title, body, date, type, photoset_layout FROM posts WHERE id = ?",
+    sql: `SELECT id, slug, title, body, date, type, photoset_layout,
+                 taken_at, local_date, date_source
+          FROM posts WHERE id = ?`,
     args: [postId],
   });
   if (postRes.rows.length === 0) {
@@ -147,6 +161,11 @@ export async function GET(
     title: post.title,
     body: post.body,
     date: dateStr,
+    // Capture rollup (10.1a) — what the feed actually displays/orders by, so
+    // the edit form can show the effective date + its provenance.
+    takenAt: post.taken_at,
+    localDate: post.local_date,
+    dateSource: post.date_source,
     type: post.type,
     photoset_layout: post.photoset_layout,
     media: mediaRes.rows.map((m) => ({
@@ -211,6 +230,32 @@ interface MediaListItem {
   posterDataUrl?: string;
   /** Crop box in fractions of the upright image; present when the user cropped. */
   crop?: CropBox;
+  /** Raw capture-date inputs from the ORIGINAL (new items only, 10.1a). */
+  capture?: CaptureDateInput;
+  /** SHA-256 of the original bytes, client-computed (new photos, 10.1b). */
+  contentHash?: string;
+  /** GPS + device + raw EXIF from the original (new photos, 10.1c). */
+  meta?: MediaExtras;
+}
+
+const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
+
+interface ProcessedNewMedia {
+  id: string;
+  r2Key: string;
+  thumbKey: string;
+  type: "photo" | "video";
+  width: number;
+  height: number;
+  fileSize: number;
+  capture: CaptureDate;
+  contentHash: string | null;
+  phash: string | null;
+  dominantColor: string | null;
+  aspect: number | null;
+  orientation: number | null;
+  originalFilename: string | null;
+  extras: MediaExtras;
 }
 
 export async function PUT(
@@ -279,7 +324,13 @@ export async function PUT(
         return NextResponse.json({ error: "Invalid media key" }, { status: 400 });
       }
     }
-    const processedNewMap = new Map<string, { id: string; r2Key: string; thumbKey: string; type: "photo" | "video"; width: number; height: number; fileSize: number }>();
+    const processedNewMap = new Map<string, ProcessedNewMedia>();
+
+    // Make sure the rich-metadata columns exist before we write them — same
+    // lazy guard the upload-complete route uses.
+    if (newItemsToProcess.length > 0) await ensureRichMetadataSchema();
+    // One clock for all fallback dates in this save.
+    const nowMs = Date.now();
 
     await Promise.all(
       newItemsToProcess.map(async (item) => {
@@ -287,6 +338,8 @@ export async function PUT(
 
         if (item.type === "video") {
           let thumbKey = "";
+          let phash: string | null = null;
+          let domColor: string | null = null;
           if (item.posterDataUrl) {
             const base64 = item.posterDataUrl.split(",")[1];
             const posterBuffer = Buffer.from(base64, "base64");
@@ -296,20 +349,55 @@ export async function PUT(
               .toBuffer();
             thumbKey = `${item.keyPrefix}/thumb.jpg`;
             await uploadToR2(thumbKey, thumbBuffer, "image/jpeg");
+            [phash, domColor] = await Promise.all([
+              perceptualHash(thumbBuffer),
+              dominantColor(thumbBuffer),
+            ]);
           }
-          processedNewMap.set(item.keyPrefix!, { id: mediaId, r2Key: item.r2Key!, thumbKey, type: "video", width: 0, height: 0, fileSize: 0 });
+          // Video bytes aren't downloaded server-side; resolve capture from
+          // the client's container-parsed inputs (or filename/mtime fallback).
+          const capture = await resolveOriginalCapture(item.capture, null, false, nowMs);
+          processedNewMap.set(item.keyPrefix!, {
+            id: mediaId, r2Key: item.r2Key!, thumbKey, type: "video",
+            width: 0, height: 0, fileSize: 0,
+            capture, contentHash: item.contentHash ?? null, phash,
+            dominantColor: domColor, aspect: null, orientation: null,
+            originalFilename: item.capture?.filename ?? null,
+            extras: EMPTY_EXTRAS,
+          });
           return;
         }
 
         const buffer = await downloadFromR2(item.r2Key!);
+        // Capture/identity/EXIF come from the ORIGINAL bytes (processPhoto
+        // strips EXIF from the served file) — same pipeline as a fresh upload,
+        // so photos added on the edit page keep their metadata too.
+        const capture = await resolveOriginalCapture(item.capture, buffer, true, nowMs);
+        const extras = item.meta ?? (await extractPhotoExtras(buffer));
+        const contentHash =
+          item.contentHash ?? createHash("sha256").update(buffer).digest("hex");
+        const meta = await sharp(buffer).metadata();
+
         const { originalBuffer, thumbBuffer, width, height } = await processPhoto(buffer, item.crop);
         const processedKey = `${item.keyPrefix}/original.jpg`;
         const thumbKey = `${item.keyPrefix}/thumb.jpg`;
+        const [phash, domColor] = await Promise.all([
+          perceptualHash(thumbBuffer),
+          dominantColor(thumbBuffer),
+        ]);
         await Promise.all([
           uploadToR2(processedKey, originalBuffer, "image/jpeg"),
           uploadToR2(thumbKey, thumbBuffer, "image/jpeg"),
         ]);
-        processedNewMap.set(item.keyPrefix!, { id: mediaId, r2Key: processedKey, thumbKey, type: "photo", width, height, fileSize: originalBuffer.length });
+        processedNewMap.set(item.keyPrefix!, {
+          id: mediaId, r2Key: processedKey, thumbKey, type: "photo",
+          width, height, fileSize: originalBuffer.length,
+          capture, contentHash, phash, dominantColor: domColor,
+          aspect: width && height ? width / height : null,
+          orientation: meta.orientation ?? null,
+          originalFilename: item.capture?.filename ?? null,
+          extras,
+        });
       })
     );
 
@@ -362,14 +450,47 @@ export async function PUT(
       } else if (item.kind === "new" && item.keyPrefix) {
         const nm = processedNewMap.get(item.keyPrefix);
         if (nm) {
+          // Same column set the upload-complete route writes, so media added
+          // via edit is indistinguishable from a fresh upload downstream
+          // (capture-check, the 10.3 backfill matcher, future search).
           await db.execute({
-            sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type,
+                                     taken_at, tz_offset, local_date, date_source, date_confidence, source,
+                                     content_hash, phash, dominant_color, aspect, orientation, original_filename,
+                                     gps_lat, gps_lng, gps_altitude,
+                                     camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'edit', ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
               nm.id, postId, nm.r2Key, nm.thumbKey || null, nm.type,
               nm.width || null, nm.height || null, nm.fileSize || null,
               displayOrder, nm.type === "video" ? "video/mp4" : "image/jpeg",
+              nm.capture.takenAt, nm.capture.tzOffsetMin, nm.capture.localDate,
+              nm.capture.source, nm.capture.confidence,
+              nm.contentHash, nm.phash, nm.dominantColor, nm.aspect,
+              nm.orientation, nm.originalFilename,
+              nm.extras.gps?.lat ?? null,
+              nm.extras.gps?.lng ?? null,
+              nm.extras.gps?.altitude ?? null,
+              nm.extras.device?.make ?? null,
+              nm.extras.device?.model ?? null,
+              nm.extras.device?.lens ?? null,
+              nm.extras.device?.iso ?? null,
+              nm.extras.device?.aperture ?? null,
+              nm.extras.device?.shutterSpeed ?? null,
+              nm.extras.device?.focalLength ?? null,
             ],
+          });
+          if (nm.extras.raw) {
+            await db.execute({
+              sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'exif', ?)`,
+              args: [nanoid(), nm.id, JSON.stringify(nm.extras.raw)],
+            });
+          }
+          await db.execute({
+            sql: `INSERT INTO media_sources (id, media_id, kind, content_hash, phash, match_method, match_confidence, matched_at)
+                  VALUES (?, ?, 'upload', ?, ?, 'direct', 1.0, datetime('now'))`,
+            args: [nanoid(), nm.id, nm.contentHash, nm.phash],
           });
           displayOrder++;
         }
@@ -410,9 +531,25 @@ export async function PUT(
     }
 
     if (postDateStr) {
+      // A user-changed date must also update the capture rollup — the feed
+      // displays local_date and orders by taken_at (Phase 10.2), so touching
+      // only the legacy posts.date would be silently ignored on every read.
+      await ensureRichMetadataSchema();
+      const manual = resolveCaptureDate({ manual: dateOverride });
+      const rollup =
+        manual.source === "manual"
+          ? manual
+          // dateOverride parsed as a Date but not as a manual wall-clock
+          // (unexpected format) — clear the rollup so reads follow the legacy
+          // date we just set rather than a stale capture day.
+          : { takenAt: null, localDate: null, source: "manual" as const };
       await db.execute({
-        sql: "UPDATE posts SET title = ?, date = ?, type = ?, photoset_layout = ?, updated_at = datetime('now') WHERE id = ?",
-        args: [postTitle, postDateStr, postType, photosetLayout, postId],
+        sql: `UPDATE posts SET title = ?, date = ?, taken_at = ?, local_date = ?, date_source = ?,
+                               type = ?, photoset_layout = ?, updated_at = datetime('now') WHERE id = ?`,
+        args: [
+          postTitle, postDateStr, rollup.takenAt, rollup.localDate, rollup.source,
+          postType, photosetLayout, postId,
+        ],
       });
     } else {
       await db.execute({

@@ -223,6 +223,24 @@ function parseManual(value: string): WallClock | null {
 }
 
 /**
+ * The earliest known capture among a post's media, in array order (which is
+ * display order) — array position breaks `takenAt` ties. This single rule
+ * decides a post's date rollup on the server AND the "Suggested date" preview
+ * on the upload page, so what the user is shown is what gets saved.
+ * Returns null when no item has a resolvable instant.
+ */
+export function earliestCapture(
+  captures: (CaptureDate | null | undefined)[]
+): CaptureDate | null {
+  let best: CaptureDate | null = null;
+  for (const c of captures) {
+    if (!c?.takenAt) continue;
+    if (!best || c.takenAt < best.takenAt!) best = c;
+  }
+  return best;
+}
+
+/**
  * Resolve the canonical capture date for one media item from provenance-tagged
  * inputs, trying sources in descending trust order. Pure and deterministic;
  * pass `nowMs` so the `upload_fallback` branch stays testable.

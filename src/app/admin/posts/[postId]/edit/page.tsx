@@ -13,6 +13,9 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { compressImage } from "@/lib/media/compress";
+import { buildCaptureInput, sha256Hex, extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
+import type { CaptureDateInput } from "@/lib/media/capture-date";
+import { captureSourceLabel, formatDisplayDate } from "@/lib/datetime";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -21,7 +24,21 @@ interface CropBox { x: number; y: number; w: number; h: number }
 
 type EditItem =
   | { kind: "existing"; id: string; mediaId: string; thumbUrl: string; type: "photo" | "video"; crop?: CropBox }
-  | { kind: "new"; id: string; file: File; preview: string; type: "photo" | "video"; posterDataUrl?: string; crop?: CropBox };
+  | {
+      kind: "new";
+      id: string;
+      file: File;
+      preview: string;
+      type: "photo" | "video";
+      posterDataUrl?: string;
+      crop?: CropBox;
+      /** Capture/identity/EXIF from the ORIGINAL file (compression strips it) —
+       *  same extraction as the upload page, so edit-added media keeps its
+       *  metadata (10.1a-c). */
+      capture?: CaptureDateInput;
+      contentHash?: string;
+      extras?: MediaExtras;
+    };
 
 type SaveState = "idle" | "saving" | "success" | "error";
 
@@ -99,6 +116,32 @@ function defaultLayout(items: EditItem[]): EditItem[][] {
   return rows;
 }
 
+/**
+ * The datetime-local value for the edit form: the date the feed actually shows
+ * (capture-local day, Phase 10.2) rather than the legacy posts.date, so what
+ * the user sees in the form matches the post. Time-of-day comes from the
+ * capture instant's UTC clock — for offset-carrying captures that can differ
+ * from local time-of-day, but the day (which is what display/grouping use) is
+ * always the capture-local one.
+ */
+function effectiveDateInput(post: {
+  date?: string | null;
+  takenAt?: string | null;
+  localDate?: string | null;
+}): string {
+  if (post.localDate && /^\d{4}-\d{2}-\d{2}$/.test(post.localDate)) {
+    let time = "12:00";
+    if (post.takenAt) {
+      const d = new Date(post.takenAt);
+      if (!isNaN(d.getTime())) {
+        time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+      }
+    }
+    return `${post.localDate}T${time}`;
+  }
+  return post.date || "";
+}
+
 function layoutToRows(items: EditItem[], layout: string | null): EditItem[][] {
   if (!layout || items.length === 0) return defaultLayout(items);
   const digits = layout.split("").map(Number);
@@ -132,6 +175,11 @@ export default function EditPostPage() {
   // Metadata
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
+  // Where the post's current date came from (posts.date_source), for the hint.
+  const [dateSource, setDateSource] = useState<string | null>(null);
+  // The loaded date — only a date the user actually changed is sent on save,
+  // so an untouched form never overwrites the capture-derived rollup.
+  const initialDateRef = useRef("");
 
   // Tags / People / Albums
   const metadataOptions = useMetadataOptions();
@@ -169,7 +217,10 @@ export default function EditPostPage() {
 
         setPostSlug(post.slug as string);
         setTitle(post.title || "");
-        setDate(post.date || "");
+        const effDate = effectiveDateInput(post);
+        setDate(effDate);
+        initialDateRef.current = effDate;
+        setDateSource(post.dateSource ?? null);
         setSelectedTags(post.tags || []);
         setSelectedPeople(post.people || []);
         setSelectedAlbumIds(post.albumIds || []);
@@ -250,6 +301,12 @@ export default function EditPostPage() {
     const newItems: EditItem[] = await Promise.all(
       newFiles.map(async (f) => {
         const isVideo = isVideoFile(f);
+        // Read capture/identity/EXIF from the ORIGINAL before compression
+        // strips it — mirrors the upload page so media added here keeps its
+        // metadata instead of silently losing it.
+        const capture = await buildCaptureInput(f, isVideo);
+        const contentHash = isVideo ? undefined : ((await sha256Hex(f)) ?? undefined);
+        const extras = isVideo ? undefined : await extractPhotoExtras(f);
         const processed = isVideo ? f : await compressImage(f);
         return {
           kind: "new" as const,
@@ -257,6 +314,9 @@ export default function EditPostPage() {
           file: processed,
           preview: URL.createObjectURL(processed),
           type: isVideo ? ("video" as const) : ("photo" as const),
+          capture,
+          contentHash,
+          extras,
         };
       })
     );
@@ -407,6 +467,9 @@ export default function EditPostPage() {
           type: item.type,
           posterDataUrl: item.posterDataUrl,
           crop: item.crop,
+          capture: item.capture,
+          contentHash: item.contentHash,
+          meta: item.extras,
         };
       });
 
@@ -415,7 +478,10 @@ export default function EditPostPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim() || undefined,
-          date: date || undefined,
+          // Only send a date the user actually changed — the server records a
+          // provided date as a manual override (date_source='manual'), which
+          // must not happen from merely opening and saving the form.
+          date: date && date !== initialDateRef.current ? date : undefined,
           tags: selectedTags,
           people: selectedPeople,
           albumIds: selectedAlbumIds,
@@ -581,6 +647,25 @@ export default function EditPostPage() {
               date={date}
               onDateChange={setDate}
               dateLabel="Date"
+              dateHint={
+                date && date !== initialDateRef.current ? (
+                  <span className="text-[#c2a467]">
+                    Will be saved as{" "}
+                    <span className="font-semibold">
+                      {formatDisplayDate(date, date.slice(0, 10))}
+                    </span>{" "}
+                    · set manually.
+                  </span>
+                ) : date ? (
+                  <span className="text-[#888]">
+                    Shown on the post as{" "}
+                    <span className="text-[#c9c4ba]">
+                      {formatDisplayDate(date, date.slice(0, 10))}
+                    </span>{" "}
+                    · {captureSourceLabel(dateSource)}. Change it above if it&apos;s wrong.
+                  </span>
+                ) : undefined
+              }
               selectedTags={selectedTags}
               onTagsChange={setSelectedTags}
               selectedPeople={selectedPeople}

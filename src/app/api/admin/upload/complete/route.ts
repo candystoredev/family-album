@@ -2,18 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import exifr from "exifr";
 import { downloadFromR2, uploadToR2, deleteFromR2 } from "@/lib/r2";
 import { db } from "@/lib/db";
 import { generatePhotosetLayout } from "@/lib/media/layout";
 import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
-import { extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
+import {
+  extractPhotoExtras,
+  resolveOriginalCapture,
+  type MediaExtras,
+} from "@/lib/media/extract";
 import { processUploadPhoto, MAX_UPLOAD_BYTES } from "@/lib/media/process-photo";
 import { ensureRichMetadataSchema, ftsRowFor } from "@/lib/schema";
 import { slugify } from "@/lib/slugify";
 import {
+  earliestCapture,
   resolveCaptureDate,
-  type CaptureDate,
   type CaptureDateInput,
 } from "@/lib/media/capture-date";
 
@@ -90,35 +93,6 @@ interface MediaItem {
 }
 
 const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
-
-/**
- * Server-side capture resolution (Phase 10.1a). Prefers the client's raw inputs
- * (extracted from the original before compression); for the originals path that
- * sends none (e.g. iOS Shortcut), re-extracts photo EXIF with the SAME rule
- * (reviveValues:false → naive string) so client and server can't disagree.
- */
-async function resolveServerCapture(
-  item: MediaItem,
-  buffer: Buffer | null,
-  nowMs: number
-): Promise<CaptureDate> {
-  let input: CaptureDateInput = item.capture ?? {};
-  if (!item.capture && buffer && item.type === "photo") {
-    try {
-      const tags = await exifr.parse(buffer, {
-        pick: ["DateTimeOriginal", "CreateDate", "OffsetTimeOriginal", "OffsetTimeDigitized"],
-        reviveValues: false,
-      });
-      input = {
-        exifDateTimeOriginal: tags?.DateTimeOriginal ?? tags?.CreateDate ?? null,
-        exifOffsetTimeOriginal: tags?.OffsetTimeOriginal ?? tags?.OffsetTimeDigitized ?? null,
-      };
-    } catch {
-      // No readable EXIF — fall through to upload_fallback.
-    }
-  }
-  return resolveCaptureDate(input, nowMs);
-}
 
 /**
  * Complete the upload: process images/videos, create post + media + tag/people/album records.
@@ -212,7 +186,7 @@ export async function POST(request: NextRequest) {
           }
           // Video bytes aren't downloaded server-side; rely on the client's
           // container-parsed capture (or filename/mtime/upload fallback).
-          const capture = await resolveServerCapture(item, null, nowMs);
+          const capture = await resolveOriginalCapture(item.capture, null, false, nowMs);
           return {
             id: mediaId,
             r2Key: item.r2Key,
@@ -253,7 +227,7 @@ export async function POST(request: NextRequest) {
         }
 
         const exifDate = await extractExifDate(buffer);
-        const capture = await resolveServerCapture(item, buffer, nowMs);
+        const capture = await resolveOriginalCapture(item.capture, buffer, true, nowMs);
         const meta = await sharp(buffer).metadata();
 
         // Every served original goes through processUploadPhoto — no
@@ -323,26 +297,25 @@ export async function POST(request: NextRequest) {
     const mediaRecords = mediaResults.map(({ exifDate, ...rest }) => rest);
 
     // Posts rollup (10.1a): representative = the media with the earliest known
-    // capture instant (display order breaks ties). A manual date override wins,
-    // so posts.taken_at/local_date stay consistent with the legacy posts.date.
-    // Written alongside posts.date — reads still use posts.date until 10.2.
-    const earliestCapture = mediaRecords
-      .filter((m) => m.capture.takenAt)
-      .sort((a, b) => {
-        const t = (a.capture.takenAt ?? "").localeCompare(b.capture.takenAt ?? "");
-        return t !== 0 ? t : a.displayOrder - b.displayOrder;
-      })[0]?.capture;
+    // capture instant (array position — display order — breaks ties). Same rule
+    // as the upload page's "Suggested date" preview, so what the user saw is
+    // what gets saved. A user-typed date override wins; since the client no
+    // longer auto-sends a file's EXIF date as `date`, `dateOverride` here means
+    // a human actually asserted it.
+    const earliest = earliestCapture(mediaRecords.map((m) => m.capture));
     const manualRollup =
       dateOverride && !isNaN(new Date(dateOverride).getTime())
         ? resolveCaptureDate({ manual: dateOverride }, nowMs)
         : null;
-    const repCapture = manualRollup ?? earliestCapture;
+    const repCapture = manualRollup ?? earliest;
 
-    // Determine post date
+    // Legacy posts.date — kept consistent with the rollup so the pre-10.2
+    // fallback read paths agree with what the feed displays.
     let postDate: Date;
-    if (dateOverride) {
+    if (dateOverride && !isNaN(new Date(dateOverride).getTime())) {
       postDate = new Date(dateOverride);
-      if (isNaN(postDate.getTime())) postDate = firstExifDate || new Date();
+    } else if (repCapture?.takenAt) {
+      postDate = new Date(repCapture.takenAt);
     } else {
       postDate = firstExifDate || new Date();
     }
