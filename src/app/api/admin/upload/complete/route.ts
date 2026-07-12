@@ -19,6 +19,7 @@ import {
   resolveCaptureDate,
   type CaptureDateInput,
 } from "@/lib/media/capture-date";
+import { isMediaEnrichment, type MediaEnrichment } from "@/lib/enrich/types";
 
 const THUMB_WIDTH = 400;
 
@@ -90,6 +91,7 @@ interface MediaItem {
   capture?: CaptureDateInput; // raw capture-date inputs from the original (10.1a)
   contentHash?: string; // SHA-256 of the original bytes, client-computed (10.1b)
   meta?: MediaExtras; // GPS + device + raw EXIF from the original (10.1c)
+  enrichment?: unknown; // compose-time vision enrichment, validated below (10.1e)
 }
 
 const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
@@ -187,6 +189,9 @@ export async function POST(request: NextRequest) {
           // Video bytes aren't downloaded server-side; rely on the client's
           // container-parsed capture (or filename/mtime/upload fallback).
           const capture = await resolveOriginalCapture(item.capture, null, false, nowMs);
+          const enrichment: MediaEnrichment | null = isMediaEnrichment(item.enrichment)
+            ? item.enrichment
+            : null;
           return {
             id: mediaId,
             r2Key: item.r2Key,
@@ -205,6 +210,7 @@ export async function POST(request: NextRequest) {
             orientation: null as number | null,
             originalFilename: item.capture?.filename ?? null,
             extras: EMPTY_EXTRAS, // video container GPS/codec parse deferred
+            enrichment,
           };
         }
 
@@ -282,6 +288,7 @@ export async function POST(request: NextRequest) {
           orientation: meta.orientation ?? null,
           originalFilename: item.capture?.filename ?? null,
           extras,
+          enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
         };
       })
     );
@@ -420,9 +427,11 @@ export async function POST(request: NextRequest) {
                                    taken_at, tz_offset, local_date, date_source, date_confidence, source,
                                    content_hash, phash, dominant_color, aspect, orientation, original_filename,
                                    gps_lat, gps_lng, gps_altitude,
-                                   camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length)
+                                   camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length,
+                                   caption, enrichment_status, enrichment_version, enriched_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?)`,
           args: [
             m.id,
             postId,
@@ -455,6 +464,12 @@ export async function POST(request: NextRequest) {
             m.extras.device?.aperture ?? null,
             m.extras.device?.shutterSpeed ?? null,
             m.extras.device?.focalLength ?? null,
+            // Vision enrichment (10.1e): caption denormalized for future
+            // search; 'pending' marks items the backfill should still visit.
+            m.enrichment?.caption || null,
+            m.enrichment ? "done" : "pending",
+            m.enrichment ? 1 : null,
+            m.enrichment ? new Date(nowMs).toISOString() : null,
           ],
         })),
         // Full raw EXIF payload — kept verbatim so a future feature never re-scans.
@@ -463,6 +478,13 @@ export async function POST(request: NextRequest) {
           .map((m) => ({
             sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'exif', ?)`,
             args: [nanoid(), m.id, JSON.stringify(m.extras.raw)],
+          })),
+        // Vision enrichment payload — verbatim, same never-re-scan rule.
+        ...mediaRecords
+          .filter((m) => m.enrichment)
+          .map((m) => ({
+            sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'vision', ?)`,
+            args: [nanoid(), m.id, JSON.stringify(m.enrichment)],
           })),
         // Origin reference for re-sync / backfill corroboration (10.3).
         ...mediaRecords.map((m) => ({

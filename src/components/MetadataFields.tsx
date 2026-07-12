@@ -61,6 +61,9 @@ interface MetadataFieldsProps {
   dateHint?: React.ReactNode;
   selectedTags: string[];
   onTagsChange: (v: string[]) => void;
+  /** Vision-suggested tags — tap to add. `isNew` marks a proposal that isn't
+   *  in the vocabulary yet (rendered distinctly). Never auto-applied. */
+  tagSuggestions?: { name: string; isNew?: boolean }[];
   selectedPeople: string[];
   onPeopleChange: (v: string[]) => void;
   selectedAlbumIds: string[];
@@ -78,6 +81,7 @@ export default function MetadataFields({
   dateHint,
   selectedTags,
   onTagsChange,
+  tagSuggestions,
   selectedPeople,
   onPeopleChange,
   selectedAlbumIds,
@@ -118,11 +122,16 @@ export default function MetadataFields({
     );
   }
 
-  const tagSuggestions = allTags.filter(
+  const tagAutocomplete = allTags.filter(
     (t) =>
       !selectedTags.includes(t.name) &&
       t.name.toLowerCase().includes(newTag.toLowerCase()) &&
       newTag.length > 0
+  );
+
+  // Vision suggestions still worth showing (not already picked).
+  const visibleTagSuggestions = (tagSuggestions ?? []).filter(
+    (s) => !selectedTags.some((t) => t.toLowerCase() === s.name.toLowerCase())
   );
 
   // People quick-pick: known people (already most-used-first from the API)
@@ -200,9 +209,9 @@ export default function MetadataFields({
               }}
               className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3]"
             />
-            {tagSuggestions.length > 0 && (
+            {tagAutocomplete.length > 0 && (
               <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-[#2a2929] rounded-lg border border-[#3a3939] max-h-40 overflow-y-auto">
-                {tagSuggestions.map((t) => (
+                {tagAutocomplete.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => addTag(t.name)}
@@ -213,6 +222,27 @@ export default function MetadataFields({
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {/* Vision-suggested tags — tap to add; untapped suggestions are never saved */}
+        {!disabled && visibleTagSuggestions.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-[#7d7468]">Suggested</span>
+            {visibleTagSuggestions.map((s) => (
+              <button
+                key={s.name}
+                onClick={() => addTag(s.name)}
+                className={
+                  s.isNew
+                    ? "px-2.5 py-1 rounded-full text-sm border border-dashed border-[#c2a467]/60 text-[#c2a467] hover:bg-[#c2a467]/10 transition-colors"
+                    : "px-2.5 py-1 rounded-full text-sm border border-[#3a3939] text-[#a39e93] hover:border-[#c2a467]/60 hover:text-[#c2a467] transition-colors"
+                }
+                title={s.isNew ? "New tag — not in your vocabulary yet" : "Add existing tag"}
+              >
+                + {s.name}
+                {s.isNew && <span className="ml-1 text-[9px] uppercase">new</span>}
+              </button>
+            ))}
           </div>
         )}
       </div>

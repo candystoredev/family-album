@@ -15,7 +15,9 @@ import {
 import { compressImage } from "@/lib/media/compress";
 import { buildCaptureInput, sha256Hex, extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
 import type { CaptureDateInput } from "@/lib/media/capture-date";
-import { captureSourceLabel, formatDisplayDate } from "@/lib/datetime";
+import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
+import { useMediaEnrichment, type EnrichableItem } from "@/lib/enrich/useMediaEnrichment";
+import { pickDateSuggestion } from "@/lib/enrich/date-evidence";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -206,6 +208,44 @@ export default function EditPostPage() {
     () => computeDisplayRows(rows, activeId, insertAt),
     [rows, activeId, insertAt]
   );
+
+  // Vision enrichment for NEWLY ADDED files (existing media was enriched at
+  // its own upload, or is covered by the backfill). Same background pass as
+  // the upload page.
+  const enrichableItems = useMemo<EnrichableItem[]>(
+    () =>
+      flatItems
+        .filter((i): i is Extract<EditItem, { kind: "new" }> => i.kind === "new")
+        .map((i) => ({ id: i.id, file: i.file, type: i.type, contentHash: i.contentHash })),
+    [flatItems]
+  );
+  const { enrichments } = useMediaEnrichment(enrichableItems);
+
+  // Date read off an added photo, weighed against the post's current date.
+  // Once the field matches the evidence (or the user edits it close enough),
+  // the suggestion disappears on its own.
+  const dateEvidence = useMemo(
+    () =>
+      pickDateSuggestion(
+        Object.values(enrichments).flatMap((e) => e.dates),
+        { localDate: date ? date.slice(0, 10) : null, source: dateSource }
+      ),
+    [enrichments, date, dateSource]
+  );
+
+  const tagSuggestions = useMemo(() => {
+    const existing = new Set<string>();
+    const proposals = new Set<string>();
+    for (const e of Object.values(enrichments)) {
+      for (const t of e.suggestedTags) existing.add(t);
+      for (const t of e.newTagProposals) proposals.add(t);
+    }
+    for (const t of existing) proposals.delete(t);
+    return [
+      ...[...existing].map((name) => ({ name })),
+      ...[...proposals].map((name) => ({ name, isNew: true })),
+    ].slice(0, 8);
+  }, [enrichments]);
 
   // ─── Load post data ───────────────────────────────────────────────────────
 
@@ -470,6 +510,7 @@ export default function EditPostPage() {
           capture: item.capture,
           contentHash: item.contentHash,
           meta: item.extras,
+          enrichment: enrichments[item.id],
         };
       });
 
@@ -648,24 +689,41 @@ export default function EditPostPage() {
               onDateChange={setDate}
               dateLabel="Date"
               dateHint={
-                date && date !== initialDateRef.current ? (
-                  <span className="text-[#c2a467]">
-                    Will be saved as{" "}
-                    <span className="font-semibold">
-                      {formatDisplayDate(date, date.slice(0, 10))}
-                    </span>{" "}
-                    · set manually.
-                  </span>
-                ) : date ? (
-                  <span className="text-[#888]">
-                    Shown on the post as{" "}
-                    <span className="text-[#c9c4ba]">
-                      {formatDisplayDate(date, date.slice(0, 10))}
-                    </span>{" "}
-                    · {captureSourceLabel(dateSource)}. Change it above if it&apos;s wrong.
-                  </span>
-                ) : undefined
+                <>
+                  {date && date !== initialDateRef.current ? (
+                    <span className="text-[#c2a467]">
+                      Will be saved as{" "}
+                      <span className="font-semibold">
+                        {formatDisplayDate(date, date.slice(0, 10))}
+                      </span>{" "}
+                      · set manually.
+                    </span>
+                  ) : date ? (
+                    <span className={isEstimatedDate(dateSource) ? "text-[#c2a467]" : "text-[#888]"}>
+                      Shown on the post as{" "}
+                      <span className="text-[#c9c4ba]">
+                        {formatDisplayDate(date, date.slice(0, 10))}
+                      </span>{" "}
+                      · {captureSourceLabel(dateSource)}. Change it above if it&apos;s wrong.
+                    </span>
+                  ) : null}
+                  {dateEvidence && (
+                    <span className="block mt-1.5 text-[#c2a467]">
+                      An added photo shows{" "}
+                      <span className="text-[#c9c4ba]">&ldquo;{dateEvidence.quotedText}&rdquo;</span>
+                      {dateEvidence.conflict && " — which disagrees with the current date"}
+                      .{" "}
+                      <button
+                        onClick={() => setDate(`${dateEvidence.date}T12:00`)}
+                        className="underline decoration-dotted underline-offset-2 font-semibold text-[#c2a467] hover:text-[#d2b577]"
+                      >
+                        Use {formatDisplayDate("", dateEvidence.date)}
+                      </button>
+                    </span>
+                  )}
+                </>
               }
+              tagSuggestions={tagSuggestions}
               selectedTags={selectedTags}
               onTagsChange={setSelectedTags}
               selectedPeople={selectedPeople}
