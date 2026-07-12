@@ -40,6 +40,25 @@ export async function perceptualHash(buf: Buffer): Promise<string | null> {
   }
 }
 
+/** Hamming distance between two 16-hex-char dHashes (0–64); null on shape
+ *  mismatch. Distance ≤ ~6 means "visually the same photo" for our 64-bit
+ *  dHash — re-encodes, resizes, and mild crops land there. */
+export function hammingDistanceHex(a: string, b: string): number | null {
+  if (a.length !== 16 || b.length !== 16) return null;
+  let dist = 0;
+  for (let i = 0; i < 16; i++) {
+    const xa = parseInt(a[i], 16);
+    const xb = parseInt(b[i], 16);
+    if (Number.isNaN(xa) || Number.isNaN(xb)) return null;
+    let x = xa ^ xb;
+    while (x) {
+      dist += x & 1;
+      x >>= 1;
+    }
+  }
+  return dist;
+}
+
 /** Dominant colour as a #rrggbb hex string, via sharp's histogram. */
 export async function dominantColor(buf: Buffer): Promise<string | null> {
   try {

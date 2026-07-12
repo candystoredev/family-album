@@ -17,6 +17,12 @@ import {
   type CaptureDate,
   type CaptureDateInput,
 } from "@/lib/media/capture-date";
+import {
+  isMediaEnrichment,
+  isOcrResult,
+  type MediaEnrichment,
+  type OcrResult,
+} from "@/lib/enrich/types";
 
 const THUMB_WIDTH = 400;
 
@@ -236,6 +242,10 @@ interface MediaListItem {
   contentHash?: string;
   /** GPS + device + raw EXIF from the original (new photos, 10.1c). */
   meta?: MediaExtras;
+  /** Compose-time vision enrichment (new items, 10.1e). */
+  enrichment?: unknown;
+  /** Compose-time local OCR result (new items, 10.1e). */
+  ocr?: unknown;
 }
 
 const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
@@ -256,6 +266,8 @@ interface ProcessedNewMedia {
   orientation: number | null;
   originalFilename: string | null;
   extras: MediaExtras;
+  enrichment: MediaEnrichment | null;
+  ocr: OcrResult | null;
 }
 
 export async function PUT(
@@ -364,6 +376,8 @@ export async function PUT(
             dominantColor: domColor, aspect: null, orientation: null,
             originalFilename: item.capture?.filename ?? null,
             extras: EMPTY_EXTRAS,
+            enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
+            ocr: null,
           });
           return;
         }
@@ -397,6 +411,8 @@ export async function PUT(
           orientation: meta.orientation ?? null,
           originalFilename: item.capture?.filename ?? null,
           extras,
+          enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
+          ocr: isOcrResult(item.ocr) ? item.ocr : null,
         });
       })
     );
@@ -458,9 +474,11 @@ export async function PUT(
                                      taken_at, tz_offset, local_date, date_source, date_confidence, source,
                                      content_hash, phash, dominant_color, aspect, orientation, original_filename,
                                      gps_lat, gps_lng, gps_altitude,
-                                     camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length)
+                                     camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length,
+                                     caption, enrichment_status, enrichment_version, enriched_at)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'edit', ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?)`,
             args: [
               nm.id, postId, nm.r2Key, nm.thumbKey || null, nm.type,
               nm.width || null, nm.height || null, nm.fileSize || null,
@@ -479,12 +497,28 @@ export async function PUT(
               nm.extras.device?.aperture ?? null,
               nm.extras.device?.shutterSpeed ?? null,
               nm.extras.device?.focalLength ?? null,
+              nm.enrichment?.caption || null,
+              nm.enrichment ? "done" : "pending",
+              nm.enrichment ? 1 : null,
+              nm.enrichment ? new Date(nowMs).toISOString() : null,
             ],
           });
           if (nm.extras.raw) {
             await db.execute({
               sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'exif', ?)`,
               args: [nanoid(), nm.id, JSON.stringify(nm.extras.raw)],
+            });
+          }
+          if (nm.enrichment) {
+            await db.execute({
+              sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'vision', ?)`,
+              args: [nanoid(), nm.id, JSON.stringify(nm.enrichment)],
+            });
+          }
+          if (nm.ocr) {
+            await db.execute({
+              sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'ocr', ?)`,
+              args: [nanoid(), nm.id, JSON.stringify(nm.ocr)],
             });
           }
           await db.execute({

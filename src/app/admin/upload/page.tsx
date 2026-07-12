@@ -21,6 +21,13 @@ import {
   type CaptureDateInput,
 } from "@/lib/media/capture-date";
 import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
+import {
+  collectDateEvidence,
+  collectTagSuggestions,
+  useMediaEnrichment,
+  type EnrichableItem,
+} from "@/lib/enrich/useMediaEnrichment";
+import { pickDateSuggestion } from "@/lib/enrich/date-evidence";
 import { defaultLayout } from "@/lib/media/layout";
 import { MAX_UPLOAD_BYTES } from "@/lib/media/upload-limits";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
@@ -168,6 +175,38 @@ export default function UploadPage() {
     () => earliestCapture(flatFiles.map((f) => f.resolved)),
     [flatFiles]
   );
+
+  // Vision enrichment — runs in the background while the form is being filled
+  // in. Feeds the date-evidence chip, tag suggestions, and (at publish) the
+  // per-media search enrichment.
+  const enrichableItems = useMemo<EnrichableItem[]>(
+    () =>
+      flatFiles.map((f) => ({
+        id: f.id,
+        file: f.file,
+        type: f.type,
+        contentHash: f.contentHash,
+      })),
+    [flatFiles]
+  );
+  const { enrichments, pendingCount } = useMediaEnrichment(enrichableItems);
+
+  // Evidence-backed date suggestion: dates read off invitations/banners in
+  // the photos (cloud vision + local OCR), weighed against the metadata-
+  // derived suggestion. Null unless it can actually help (weak metadata
+  // date) or a real conflict exists.
+  const dateEvidence = useMemo(
+    () =>
+      pickDateSuggestion(
+        collectDateEvidence(enrichments),
+        suggested ? { localDate: suggested.localDate, source: suggested.source } : null
+      ),
+    [enrichments, suggested]
+  );
+
+  // Union of tag suggestions across photos — vocabulary matches (cloud +
+  // phash-propagated) first, then clearly-marked new proposals; capped.
+  const tagSuggestions = useMemo(() => collectTagSuggestions(enrichments), [enrichments]);
 
   // Live preview — uses debounced insertAt so rapid zone-boundary oscillations
   // don't cause the layout to thrash; committed on drag end via pendingInsertRef
@@ -519,6 +558,10 @@ export default function UploadPage() {
           capture: mf.capture,
           contentHash: mf.contentHash,
           meta: mf.extras,
+          // Compose-time enrichment, if it came back in time — the server
+          // persists both; stragglers stay enrichable by the backfill.
+          enrichment: enrichments[mf.id]?.cloud,
+          ocr: enrichments[mf.id]?.ocr,
         };
       });
 
@@ -830,34 +873,60 @@ export default function UploadPage() {
               onDateChange={setDate}
               dateLabel="Date (leave empty to use the suggested date)"
               dateHint={
-                suggested ? (
-                  date ? (
-                    <span className="text-[#888]">
-                      Your date replaces the suggested{" "}
-                      <span className="text-[#c9c4ba]">
-                        {formatDisplayDate(suggested.takenAt ?? "", suggested.localDate)}
-                      </span>{" "}
-                      and is saved as manually set.
-                    </span>
+                <>
+                  {suggested ? (
+                    date ? (
+                      <span className="text-[#888]">
+                        Your date replaces the suggested{" "}
+                        <span className="text-[#c9c4ba]">
+                          {formatDisplayDate(suggested.takenAt ?? "", suggested.localDate)}
+                        </span>{" "}
+                        and is saved as manually set.
+                      </span>
+                    ) : (
+                      <span className={isEstimatedDate(suggested.source) ? "text-[#c2a467]" : "text-[#888]"}>
+                        Suggested date:{" "}
+                        <span className="font-semibold text-[#c9c4ba]">
+                          {formatDisplayDate(suggested.takenAt ?? "", suggested.localDate)}
+                        </span>{" "}
+                        · {captureSourceLabel(suggested.source)}
+                        {isEstimatedDate(suggested.source) &&
+                          " — set the real date above if this looks wrong"}
+                      </span>
+                    )
                   ) : (
-                    <span className={isEstimatedDate(suggested.source) ? "text-[#c2a467]" : "text-[#888]"}>
-                      Suggested date:{" "}
-                      <span className="font-semibold text-[#c9c4ba]">
-                        {formatDisplayDate(suggested.takenAt ?? "", suggested.localDate)}
-                      </span>{" "}
-                      · {captureSourceLabel(suggested.source)}
-                      {isEstimatedDate(suggested.source) &&
-                        " — set the real date above if this looks wrong"}
+                    <span className="text-[#c2a467]">
+                      No capture date found in{" "}
+                      {flatFiles.length === 1 ? "this file" : "these files"} — the post will be
+                      dated today unless you set one.
                     </span>
-                  )
-                ) : (
-                  <span className="text-[#c2a467]">
-                    No capture date found in{" "}
-                    {flatFiles.length === 1 ? "this file" : "these files"} — the post will be
-                    dated today unless you set one.
-                  </span>
-                )
+                  )}
+                  {/* Evidence read off the photos themselves (invitation, banner…) */}
+                  {!date && dateEvidence && (
+                    <span className="block mt-1.5 text-[#c2a467]">
+                      A photo in this post shows{" "}
+                      <span className="text-[#c9c4ba]">&ldquo;{dateEvidence.quotedText}&rdquo;</span>
+                      {dateEvidence.conflict && " — which disagrees with the suggested date"}
+                      .{" "}
+                      <button
+                        onClick={() => setDate(`${dateEvidence.date}T12:00`)}
+                        className="underline decoration-dotted underline-offset-2 font-semibold text-[#c2a467] hover:text-[#d2b577]"
+                      >
+                        Use {formatDisplayDate("", dateEvidence.date)}
+                      </button>
+                    </span>
+                  )}
+                  {!date &&
+                    !dateEvidence &&
+                    pendingCount > 0 &&
+                    (!suggested || isEstimatedDate(suggested.source)) && (
+                      <span className="block mt-1 text-[#7d7468] animate-pulse">
+                        Checking the photos for a visible date…
+                      </span>
+                    )}
+                </>
               }
+              tagSuggestions={tagSuggestions}
               selectedTags={selectedTags}
               onTagsChange={setSelectedTags}
               selectedPeople={selectedPeople}
