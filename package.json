@@ -11,7 +11,8 @@
     "migrate": "tsx scripts/migrate.ts",
     "migrate:dry": "tsx scripts/migrate.ts --dry-run",
     "restore-drill": "tsx scripts/restore-drill.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "backfill:local": "tsx scripts/backfill-local-enrich.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
