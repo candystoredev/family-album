@@ -30,6 +30,7 @@
     "react": "^19",
     "react-dom": "^19",
     "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0",
     "web-push": "^3.6.7"
   },
   "devDependencies": {

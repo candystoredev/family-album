@@ -16,7 +16,12 @@ import { compressImage } from "@/lib/media/compress";
 import { buildCaptureInput, sha256Hex, extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
 import type { CaptureDateInput } from "@/lib/media/capture-date";
 import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
-import { useMediaEnrichment, type EnrichableItem } from "@/lib/enrich/useMediaEnrichment";
+import {
+  collectDateEvidence,
+  collectTagSuggestions,
+  useMediaEnrichment,
+  type EnrichableItem,
+} from "@/lib/enrich/useMediaEnrichment";
 import { pickDateSuggestion } from "@/lib/enrich/date-evidence";
 import MetadataFields, { useMetadataOptions } from "@/components/MetadataFields";
 
@@ -221,31 +226,19 @@ export default function EditPostPage() {
   );
   const { enrichments } = useMediaEnrichment(enrichableItems);
 
-  // Date read off an added photo, weighed against the post's current date.
-  // Once the field matches the evidence (or the user edits it close enough),
-  // the suggestion disappears on its own.
+  // Date read off an added photo (cloud vision + local OCR), weighed against
+  // the post's current date. Once the field matches the evidence (or the
+  // user edits it close enough), the suggestion disappears on its own.
   const dateEvidence = useMemo(
     () =>
-      pickDateSuggestion(
-        Object.values(enrichments).flatMap((e) => e.dates),
-        { localDate: date ? date.slice(0, 10) : null, source: dateSource }
-      ),
+      pickDateSuggestion(collectDateEvidence(enrichments), {
+        localDate: date ? date.slice(0, 10) : null,
+        source: dateSource,
+      }),
     [enrichments, date, dateSource]
   );
 
-  const tagSuggestions = useMemo(() => {
-    const existing = new Set<string>();
-    const proposals = new Set<string>();
-    for (const e of Object.values(enrichments)) {
-      for (const t of e.suggestedTags) existing.add(t);
-      for (const t of e.newTagProposals) proposals.add(t);
-    }
-    for (const t of existing) proposals.delete(t);
-    return [
-      ...[...existing].map((name) => ({ name })),
-      ...[...proposals].map((name) => ({ name, isNew: true })),
-    ].slice(0, 8);
-  }, [enrichments]);
+  const tagSuggestions = useMemo(() => collectTagSuggestions(enrichments), [enrichments]);
 
   // ─── Load post data ───────────────────────────────────────────────────────
 
@@ -510,7 +503,8 @@ export default function EditPostPage() {
           capture: item.capture,
           contentHash: item.contentHash,
           meta: item.extras,
-          enrichment: enrichments[item.id],
+          enrichment: enrichments[item.id]?.cloud,
+          ocr: enrichments[item.id]?.ocr,
         };
       });
 

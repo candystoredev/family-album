@@ -2,7 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { matchTags, matchToVocabulary, normalizeTagKey } from "../src/lib/enrich/tags";
 import { validateDateEvidence, pickDateSuggestion } from "../src/lib/enrich/date-evidence";
+import { extractDatesFromText } from "../src/lib/enrich/extract-dates";
 import { buildEnrichment } from "../src/lib/enrich/build";
+import { hammingDistanceHex } from "../src/lib/media/image-hash";
 import type { DateEvidence, RawModelEnrichment } from "../src/lib/enrich/types";
 
 /**
@@ -106,6 +108,38 @@ describe("pickDateSuggestion", () => {
     // …but a weaker rival doesn't block the stronger evidence
     const r = pickDateSuggestion([ev({}), ev({ date: "2026-07-11", kind: "display" })], null);
     assert.equal(r?.date, "2026-07-04");
+  });
+});
+
+describe("extractDatesFromText (local OCR pipeline)", () => {
+  it("parses month-name and ISO forms with the match as quoted evidence", () => {
+    const text = "JOIN US FOR THE 250TH\nFOURTH OF JULY\nJULY 4, 2026 6:00 PM\nThe Hoecks";
+    const out = extractDatesFromText(text, 2026);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].date, "2026-07-04");
+    assert.equal(out[0].quotedText, "JULY 4, 2026");
+    assert.equal(out[0].confidence, "medium"); // OCR is outranked by vision evidence
+
+    assert.equal(extractDatesFromText("4th of July, 2026", 2026)[0]?.date, "2026-07-04");
+    assert.equal(extractDatesFromText("taken 2026-07-04 evening", 2026)[0]?.date, "2026-07-04");
+  });
+  it("ignores ambiguous numeric forms, decorative years, and dedupes", () => {
+    assert.equal(extractDatesFromText("04/07/2026", 2026).length, 0); // DMY vs MDY unknowable
+    assert.equal(extractDatesFromText("est. July 4, 1776", 2026).length, 0); // year range
+    assert.equal(extractDatesFromText("1776    2026", 2026).length, 0); // bare years aren't dates
+    const dup = extractDatesFromText("July 4, 2026 ... 4 July 2026", 2026);
+    assert.equal(dup.length, 1);
+  });
+});
+
+describe("hammingDistanceHex", () => {
+  it("counts differing bits and rejects malformed hashes", () => {
+    assert.equal(hammingDistanceHex("0000000000000000", "0000000000000000"), 0);
+    assert.equal(hammingDistanceHex("0000000000000000", "0000000000000001"), 1);
+    assert.equal(hammingDistanceHex("ffffffffffffffff", "0000000000000000"), 64);
+    assert.equal(hammingDistanceHex("f0f0f0f0f0f0f0f0", "0f0f0f0f0f0f0f0f"), 64);
+    assert.equal(hammingDistanceHex("short", "0000000000000000"), null);
+    assert.equal(hammingDistanceHex("zzzzzzzzzzzzzzzz", "0000000000000000"), null);
   });
 });
 

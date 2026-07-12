@@ -21,7 +21,12 @@ import {
   type CaptureDateInput,
 } from "@/lib/media/capture-date";
 import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
-import { useMediaEnrichment, type EnrichableItem } from "@/lib/enrich/useMediaEnrichment";
+import {
+  collectDateEvidence,
+  collectTagSuggestions,
+  useMediaEnrichment,
+  type EnrichableItem,
+} from "@/lib/enrich/useMediaEnrichment";
 import { pickDateSuggestion } from "@/lib/enrich/date-evidence";
 import { defaultLayout } from "@/lib/media/layout";
 import { MAX_UPLOAD_BYTES } from "@/lib/media/upload-limits";
@@ -187,32 +192,21 @@ export default function UploadPage() {
   const { enrichments, pendingCount } = useMediaEnrichment(enrichableItems);
 
   // Evidence-backed date suggestion: dates read off invitations/banners in
-  // the photos, weighed against the metadata-derived suggestion. Null unless
-  // it can actually help (weak metadata date) or a real conflict exists.
+  // the photos (cloud vision + local OCR), weighed against the metadata-
+  // derived suggestion. Null unless it can actually help (weak metadata
+  // date) or a real conflict exists.
   const dateEvidence = useMemo(
     () =>
       pickDateSuggestion(
-        Object.values(enrichments).flatMap((e) => e.dates),
+        collectDateEvidence(enrichments),
         suggested ? { localDate: suggested.localDate, source: suggested.source } : null
       ),
     [enrichments, suggested]
   );
 
-  // Union of tag suggestions across photos — existing tags first, then the
-  // clearly-marked new proposals; capped so the form stays tidy.
-  const tagSuggestions = useMemo(() => {
-    const existing = new Set<string>();
-    const proposals = new Set<string>();
-    for (const e of Object.values(enrichments)) {
-      for (const t of e.suggestedTags) existing.add(t);
-      for (const t of e.newTagProposals) proposals.add(t);
-    }
-    for (const t of existing) proposals.delete(t);
-    return [
-      ...[...existing].map((name) => ({ name })),
-      ...[...proposals].map((name) => ({ name, isNew: true })),
-    ].slice(0, 8);
-  }, [enrichments]);
+  // Union of tag suggestions across photos — vocabulary matches (cloud +
+  // phash-propagated) first, then clearly-marked new proposals; capped.
+  const tagSuggestions = useMemo(() => collectTagSuggestions(enrichments), [enrichments]);
 
   // Live preview — uses debounced insertAt so rapid zone-boundary oscillations
   // don't cause the layout to thrash; committed on drag end via pendingInsertRef
@@ -564,9 +558,10 @@ export default function UploadPage() {
           capture: mf.capture,
           contentHash: mf.contentHash,
           meta: mf.extras,
-          // Compose-time vision enrichment, if it came back in time — the
-          // server persists it; stragglers stay enrichable by the backfill.
-          enrichment: enrichments[mf.id],
+          // Compose-time enrichment, if it came back in time — the server
+          // persists both; stragglers stay enrichable by the backfill.
+          enrichment: enrichments[mf.id]?.cloud,
+          ocr: enrichments[mf.id]?.ocr,
         };
       });
 

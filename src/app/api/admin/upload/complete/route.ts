@@ -19,7 +19,12 @@ import {
   resolveCaptureDate,
   type CaptureDateInput,
 } from "@/lib/media/capture-date";
-import { isMediaEnrichment, type MediaEnrichment } from "@/lib/enrich/types";
+import {
+  isMediaEnrichment,
+  isOcrResult,
+  type MediaEnrichment,
+  type OcrResult,
+} from "@/lib/enrich/types";
 
 const THUMB_WIDTH = 400;
 
@@ -92,6 +97,7 @@ interface MediaItem {
   contentHash?: string; // SHA-256 of the original bytes, client-computed (10.1b)
   meta?: MediaExtras; // GPS + device + raw EXIF from the original (10.1c)
   enrichment?: unknown; // compose-time vision enrichment, validated below (10.1e)
+  ocr?: unknown; // compose-time local OCR result, validated below (10.1e)
 }
 
 const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
@@ -211,6 +217,7 @@ export async function POST(request: NextRequest) {
             originalFilename: item.capture?.filename ?? null,
             extras: EMPTY_EXTRAS, // video container GPS/codec parse deferred
             enrichment,
+            ocr: null as OcrResult | null, // OCR is photos-only client-side
           };
         }
 
@@ -289,6 +296,7 @@ export async function POST(request: NextRequest) {
           originalFilename: item.capture?.filename ?? null,
           extras,
           enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
+          ocr: isOcrResult(item.ocr) ? item.ocr : null,
         };
       })
     );
@@ -485,6 +493,13 @@ export async function POST(request: NextRequest) {
           .map((m) => ({
             sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'vision', ?)`,
             args: [nanoid(), m.id, JSON.stringify(m.enrichment)],
+          })),
+        // Local OCR payload (in-browser tesseract) — same rule.
+        ...mediaRecords
+          .filter((m) => m.ocr)
+          .map((m) => ({
+            sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'ocr', ?)`,
+            args: [nanoid(), m.id, JSON.stringify(m.ocr)],
           })),
         // Origin reference for re-sync / backfill corroboration (10.3).
         ...mediaRecords.map((m) => ({

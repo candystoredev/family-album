@@ -17,7 +17,12 @@ import {
   type CaptureDate,
   type CaptureDateInput,
 } from "@/lib/media/capture-date";
-import { isMediaEnrichment, type MediaEnrichment } from "@/lib/enrich/types";
+import {
+  isMediaEnrichment,
+  isOcrResult,
+  type MediaEnrichment,
+  type OcrResult,
+} from "@/lib/enrich/types";
 
 const THUMB_WIDTH = 400;
 
@@ -239,6 +244,8 @@ interface MediaListItem {
   meta?: MediaExtras;
   /** Compose-time vision enrichment (new items, 10.1e). */
   enrichment?: unknown;
+  /** Compose-time local OCR result (new items, 10.1e). */
+  ocr?: unknown;
 }
 
 const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
@@ -260,6 +267,7 @@ interface ProcessedNewMedia {
   originalFilename: string | null;
   extras: MediaExtras;
   enrichment: MediaEnrichment | null;
+  ocr: OcrResult | null;
 }
 
 export async function PUT(
@@ -369,6 +377,7 @@ export async function PUT(
             originalFilename: item.capture?.filename ?? null,
             extras: EMPTY_EXTRAS,
             enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
+            ocr: null,
           });
           return;
         }
@@ -403,6 +412,7 @@ export async function PUT(
           originalFilename: item.capture?.filename ?? null,
           extras,
           enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
+          ocr: isOcrResult(item.ocr) ? item.ocr : null,
         });
       })
     );
@@ -503,6 +513,12 @@ export async function PUT(
             await db.execute({
               sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'vision', ?)`,
               args: [nanoid(), nm.id, JSON.stringify(nm.enrichment)],
+            });
+          }
+          if (nm.ocr) {
+            await db.execute({
+              sql: `INSERT INTO media_metadata_raw (id, media_id, source, payload) VALUES (?, ?, 'ocr', ?)`,
+              args: [nanoid(), nm.id, JSON.stringify(nm.ocr)],
             });
           }
           await db.execute({

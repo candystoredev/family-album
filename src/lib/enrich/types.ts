@@ -58,6 +58,23 @@ export interface RawModelEnrichment {
   new_tags: string[];
 }
 
+/** Result of the LOCAL, model-free pass: in-browser OCR + written-date
+ *  extraction. Persisted verbatim to media_metadata_raw (source='ocr'). */
+export interface OcrResult {
+  /** Raw recognized text (may be noisy — OCR, not a transcription). */
+  text: string;
+  /** Day-level dates written in the text, validated like vision evidence. */
+  dates: DateEvidence[];
+  version: 1;
+}
+
+/** Loose runtime guard for OCR payloads arriving at publish time. */
+export function isOcrResult(v: unknown): v is OcrResult {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.text === "string" && Array.isArray(o.dates) && o.version === 1;
+}
+
 /** Loose runtime guard for enrichment payloads arriving from the client at
  *  publish time — enough to persist safely, not a full validation. */
 export function isMediaEnrichment(v: unknown): v is MediaEnrichment {
