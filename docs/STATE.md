@@ -18,7 +18,7 @@ feed refactor), Phase 13 (debt paydown: HEIC edit fix, dead-code removal, schema
 → 10.3d.** The read-only backfill Indexer (10.3a) is built.
 
 **2026-07-13: date-discrepancy fix + local-first enrichment shipped (#52, #53;
-#54 open).** Investigating a Fourth-of-July post that displayed the wrong day
+#54 all merged).** Investigating a Fourth-of-July post that displayed the wrong day
 surfaced two real bugs (now fixed) and produced a working **10.1e enrichment**
 built **local-first** — the sub-stage the older docs call "deferred". Details in
 the 2026-07-13 Recent Changes entry below. **Next up: in-browser face clustering
@@ -27,12 +27,12 @@ backfill (Indexer + Tool B) is still parked on source-file gathering, but a
 **local OCR + phash backfill** (`npm run backfill:local`) now covers the archive
 for tag propagation and date auditing without that blocker.
 
-## ▶ ACTIVE — resume here (2026-07-13)
+## ▶ RESUME HERE (2026-07-13)
 
-Actively building the local enrichment stack on branch
-`claude/photo-date-discrepancy-d1h4qy`. #52 and #53 are merged + deployed; **#54
-(local archive backfill) is open** and carries this doc refresh. The one big
-remaining Phase 10 piece is now split: the **cross-machine 10.3 backfill**
+Local enrichment stack shipped: **#52, #53, and #54 all merged + deployed to
+prod.** Next session picks up **faces → People** (see "WHERE TO RESUME" below).
+The one big remaining Phase 10 piece is now split: the **cross-machine 10.3
+backfill**
 (Indexer + Tool B, richer Apple Photos/faces data) is still parked on Tom
 gathering source photos (`docs/backfill-prep.md`); the **local backfill** (OCR +
 phash from stored thumbnails) is built and needs no gathering. Full design:
@@ -104,12 +104,11 @@ archive backfill (`scripts/backfill-local-enrich.ts`, `npm run backfill:local`)
 does the same locally over old media and prints a read-only date-conflict report.
 
 ## Active Branch
-`claude/photo-date-discrepancy-d1h4qy` (PR #54 open — local archive backfill +
-this doc refresh). Normal flow otherwise: `master`, short-lived branches,
+`master` — #52/#53/#54 all merged + deployed. Normal flow: short-lived branches,
 fast-forward merged, each push auto-deploys to production.
 
 ## Current Task
-**10.1e local-first enrichment shipped 2026-07-13 (#52, #53 merged; #54 open).**
+**10.1e local-first enrichment shipped 2026-07-13 (#52, #53, #54 all merged).**
 Started from a real user report — a Fourth-of-July post displaying the wrong day —
 which uncovered two bugs and became the enrichment sub-stage the older docs
 deferred. See the 2026-07-13 Recent Changes entry for the full breakdown.
@@ -208,7 +207,7 @@ well produced the enrichment sub-stage the docs had deferred. Suite 138 → 155.
   auto-applied; only literal quoted evidence counts (decorative "1776" rejected).
   Persists to `media.caption` + `enrichment_status` + `media_metadata_raw`
   (`source='vision'`/`'ocr'`). Pure logic in `src/lib/enrich/*`, tested.
-- **#54 (open) — Local archive backfill.** `scripts/backfill-local-enrich.ts`
+- **#54 (merged) — Local archive backfill.** `scripts/backfill-local-enrich.ts`
   (`npm run backfill:local`): fills missing phash (from stored thumbnails, so
   `/api/admin/similar-tags` matches historical posts) + OCRs every image + prints
   a **read-only date-conflict report** (posts whose photo text disagrees with the
