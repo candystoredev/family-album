@@ -383,7 +383,51 @@ Reason: The "attach media/tags/people" block was duplicated across the SSR feed,
 Alternatives Considered: Standardize the video fallback to `""` everywhere (defensible, but a behavior change out of scope for a refactor — flagged as a future decision); leave the duplication (ongoing drift).
 Impact: One shared module; `/api/feed` also parallelized (one `Promise.all`). Standardizing the video fallback is an open follow-up.
 
+## 2026-07-13 — date fix + local-first enrichment (10.1e)
+
+### 2026-07-13
+Decision: A provided post `date` means a HUMAN asserted it (`date_source='manual'`) — the client must not auto-send a file's EXIF date as the post date
+Reason: The upload client was sending the first file's client-extracted EXIF date as `date`, which the server records as a high-trust manual override (no "est." badge), silently overriding the earliest-capture rollup with one arbitrary file's date. This is the most likely cause of the "Happy 250th America!" post displaying Jul 6 for a Jul 4 party. Manual override should mean deliberate human intent, not an automatic guess.
+Alternatives Considered: Keep auto-sending but mark it a non-manual source (still wrong — it bypasses the earliest-capture rollup); rank the auto EXIF date below the rollup (adds a special case). Rejected in favor of the simplest rule: only a typed date is sent.
+Impact: `earliestCapture()` shared by the server rollup and the compose-page "Suggested date" preview, so what the user sees is what gets saved; legacy `posts.date` falls back to the rollup instant when no date is typed.
+
+### 2026-07-13
+Decision: Editing a post's date must update the capture rollup (`taken_at`/`local_date`/`date_source`), not just legacy `posts.date`
+Reason: Since Phase 10.2, reads prefer `local_date`/`taken_at` via COALESCE whenever they exist — which is every post created since 10.1. The edit route updated only `posts.date`, so date corrections through the UI were silently ignored on every read path. A correction the user can't see is worse than no feature.
+Alternatives Considered: Make reads prefer `posts.date` (undoes the whole Phase 10.2 tz-correctness win); clear the rollup on edit so the legacy date wins (loses provenance). Rejected — the edit resolves the new value as a `manual` capture and writes the rollup, consistent with the "manual wins, record provenance" model.
+Impact: `PUT /api/admin/posts/[postId]` writes the rollup; the edit form shows the effective (displayed) date + its provenance and only sends the date when the user changed it, so open-and-save can't stamp `manual`. Media added on the edit page also now runs the full upload-parity capture/identity/EXIF extraction (previously inserted with none).
+
+### 2026-07-13
+Decision: Deliver 10.1e enrichment as compose-time, browser-driven work — NOT the originally-planned async queue + Railway worker
+Reason: The user is on the compose form for ~10s typing the title/tags anyway; running enrichment there (in parallel) delivers date/tag suggestions *before publish*, which is exactly when they're actionable — and it's the only way to influence the post date, which is set at publish. A background worker would land results too late for the date decision, and adds infra (queue, cron, a hosted worker, retry/status tracking) with no benefit at family-album scale. Vercel functions also have no GPU, so heavy local models belong in the browser regardless.
+Alternatives Considered: Async enrichment queue + hosted worker (the old 10.1e plan — too late for dates, unjustified infra); server-side models on Vercel (no GPU, size limits). A small post-publish "sweeper" for stragglers is retained as `enrichment_status='pending'` rows, but the primary path is compose-time.
+Impact: `useMediaEnrichment` hook + pure `src/lib/enrich/*`; no worker/cron added. The ROADMAP "10.1e = Railway worker" framing is superseded.
+
+### 2026-07-13
+Decision: Enrichment is local-first — in-browser OCR + phash always on and free; cloud vision (Claude) is an OPTIONAL layer, off without `ANTHROPIC_API_KEY`
+Reason: Family photos including children — privacy and zero marginal cost matter more than maximum caption quality. OCR (tesseract.js, WASM) reads dates off flyers/invitations entirely on-device; phash tag propagation reuses hashes we already store; neither sends a pixel anywhere. Cloud vision adds real captions/labels and reads stylized text better, but at ~0.2–0.3¢/photo and by sending thumbnails off-device — so it's opt-in via env var, and the client hides it (503 → local-only) when unconfigured. Three sources fan out from one rendition and fail independently.
+Alternatives Considered: Cloud-only (simpler, but costs per photo and sends every photo off-device, and can't identify family faces anyway); local-only (no captions, weaker on stylized text). The hybrid keeps the free/private path complete and makes cloud a pure upgrade.
+Impact: `/api/admin/enrich` (cloud, gated), `/api/admin/similar-tags` (phash, local), `src/lib/enrich/ocr.ts` (OCR, local). New `media_metadata_raw` sources `'vision'` and `'ocr'`.
+
+### 2026-07-13
+Decision: Auto-tagging is closed-vocabulary and suggest-only — the model picks from EXISTING tags; machine output is never auto-applied to a post's visible tags
+Reason: Visible tags are a small curated vocabulary that powers browse pages; letting a model invent tags produces near-duplicates ("bbq"/"barbecue"/"cookout") and vocabulary sprawl that's hard to walk back, and any wrong tag is visible and sticky in a keepsake album. Passing the album's existing tag list into the prompt (closed-vocabulary classification) both prevents duplicates at the source and is *more* accurate than free-form labeling. A fuzzy safety net collapses near-misses (barbeque→barbecue); at most two clearly-marked NEW proposals may be offered. Free-text labels go to search storage only, never the curated set.
+Alternatives Considered: Auto-apply high-confidence tags (visible errors, vocabulary drift — revisitable later as a v2 for tags the user already uses, marked machine-applied with undo); open-vocabulary suggestions (duplicate sprawl). The `source` column on the junction tables (Phase 10.0) keeps any future auto-applied tags distinguishable and bulk-reversible.
+Impact: `src/lib/enrich/tags.ts` (matching), tap-to-add chips in `MetadataFields`; untapped suggestions are never saved. Same pattern planned for People (match faces to the existing people list first).
+
+### 2026-07-13
+Decision: Date evidence from images requires literal, quoted text and a full day-level date; OCR-derived dates are only unambiguous written forms; nothing auto-applies
+Reason: A photo can *show* a date (invitation, banner) that's better than the file metadata, but the failure modes are severe in a keepsake album — misreading decorative years ("1776" on patriotic art), ambiguous numeric dates (04/07/2026 is DMY or MDY — unknowable from pixels), or ambient guesses. So: require the model/OCR to quote the source text, require a full YYYY-MM-DD in a sane year range, and only suggest (tap-to-use fills the manual date field). OCR parses month-name and ISO forms only, and its evidence enters at medium confidence so cloud-verified document evidence outranks it.
+Alternatives Considered: Auto-correct dates from image text (too risky — one bad read silently mis-dates a memory); accept numeric dates with a locale guess (wrong half the time). The suggestion is shown only when it can help (metadata date missing/estimated) or a confident document date conflicts with a trusted date by >1 day; equal-strength disagreement stays silent.
+Impact: `src/lib/enrich/date-evidence.ts` (`validateDateEvidence`, `pickDateSuggestion`) shared by cloud, OCR, and the backfill's read-only conflict report; `extract-dates.ts` for OCR parsing.
+
+### 2026-07-13
+Decision: The local archive backfill mutates media enrichment (phash/OCR) but NEVER post dates — date disagreements are reported, not applied
+Reason: Consistent with the standing "never overwrite the source of truth" rule. Filling missing phash and adding OCR payloads is additive and safe (enables tag propagation + search on old posts). Changing a post's displayed date is a judgment call that must stay human — an OCR read is medium-confidence and a decorative date could pass validation in rare cases. So the backfill prints a conflict report and the human fixes real ones via the (now-working) edit page.
+Alternatives Considered: Auto-apply high-confidence conflicts (violates never-overwrite; OCR isn't trustworthy enough unattended); do nothing about conflicts (misses the whole point of the audit). Report-only splits the difference.
+Impact: `scripts/backfill-local-enrich.ts` writes phash + `media_metadata_raw` (`source='ocr'`) only; the date-conflict report is read-only, resumable, and reuses `pickDateSuggestion` so it matches the compose-page UX exactly.
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)
-- Phase 10 open decisions: backfill auto-apply confidence threshold? indexer stack (Python+osxphotos vs Node)? per-stage enrichment backend (on-device vs cloud). See `docs/rich-metadata-plan.md`. (Original full-res archival in R2 — **decided 2026-07-09: yes**, see Phase 11c/10.3d above.)
+- Phase 10 open decisions: backfill auto-apply confidence threshold (for the *cross-machine* 10.3b Matcher)? indexer stack (Python+osxphotos vs Node)? (Enrichment backend — **decided 2026-07-13: local-first**, on-device OCR/phash + optional cloud vision, see 2026-07-13 above. Original full-res archival in R2 — **decided 2026-07-09: yes**, see Phase 11c/10.3d above.) See `docs/rich-metadata-plan.md`.

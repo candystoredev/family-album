@@ -1,5 +1,11 @@
 # Phase 10.3 backfill — prep checklist (fill in opportunistically)
 
+> **Scope narrowed (2026-07-13):** a **local OCR + phash backfill** now ships
+> (`npm run backfill:local`), covering the archive for tag propagation and a
+> date-conflict audit with no source-file gathering. This checklist is now only
+> for the *cross-machine* 10.3 track — the **richer Apple-Photos data** (real
+> capture dates / GPS / on-device faces) that still needs the original files.
+
 > **Status: PARKED — waiting on Tom to gather source files across machines.**
 > This is NOT blocked on code. Phase 10.3 (matching your local originals to the
 > migrated posts to apply real dates/GPS/faces + bank full-res originals) needs
