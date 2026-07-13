@@ -15,21 +15,27 @@ On-This-Day share links are all live. The project is its own repo
 revocation), Phase 12 (metadata correctness: archive/date-display fixes, FTS body,
 feed refactor), Phase 13 (debt paydown: HEIC edit fix, dead-code removal, schema
 `user_version` guard, security hygiene). **11c (bank originals at upload) deferred
-→ 10.3d.** The read-only backfill Indexer (10.3a) is built. **Next up: Phase 10.3
-historical backfill — parked on Tom gathering source files (a data task, not
-code); see [backfill-prep.md](backfill-prep.md).** No-dependency Phase 14 polish
-(SW caching, a11y, On-This-Day→SSR) can proceed anytime.
+→ 10.3d.** The read-only backfill Indexer (10.3a) is built.
 
-## ⏸ PAUSED — read this first when you come back (2026-07-11)
+**2026-07-13: date-discrepancy fix + local-first enrichment shipped (#52, #53;
+#54 open).** Investigating a Fourth-of-July post that displayed the wrong day
+surfaced two real bugs (now fixed) and produced a working **10.1e enrichment**
+built **local-first** — the sub-stage the older docs call "deferred". Details in
+the 2026-07-13 Recent Changes entry below. **Next up: in-browser face clustering
+→ People suggestions, then semantic search (10.5).** The Phase 10.3 cross-machine
+backfill (Indexer + Tool B) is still parked on source-file gathering, but a
+**local OCR + phash backfill** (`npm run backfill:local`) now covers the archive
+for tag propagation and date auditing without that blocker.
 
-Tom is traveling. Everything is committed, deployed, and verified on prod — a
-clean, safe checkpoint, nothing mid-flight. Since the original 2026-06-26 Phase 10
-pause, a full app review (2026-07-09) restructured the roadmap and Phases **11
-(Archive Safety), 12 (metadata correctness), and 13 (debt paydown) all shipped
-(2026-07-11)**, plus the **10.3a backfill Indexer** was built. The one big
-remaining piece — the **Phase 10.3 historical backfill** — is parked on Tom
-gathering source photos across his computers (a data task, not code; see
-[`docs/backfill-prep.md`](backfill-prep.md)). Full design:
+## ▶ ACTIVE — resume here (2026-07-13)
+
+Actively building the local enrichment stack on branch
+`claude/photo-date-discrepancy-d1h4qy`. #52 and #53 are merged + deployed; **#54
+(local archive backfill) is open** and carries this doc refresh. The one big
+remaining Phase 10 piece is now split: the **cross-machine 10.3 backfill**
+(Indexer + Tool B, richer Apple Photos/faces data) is still parked on Tom
+gathering source photos (`docs/backfill-prep.md`); the **local backfill** (OCR +
+phash from stored thumbnails) is built and needs no gathering. Full design:
 [`docs/rich-metadata-plan.md`](rich-metadata-plan.md). Status:
 [`docs/ROADMAP.md`](ROADMAP.md).
 
@@ -57,20 +63,25 @@ re-runnable.**
   user_version` schema guard, security hygiene).
 - **10.3a Indexer built** (`tools/backfill-indexer/`) — read-only, phash
   byte-identical to the app; ready to run on Tom's machines.
+- **10.1e enrichment (local-first) shipped** (2026-07-13, #52/#53): the date
+  bug fixed at the source; compose-time suggestions (date evidence + tags) from
+  in-browser OCR + phash + optional cloud vision; a local archive backfill.
 
-**WHERE TO RESUME — updated 2026-07-11.**
-1. **10.3 Historical backfill (the big payoff, parked on data-gathering).** Tool A
-   (Indexer) is built — run it per source on Tom's machines
-   (`docs/backfill-prep.md` + `tools/backfill-indexer/README.md`), collect the
-   index files, then build **10.3b Tool B (Matcher/Applier)**: phash-match to the
-   stored thumbnails and apply real capture dates / GPS / faces to the thousands
-   of historical posts currently `NULL`, plus bank originals (10.3d). Then 10.3c
-   review queue, 10.3e promote+index. This is what makes 10.1/10.2 pay off for old
-   content.
-2. **Phase 14 polish (no dependencies, do anytime):** SW caching/offline,
+**WHERE TO RESUME — updated 2026-07-13.**
+1. **Faces → People (next build).** In-browser face detection + embeddings,
+   cluster-and-name-once UX, matched against the existing people list. Local,
+   free, private — the biggest remaining local-stack piece. Then **semantic
+   search (10.5)**: in-browser image embeddings + a libSQL vector column for
+   natural-language search. Both slot into the enrichment pipeline built in #53.
+2. **Cross-machine 10.3 backfill (parked on data-gathering).** Tool A (Indexer)
+   is built — run it per source on Tom's machines (`docs/backfill-prep.md` +
+   `tools/backfill-indexer/README.md`), then build **10.3b Tool B
+   (Matcher/Applier)** for the richer Apple-Photos data (real capture dates /
+   GPS / on-device faces) + bank originals (10.3d), 10.3c review queue, 10.3e
+   promote+index. The local backfill (#54) already covers OCR text + phash for
+   old posts, so this track is now purely the *additional* library metadata.
+3. **Phase 14 polish (no dependencies, do anytime):** SW caching/offline,
    accessibility pass, On-This-Day → SSR, iOS Shortcut setup guide.
-3. **10.1e enrichment queue + 10.5 semantic** — deferred on purpose (ML backends
-   stubbed); build together or not yet.
 
 **Mental model for resuming:** the upload path writes the new columns
 (`src/lib/media/capture-date.ts`, `extract.ts`, `image-hash.ts` →
@@ -80,27 +91,43 @@ prod with `scripts/capture-check.ts` (needs prod `TURSO_*` env). All additive /
 write-only; the legacy `posts.date` is still the immutable source of truth until
 a future audited "promote" step.
 
+**Enrichment (10.1e) mental model:** pure logic lives in `src/lib/enrich/*`
+(tag matching, date-evidence rules, model output shaping, OCR date parsing) with
+no I/O, tested in `tests/enrich.test.ts`. The compose pages run
+`useMediaEnrichment` — one ≤1024px rendition per photo fanned out to three
+independent, soft-failing sources: local OCR (`ocr.ts`, tesseract.js),
+phash tag propagation (`/api/admin/similar-tags`), and **optional** cloud vision
+(`/api/admin/enrich`, off without `ANTHROPIC_API_KEY`). Results feed the
+suggested-date chip and tag chips; at publish they persist to `media.caption` +
+`enrichment_status` and to `media_metadata_raw` (`source='vision'`/`'ocr'`). The
+archive backfill (`scripts/backfill-local-enrich.ts`, `npm run backfill:local`)
+does the same locally over old media and prints a read-only date-conflict report.
+
 ## Active Branch
-`master` (work is done on short-lived branches, fast-forward merged, then pushed —
-each push auto-deploys to production).
+`claude/photo-date-discrepancy-d1h4qy` (PR #54 open — local archive backfill +
+this doc refresh). Normal flow otherwise: `master`, short-lived branches,
+fast-forward merged, each push auto-deploys to production.
 
 ## Current Task
-**Phases 11, 12, 13 all shipped 2026-07-11; Indexer (10.3a) built.** Phase 11
-(Archive Safety) 11a/11b/11d/11e; Phase 12 (metadata correctness) #41/#42/#43;
-Phase 13 (debt paydown) #46/#47/#48 (edit HEIC fix, dead-code removal, schema
-`user_version` guard, security hygiene). **10.3a Indexer built** (#49,
-`tools/backfill-indexer/`, phash byte-identical to the app).
+**10.1e local-first enrichment shipped 2026-07-13 (#52, #53 merged; #54 open).**
+Started from a real user report — a Fourth-of-July post displaying the wrong day —
+which uncovered two bugs and became the enrichment sub-stage the older docs
+deferred. See the 2026-07-13 Recent Changes entry for the full breakdown.
 
-**Phase 10.3 (historical backfill) is PARKED — waiting on Tom, not code.** Needs
-source photos gathered across computers/apps; a data-gathering blocker, not
-engineering. Prep checklist: **[docs/backfill-prep.md](backfill-prep.md)**. Tool A
-(Indexer) is DONE; when sources are mapped, run it per source (PR #49 README) then
-build **10.3b Tool B (Matcher/Applier)**. See ROADMAP.md + rich-metadata-plan.md.
+**Next build: faces → People**, then semantic search (10.5). Both local, free,
+private (in-browser models), building on the `useMediaEnrichment` pipeline.
+
+**Cross-machine Phase 10.3 backfill is still PARKED — waiting on Tom, not code.**
+Needs source photos gathered across computers/apps for the *richer* Apple-Photos
+metadata (real capture dates / GPS / on-device faces). Prep checklist:
+**[docs/backfill-prep.md](backfill-prep.md)**. Tool A (Indexer) is DONE; when
+sources are mapped, build **10.3b Tool B**. The local backfill (#54) already
+covers OCR + phash for old posts, so this track is now the additive library data.
 
 **What remains (see ROADMAP for the full map):**
+- **Next (local, no blockers):** faces → People suggestions · 10.5 semantic search.
 - **Parked on Tom (data):** 10.3b Matcher · 10.3c review queue · 10.3d originals
   archival (absorbs 11c) · 10.3e promote+index.
-- **Deferred (paired, no backend yet):** 10.1e enrichment queue + 10.5 semantic.
 - **After backfill:** 10.4 (map, dedup, date-range/place search, trip albums).
 - **Available now, no dependencies — Phase 14:** SW caching/offline · a11y pass ·
   On-This-Day → SSR · iOS Shortcut setup guide. (Feed `srcset` and "full-res on
@@ -147,6 +174,53 @@ None.
   disagree for posts with corrected capture dates. → Phase 12a.
 
 ## Recent Changes
+
+### 2026-07-13 session — date-discrepancy fix + local-first enrichment (10.1e)
+Triggered by a real report: a "Happy 250th America!" post displayed **Jul 6**
+though the party was **Jul 4**. Root-causing it uncovered two bugs; fixing it
+well produced the enrichment sub-stage the docs had deferred. Suite 138 → 155.
+
+- **#52 — Suggested-date preview + working manual dates.** Two bugs:
+  1. The upload client auto-sent the *first* file's client-extracted EXIF date as
+     the post `date`, which the server records as `date_source='manual'` (high
+     trust, no "est." badge) — silently overriding the earliest-capture rollup
+     with one arbitrary file's date. The likely mechanism behind the Jul 6 post.
+     The client now sends a date only when the user typed one; legacy `posts.date`
+     falls back to the rollup instant.
+  2. Editing a post's date updated only legacy `posts.date`, which the Phase 10.2
+     reads *ignore* whenever `taken_at`/`local_date` exist (every post since 10.1)
+     — so date corrections silently did nothing. `PUT /api/admin/posts/[postId]`
+     now resolves the new date as a manual capture and updates
+     `taken_at`/`local_date`/`date_source` together. Also: media added on the
+     **edit** page was inserted with NO capture/identity/EXIF columns (metadata
+     lost) — now runs the same original-file extraction as upload, full parity.
+  Plus a live **"Suggested date"** hint on the compose form (earliest capture,
+  the exact server rule) and a shared `earliestCapture()`.
+- **#53 — Compose-time enrichment, local-first.** One ≤1024px rendition per
+  photo, fanned out to three independent soft-failing sources while the form is
+  open: **(a)** in-browser OCR (tesseract.js) → written-date evidence chip
+  ("photo shows 'JULY 4, 2026' — Use it"); **(b)** phash tag propagation
+  (`/api/admin/similar-tags`, Hamming ≤6/64) → tags from visually-identical
+  already-tagged photos, no ML; **(c)** optional cloud vision
+  (`/api/admin/enrich`, Claude, `claude-haiku-4-5` default) → captions/labels for
+  search + closed-vocabulary tag matching, **off entirely without
+  `ANTHROPIC_API_KEY`**. Suggest-don't-auto-apply throughout; dates never
+  auto-applied; only literal quoted evidence counts (decorative "1776" rejected).
+  Persists to `media.caption` + `enrichment_status` + `media_metadata_raw`
+  (`source='vision'`/`'ocr'`). Pure logic in `src/lib/enrich/*`, tested.
+- **#54 (open) — Local archive backfill.** `scripts/backfill-local-enrich.ts`
+  (`npm run backfill:local`): fills missing phash (from stored thumbnails, so
+  `/api/admin/similar-tags` matches historical posts) + OCRs every image + prints
+  a **read-only date-conflict report** (posts whose photo text disagrees with the
+  shown date — reproduces the Jul 4 bug on the seeded fixture). Re-runnable,
+  `--dry-run`/`--limit`/`--phash-only`/`--report`. Mutates no post dates.
+- **Deferred vs shipped:** the older "10.1e = Railway worker, ML backends stubbed"
+  framing is superseded. 10.1e is delivered as **compose-time, browser-driven**
+  enrichment (no worker/cron); the async-queue variant is unnecessary at this
+  scale. Faces + semantic search (10.5) are the remaining enrichment pieces.
+- **New env (both optional):** `ANTHROPIC_API_KEY` (enables the cloud source;
+  sends thumbnails to the Claude API — 30-day retention, not used for training),
+  `ENRICH_MODEL`. Without them, OCR + phash still work fully.
 
 ### 2026-07-11 session — Phase 13 (debt paydown) shipped + 10.3a Indexer built
 All merged to `master`. Suite 135 → 135 (app tests unaffected by the Indexer,

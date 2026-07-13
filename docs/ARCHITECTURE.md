@@ -364,8 +364,9 @@ legacy `posts.date` — reads flip to the new columns in 10.2.
   read path** (verified: feed/onThisDay enumerate columns, no `gps_*`).
 - **Tests**: `capture-date` (host-tz independence), `exif-pipeline` (exifr
   reviveValues contract), `heic`, `image-hash`, `extract`. Read-only
-  `scripts/capture-check.ts` inspects the written columns. *Deferred: 10.1e
-  (async enrichment queue + Railway worker; ML backends stubbed until 10.5).*
+  `scripts/capture-check.ts` inspects the written columns. *10.1e enrichment
+  shipped 2026-07-13 as compose-time browser-driven work (not an async queue) —
+  see "Compose-time enrichment (10.1e)" below.*
 
 ### Reads use the effective capture date (Phase 10.2)
 Feed ordering, cursor pagination, archive/on-this-day grouping, and date display
@@ -435,6 +436,44 @@ Shipped but previously undocumented:
   pyvips = the same libvips sharp wraps), content hash, and metadata. Idempotent,
   resumable, dry-run-able. Runs on the family's own machines; feeds Tool B (10.3b).
 
+### Compose-time enrichment (10.1e, 2026-07-13 — #52/#53/#54)
+Enrichment runs **while the compose form is open**, not in a background worker —
+so date/tag suggestions arrive before publish (the only moment they can influence
+the post date). Pure decision logic lives in `src/lib/enrich/*` (no I/O), tested
+in `tests/enrich.test.ts`:
+- `useMediaEnrichment` (client hook, upload + edit pages) renders one ≤1024px JPEG
+  per photo and fans out to three independent, individually soft-failing sources:
+  1. **Local OCR** — `src/lib/enrich/ocr.ts` (tesseract.js, lazy WASM, reused
+     worker); `extract-dates.ts` parses unambiguous written dates (month-name +
+     ISO only — numeric `04/07/2026` is DMY/MDY-ambiguous, ignored). Free, nothing
+     leaves the device.
+  2. **Phash tag propagation** — `POST /api/admin/similar-tags` dHashes the
+     rendition server-side (same algorithm as every stored row) and returns tags
+     from media within Hamming ≤6/64 (re-shares, WhatsApp copies, crops). No ML.
+  3. **Cloud vision (optional)** — `POST /api/admin/enrich` (Claude, `@anthropic-ai/sdk`,
+     `claude-haiku-4-5` default / `ENRICH_MODEL` override, structured outputs,
+     content-hash dedup cache). Captions/labels for search + closed-vocabulary tag
+     matching (`tags.ts`) + document-verified date evidence. **Returns 503 without
+     `ANTHROPIC_API_KEY`; the client then runs local-only.**
+- Date suggestions use `date-evidence.ts` (`pickDateSuggestion`) shared by all
+  sources: quoted evidence + full day-level date + sane year range required, never
+  auto-applied, shown only when it helps (weak metadata date) or conflicts with a
+  trusted date by >1 day. Tags are suggest-only chips in `MetadataFields`;
+  untapped suggestions are never saved.
+- **Persistence at publish** (`upload/complete` + `posts/[postId]` PUT): `media.caption`
+  + `enrichment_status`/`enrichment_version`/`enriched_at`, and verbatim payloads
+  in `media_metadata_raw` (`source='vision'` and `source='ocr'`). Items that miss
+  the compose window are `enrichment_status='pending'`.
+- **Local archive backfill** — `scripts/backfill-local-enrich.ts`
+  (`npm run backfill:local`): fills missing phash from stored thumbnails (enabling
+  `/api/admin/similar-tags` on historical posts) + OCRs every image + prints a
+  read-only date-conflict report. Re-runnable/resumable (`--dry-run`,
+  `--limit=N`, `--phash-only`, `--report=PATH`); mutates no post dates.
+- **Date bugs fixed alongside (#52):** the upload client no longer auto-sends a
+  file's EXIF date as a manual `date` override; the edit route now updates the
+  capture rollup (`taken_at`/`local_date`/`date_source`), not just legacy
+  `posts.date`, so date corrections are no longer silently ignored by 10.2 reads.
+
 ## Constraints
 
 - Vercel free tier: 10-second function timeout, 4.5MB body limit (bypassed via presigned R2 URLs), 1,000 image optimizations/month (bypassed via pre-generated thumbnails)
@@ -468,6 +507,10 @@ JWT_SECRET                 = [random 32+ char string]
 ADMIN_API_TOKEN            = [random 32+ char string]
 ADMIN_PASSWORD             = [random string]
 NEXT_PUBLIC_SITE_URL       = https://thehoecks.com
+
+# Enrichment (10.1e) — both OPTIONAL; without them, OCR + phash still run locally
+ANTHROPIC_API_KEY          = [console.anthropic.com — enables cloud vision captions/tags]
+ENRICH_MODEL               = [optional; defaults to claude-haiku-4-5]
 ```
 
 ### Operational Settings (DB `site_settings`, admin-changeable)

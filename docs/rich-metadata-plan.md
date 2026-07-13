@@ -1,5 +1,12 @@
 # Rich Media Metadata — Plan
 
+> **Partly superseded (2026-07-13):** 10.1e enrichment shipped **local-first and
+> compose-time** (in-browser OCR + phash + optional cloud vision), not the async
+> queue + Railway worker this doc sketches; the "on-device vs cloud" enrichment
+> question is decided (local-first, cloud optional). See STATE.md + DECISIONS.md
+> 2026-07-13 and ROADMAP §10.1e for what actually shipped. The capture/backfill
+> design below is still current.
+
 A living design doc for giving every photo/video richer, more durable data so
 sorting, grouping, identification, and search stay correct today and stay open
 to future features. Safe to carry to other machines (e.g. for the historical

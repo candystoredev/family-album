@@ -116,11 +116,16 @@ Beyond the original v1 plan; all live in production. Details in DECISIONS.md / A
 - **Navigation redesign** — serif monogram, compact rows, Albums expand-in-place, classic + **rail** timeline layouts (shared `useTimelineStyle` pref), packed FAB cluster.
 - **Video capture dates** — MP4/MOV container parsing (mvhd + Apple `creationdate` w/ tz offset), full-timestamp ordering; `tests/video-date.test.ts`.
 
-### Next initiative — Phase 10.3 historical backfill (see below)
-~~Phase 11 Archive Safety~~ **DONE** + ~~Phase 12 metadata-correctness completion~~ **DONE**
-(both 2026-07-11) → next is the **Phase 10.3 historical backfill** (the centerpiece — which
-now also banks originals, absorbing 11c). Phase 10 (Rich Media Metadata & Enrichment) stays
-the spine — full design in `docs/rich-metadata-plan.md`.
+### Next initiative — faces → People, then semantic search (10.5)
+~~Phase 11 Archive Safety~~ **DONE** · ~~Phase 12 metadata-correctness~~ **DONE**
+(both 2026-07-11) · ~~10.1e enrichment~~ **DONE (local-first, 2026-07-13)** — see
+below. **Next is in-browser face clustering → People suggestions, then semantic
+search (10.5)** — both local, free, private, building on the compose-time
+enrichment pipeline. The **cross-machine Phase 10.3 backfill** (Indexer + Tool B,
+for the richer Apple-Photos/faces data) remains the other track, still parked on
+source-file gathering; a **local OCR + phash backfill** (#54) already covers the
+archive for tag propagation + date auditing. Phase 10 (Rich Media Metadata &
+Enrichment) stays the spine — full design in `docs/rich-metadata-plan.md`.
 
 ## Up Next
 
@@ -262,13 +267,21 @@ verified on prod.** The correctness core of Phase 10 is complete. Remaining:
   - **10.1d** HEIC compression fix on non-Safari (`heic2any`) ✅ **DONE**
   - **10.1b** identity/visual (`content_hash` + `phash` + `dominant_color` + `aspect`/`orientation` + `original_filename`) ✅ **DONE**
   - **10.1c** GPS + camera/device + raw EXIF → `media_metadata_raw` + `media_sources` ✅ **DONE** *(video container deep-parse — GPS/fps/codec/duration — deferred)*
-  - **10.1e** async enrichment queue + Railway worker/cron (faces/scene/caption/embedding/score), pluggable + versioned + idempotent — ⏸ **DEFERRED** (ML backends are stubs until 10.5, so nothing to process yet; build it alongside 10.5)
+  - **10.1e** enrichment — ✅ **DONE (local-first, 2026-07-13, #52/#53)**, delivered as **compose-time browser-driven** work, NOT the originally-planned async queue + Railway worker (too late to influence the post date; unjustified infra at this scale — see DECISIONS 2026-07-13). One ≤1024px rendition per photo fans out to three independent soft-failing sources: **(a)** in-browser OCR (`tesseract.js`) → written-date evidence chip; **(b)** phash tag propagation (`/api/admin/similar-tags`, Hamming ≤6/64) → tags from visually-identical already-tagged photos, no ML; **(c)** optional cloud vision (`/api/admin/enrich`, Claude `claude-haiku-4-5`) → captions/labels for search + closed-vocabulary tag matching, **off without `ANTHROPIC_API_KEY`**. Suggest-don't-auto-apply; persists to `media.caption` + `enrichment_status` + `media_metadata_raw` (`source='vision'`/`'ocr'`). Pure logic in `src/lib/enrich/*`, tested. Also fixed the two date bugs that motivated it (#52: auto-EXIF-as-manual override; edit-date ignored by 10.2 reads). Remaining enrichment: **faces → People** and **10.5 semantic** (both local, next).
 - **10.2 Flip reads + estimated-date UX** — ✅ **DONE** via read-time `COALESCE`
   (`lib/order.ts`, no prod data mutated): **10.2a** feed ordering + cursor by
   effective `taken_at`; **10.2b** archive + on-this-day grouping by effective
   `local_date`; **10.2c** corrected-date display + "est." badge. *(Tiebreaker is
   `(order_key, id)`; the plan's `created_at` middle key was skipped to keep the
   2-tuple cursor — revisit only if exact-instant ties become an issue.)*
+- **Local archive backfill** — ✅ **DONE (2026-07-13, #54)**, `npm run backfill:local`
+  (`scripts/backfill-local-enrich.ts`). Model-free, runs anywhere with the prod env:
+  fills missing `phash`/`dominant_color` from stored thumbnails (so
+  `/api/admin/similar-tags` matches historical posts) + OCRs every image →
+  `media_metadata_raw` (`source='ocr'`) + prints a **read-only date-conflict report**
+  (posts whose photo text disagrees with the shown date). Re-runnable/resumable;
+  mutates no post dates. Covers the archive for tag-propagation + date auditing —
+  the cross-machine 10.3 track below is now the *additional* Apple-Photos metadata.
 - **10.3 Historical backfill (separate track; runs on a machine without Claude)** —
   Tool A + Tool B, both writing to new columns only. Adapters: Apple Photos via
   `osxphotos` (faces, scene labels, keywords, albums, captions, favorites, quality
@@ -285,7 +298,16 @@ verified on prod.** The correctness core of Phase 10 is complete. Remaining:
   Related posts, Download original.)
 - **10.5 Semantic enrichment (optional, pluggable)** — captions + open-vocabulary
   tags + per-photo embeddings for semantic search; local CLIP (private) or vision
-  LLM (richer); libSQL vector column; feeds FTS + semantic search.
+  LLM (richer); libSQL vector column; feeds FTS + semantic search. *(Captions/
+  labels already land from 10.1e's optional cloud vision; 10.5 adds the in-browser
+  embedding model + vector column for natural-language search. Next local build,
+  alongside faces → People.)*
+- **Faces → People (next build; local, no data-gathering blocker)** — in-browser
+  face detection + embeddings, cluster-and-name-once UX, matched against the
+  existing people list (closed-vocabulary, same suggest-don't-auto-apply pattern as
+  tags). Free, private, on the `useMediaEnrichment` pipeline. The cross-machine
+  10.3b Matcher can *also* supply Apple-Photos face data later; this is the local,
+  no-blocker path.
 
 **Privacy:** family photos incl. children — default on-device (Apple Photos for
 backfill, local/server model for live) for faces + scenes; cloud vision / LLM
