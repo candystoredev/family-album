@@ -296,8 +296,11 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
           <span className="flex-1 text-[15px] font-medium text-[#c9c4ba]">Favorites</span>
         </Link>
 
+        {/* scroll={false}: /today opens as the intercepted sheet — avoid the
+            scroll-to-@modal-slot jump behind the panel while it slides down. */}
         <Link
           href="/today"
+          scroll={false}
           className="flex items-center gap-3 px-2 min-h-[44px] rounded-lg transition-colors hover:bg-[#211e1b]"
         >
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" className="flex-none">
