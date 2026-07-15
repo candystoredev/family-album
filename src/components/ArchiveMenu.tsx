@@ -297,10 +297,13 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
         </Link>
 
         {/* scroll={false}: /today opens as the intercepted sheet — avoid the
-            scroll-to-@modal-slot jump behind the panel while it slides down. */}
+            scroll-to-@modal-slot jump behind the panel while it slides down.
+            prefetch={true}: full payload, matching the feed teaser, so the
+            sheet opens ready (default prefetch stops at loading.tsx). */}
         <Link
           href="/today"
           scroll={false}
+          prefetch={true}
           className="flex items-center gap-3 px-2 min-h-[44px] rounded-lg transition-colors hover:bg-[#211e1b]"
         >
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" className="flex-none">
