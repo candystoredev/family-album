@@ -3,9 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+interface OnThisDayMedia {
+  type: string;
+  url: string;
+  thumbnailUrl: string;
+}
+
 interface OnThisDayPost {
   slug: string;
   thumbnailUrl: string | null;
+  media: OnThisDayMedia[];
 }
 
 // Fanned "printed photo" transforms for the first three thumbnails. The middle
@@ -36,6 +43,50 @@ export default function OnThisDay() {
       .catch(() => {});
   }, []);
 
+  // Warm the browser's image cache with the photos the /today sheet will
+  // render (PhotoGrid shows each photo's full `url`; for videos only a real
+  // poster — the "self" thumbnail fallback IS the video file, never fetch it
+  // here). Done at idle, low priority, so tapping the teaser reveals finished
+  // posts instead of a few seconds of empty frames while R2 images stream.
+  useEffect(() => {
+    if (posts.length === 0) return;
+    if ((navigator as { connection?: { saveData?: boolean } }).connection?.saveData) return;
+
+    const urls: string[] = [];
+    for (const post of posts) {
+      for (const m of post.media || []) {
+        if (m.type === "video") {
+          if (m.thumbnailUrl && m.thumbnailUrl !== m.url) urls.push(m.thumbnailUrl);
+        } else if (m.url) {
+          urls.push(m.url);
+        }
+      }
+    }
+
+    const warm = () => {
+      // Cap as a guard against pathological media counts; 6 posts × a few
+      // photos each stays well under it.
+      for (const u of urls.slice(0, 24)) {
+        const img = new Image();
+        img.setAttribute("fetchpriority", "low");
+        img.decoding = "async";
+        img.src = u;
+      }
+    };
+
+    // Safari (the family's platform) has no requestIdleCallback — typeof
+    // guard, with a small delay fallback so the warm-up doesn't compete with
+    // the feed's own images.
+    const hasIdle = typeof window.requestIdleCallback === "function";
+    const id = hasIdle
+      ? window.requestIdleCallback(warm, { timeout: 3000 })
+      : window.setTimeout(warm, 800);
+    return () => {
+      if (hasIdle) window.cancelIdleCallback(id);
+      else clearTimeout(id);
+    };
+  }, [posts]);
+
   if (posts.length === 0) return null;
 
   const count = posts.length;
@@ -55,10 +106,15 @@ export default function OnThisDay() {
     <div className="mb-7 px-4 sm:px-0">
       {/* scroll={false}: the intercepted sheet covers the viewport, and Next's
           default scroll-on-navigate jumps the feed to the @modal slot at the
-          document bottom — visible behind the panel while it slides down. */}
+          document bottom — visible behind the panel while it slides down.
+          prefetch={true}: /today is force-dynamic, so the default prefetch only
+          grabs the shell up to loading.tsx — the full RSC payload would still
+          stream in after the tap. A full prefetch (cached ~5 min) means the
+          sheet opens with the posts already rendered. */}
       <Link
         href="/today"
         scroll={false}
+        prefetch={true}
         className="group flex w-full items-center gap-3.5 py-1.5 transition-opacity active:opacity-60"
       >
         {/* Fanned stack of the first three thumbnails — little printed photos */}
