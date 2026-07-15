@@ -55,8 +55,11 @@ const BUILD_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev";
 
 export default async function RootLayout({
   children,
+  modal,
 }: Readonly<{
   children: React.ReactNode;
+  // @modal parallel slot — holds the intercepted /today slide-down sheet.
+  modal: React.ReactNode;
 }>) {
   const session = await getSession();
 
@@ -64,6 +67,7 @@ export default async function RootLayout({
     <html lang="en" className={`dark ${sourceSans.variable} ${sourceSerif.variable}`}>
       <body className={`min-h-screen bg-[#1a1918] text-[#c9c4ba] antialiased ${sourceSans.className}`}>
         {children}
+        {modal}
         <PullToRefresh />
         <BackButton />
         <AutoRefresh buildVersion={BUILD_VERSION} />

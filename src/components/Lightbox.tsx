@@ -134,6 +134,17 @@ export default function Lightbox({
   useEffect(() => {
     const scrollY = window.scrollY;
     const { style } = document.body;
+    // Capture the prior inline values so cleanup restores *exactly* what was
+    // there — not "". When this lightbox is opened inside the MemorySheet, the
+    // sheet holds body.overflow = "hidden" for its whole lifetime; resetting to
+    // "" here would wipe the sheet's lock (feed scrolls, PullToRefresh re-arms).
+    const prev = {
+      overflow: style.overflow,
+      position: style.position,
+      top: style.top,
+      left: style.left,
+      right: style.right,
+    };
     style.overflow = "hidden";
     style.position = "fixed";
     style.top = `-${scrollY}px`;
@@ -155,11 +166,11 @@ export default function Lightbox({
     }
 
     return () => {
-      style.overflow = "";
-      style.position = "";
-      style.top = "";
-      style.left = "";
-      style.right = "";
+      style.overflow = prev.overflow;
+      style.position = prev.position;
+      style.top = prev.top;
+      style.left = prev.left;
+      style.right = prev.right;
       window.scrollTo(0, scrollY);
       try {
         if (document.fullscreenElement) {
@@ -263,6 +274,7 @@ export default function Lightbox({
 
   return (
     <div
+      data-lightbox=""
       className="fixed inset-0 z-50 bg-black flex flex-col"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}

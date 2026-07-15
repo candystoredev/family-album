@@ -1,492 +1,112 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import PhotoGrid from "./PhotoGrid";
-import Lightbox from "./Lightbox";
-import { formatDisplayDate } from "@/lib/datetime";
-
-interface MediaItem {
-  id: string;
-  type: string;
-  url: string;
-  thumbnailUrl: string;
-  width: number | null;
-  height: number | null;
-}
+import { useEffect, useState } from "react";
+import Link from "next/link";
 
 interface OnThisDayPost {
   slug: string;
-  title: string | null;
-  body: string | null;
-  date: string;
-  /** Effective capture day (tz-independent `YYYY-MM-DD`); see lib/onThisDay.ts. */
-  localDate: string;
-  photosetLayout: string | null;
   thumbnailUrl: string | null;
-  media: MediaItem[];
 }
 
+// Fanned "printed photo" transforms for the first three thumbnails. The middle
+// one sits on top (highest zIndex) so the stack reads front-to-back.
+const FAN_ROTATE = ["-8deg", "3deg", "9deg"];
+const FAN_Z = [1, 3, 2];
+
+/**
+ * Home-feed teaser for "On This Day" — a compact keepsake cover card that links
+ * to /today. The link is intercepted into a slide-down sheet over the feed (see
+ * app/@modal/(.)today); the full viewer lives on the /today page, not here.
+ */
 export default function OnThisDay() {
   const [posts, setPosts] = useState<OnThisDayPost[]>([]);
-  const [expanded, setExpanded] = useState(false);
-  // Index of selected memory (-1 = thumbnail row, 0+ = viewing that post)
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const [lightbox, setLightbox] = useState<{ media: MediaItem[]; index: number } | null>(null);
-  // Swipe state for navigating between memories
-  const [swipeOffsetX, setSwipeOffsetX] = useState(0);
-  const [isSwiping, setIsSwiping] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const skipTransition = useRef(false);
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
-  const touchDeltaX = useRef(0);
-  const touchMoved = useRef(false);
-  const pinchActive = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const postContentRef = useRef<HTMLDivElement>(null);
+  const [month, setMonth] = useState<number | null>(null);
+  const [day, setDay] = useState<number | null>(null);
 
   useEffect(() => {
-    const today = new Date();
-    const month = today.getMonth() + 1;
-    const day = today.getDate();
-
-    fetch(`/api/on-this-day?month=${month}&day=${day}`)
+    // No month/day params — the API resolves "today" in the album's configured
+    // timezone (same source as the /today page), so the teaser and page agree.
+    fetch("/api/on-this-day")
       .then((r) => (r.ok ? r.json() : { posts: [] }))
-      .then((data) => setPosts(data.posts || []))
+      .then((data) => {
+        setPosts(data.posts || []);
+        if (data.month) setMonth(data.month);
+        if (data.day) setDay(data.day);
+      })
       .catch(() => {});
   }, []);
-
-  function openMemory(i: number) {
-    setActiveIndex(i);
-  }
-
-  function closeEverything() {
-    setActiveIndex(-1);
-    setExpanded(false);
-    setSwipeOffsetX(0);
-  }
-
-  const goNextMemory = useCallback(() => {
-    if (activeIndex < posts.length - 1 && !isTransitioning) {
-      setIsTransitioning(true);
-      setSwipeOffsetX(-(containerRef.current?.clientWidth || window.innerWidth));
-      setTimeout(() => {
-        skipTransition.current = true;
-        setActiveIndex((i) => i + 1);
-        setSwipeOffsetX(0);
-        setIsTransitioning(false);
-        requestAnimationFrame(() => { skipTransition.current = false; });
-      }, 300);
-    }
-  }, [activeIndex, posts.length, isTransitioning]);
-
-  const goPrevMemory = useCallback(() => {
-    if (activeIndex > 0 && !isTransitioning) {
-      setIsTransitioning(true);
-      setSwipeOffsetX(containerRef.current?.clientWidth || window.innerWidth);
-      setTimeout(() => {
-        skipTransition.current = true;
-        setActiveIndex((i) => i - 1);
-        setSwipeOffsetX(0);
-        setIsTransitioning(false);
-        requestAnimationFrame(() => { skipTransition.current = false; });
-      }, 300);
-    }
-  }, [activeIndex, isTransitioning]);
-
-  // Touch handlers for swiping between memories
-  function onTouchStart(e: React.TouchEvent) {
-    if (activeIndex < 0 || lightbox !== null) return;
-    if (e.touches.length > 1) {
-      // Pinch started — lock out swipe for this entire gesture sequence
-      pinchActive.current = true;
-      touchDeltaX.current = 0;
-      setSwipeOffsetX(0);
-      setIsSwiping(false);
-      return;
-    }
-    if (pinchActive.current) return; // one finger still on screen after pinch
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-    touchDeltaX.current = 0;
-    touchMoved.current = false;
-    setIsSwiping(true);
-  }
-
-  function onTouchMove(e: React.TouchEvent) {
-    if (activeIndex < 0 || lightbox !== null) return;
-    if (e.touches.length > 1 || pinchActive.current) {
-      pinchActive.current = true;
-      touchDeltaX.current = 0;
-      setSwipeOffsetX(0);
-      setIsSwiping(false);
-      return;
-    }
-    const dx = e.touches[0].clientX - touchStartX.current;
-    const dy = e.touches[0].clientY - touchStartY.current;
-    touchDeltaX.current = dx;
-    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchMoved.current = true;
-    if (Math.abs(dx) > Math.abs(dy)) {
-      setSwipeOffsetX(dx);
-    }
-  }
-
-  function onTouchEnd(e: React.TouchEvent) {
-    if (activeIndex < 0 || lightbox !== null) return;
-    if (e.touches.length === 0) pinchActive.current = false; // all fingers lifted — clear lock
-    if (pinchActive.current) { setIsSwiping(false); return; }
-    setIsSwiping(false);
-    const threshold = 90;
-    const dx = touchDeltaX.current;
-    if (dx < -threshold && activeIndex < posts.length - 1 && !isTransitioning) {
-      goNextMemory();
-    } else if (dx > threshold && activeIndex > 0 && !isTransitioning) {
-      goPrevMemory();
-    } else {
-      setSwipeOffsetX(0);
-    }
-  }
-
-  // Wheel handler for desktop trackpad swipe
-  const wheelAccum = useRef(0);
-  const wheelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function onWheel(e: React.WheelEvent) {
-    if (activeIndex < 0 || posts.length <= 1) return;
-    if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
-    wheelAccum.current += e.deltaX;
-    if (wheelTimer.current) clearTimeout(wheelTimer.current);
-    wheelTimer.current = setTimeout(() => { wheelAccum.current = 0; }, 200);
-    const threshold = 80;
-    if (wheelAccum.current > threshold) {
-      wheelAccum.current = 0;
-      goNextMemory();
-    } else if (wheelAccum.current < -threshold) {
-      wheelAccum.current = 0;
-      goPrevMemory();
-    }
-  }
 
   if (posts.length === 0) return null;
 
   const count = posts.length;
-  const label = count === 1 ? "1 memory" : `${count} memories`;
-  const isViewing = activeIndex >= 0;
-  const isOpen = expanded || isViewing;
-
-  // Incoming memory for swipe transition
-  const incomingIdx = swipeOffsetX < 0 && activeIndex < posts.length - 1
-    ? activeIndex + 1
-    : swipeOffsetX > 0 && activeIndex > 0
-    ? activeIndex - 1
-    : null;
+  const memoriesLabel = count === 1 ? "1 memory" : `${count} memories`;
+  // Day label from the API's month/day (not client `new Date()`), formatted like
+  // the page so the two never disagree across a timezone boundary.
+  const dayLabel =
+    month && day
+      ? new Date(Date.UTC(2000, month - 1, day)).toLocaleDateString("en-US", {
+          month: "long",
+          day: "numeric",
+          timeZone: "UTC",
+        })
+      : "";
 
   return (
-    <div className="mb-8">
-      {/* Compact teaser bar */}
-      <button
-        onClick={() => {
-          if (isOpen) {
-            closeEverything();
-          } else {
-            setExpanded(true);
-          }
+    <div className="mb-8 px-4 sm:px-0">
+      {/* scroll={false}: the intercepted sheet covers the viewport, and Next's
+          default scroll-on-navigate jumps the feed to the @modal slot at the
+          document bottom — visible behind the panel while it slides down. */}
+      <Link
+        href="/today"
+        scroll={false}
+        className="group relative block overflow-hidden rounded-[18px] border border-[#2b2722] bg-[#211e1a] paper-grain transition-[transform,border-color] duration-200 hover:border-[#3a352e] active:scale-[0.985]"
+        style={{
+          boxShadow: "0 8px 26px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)",
         }}
-        className="w-full flex items-center gap-3 px-4 sm:px-0 group"
       >
-        {/* Thumbnail peek */}
-        <div className="flex -space-x-2 shrink-0">
-          {posts.slice(0, 3).map((post, i) =>
-            post.thumbnailUrl ? (
-              <img
-                key={post.slug}
-                src={post.thumbnailUrl}
-                alt=""
-                className="w-8 h-8 rounded-full object-cover border-2 border-[#1d1c1c]"
-                style={{ zIndex: 3 - i }}
-              />
-            ) : (
+        <div className="relative z-10 flex items-center gap-4 px-4 py-3.5">
+          {/* Fanned stack of the first three thumbnails — little printed photos */}
+          <div className="flex shrink-0 -space-x-3">
+            {posts.slice(0, 3).map((post, i) => (
               <div
                 key={post.slug}
-                className="w-8 h-8 rounded-full bg-[#333] border-2 border-[#1d1c1c]"
-                style={{ zIndex: 3 - i }}
-              />
-            )
-          )}
-        </div>
+                className="h-11 w-11 overflow-hidden rounded-[6px] border border-[#2b2722] shadow-md shadow-black/40"
+                style={{ transform: `rotate(${FAN_ROTATE[i] ?? "0deg"})`, zIndex: FAN_Z[i] ?? 0 }}
+              >
+                {post.thumbnailUrl ? (
+                  <img src={post.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="h-full w-full bg-[#333]" />
+                )}
+              </div>
+            ))}
+          </div>
 
-        <span className="text-[#888] text-sm group-hover:text-[#aaa] transition-colors">
-          <span className="text-[#d3d3d3] group-hover:text-white transition-colors">
-            On this day
-          </span>
-          {" \u00B7 "}
-          {label} from years past
-        </span>
+          {/* Eyebrow + day + count */}
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a774d]">
+              On this day
+            </p>
+            <p className="font-serif text-[19px] font-semibold leading-tight text-[#efeae1] transition-colors group-hover:text-[#f7f3ea]">
+              {dayLabel}
+            </p>
+            <p className="text-[13px] text-[#7d7468]">{memoriesLabel} from years past</p>
+          </div>
 
-        {/* Chevron when closed, X when open */}
-        {isOpen ? (
+          {/* Chevron — hints the doorway opens downward */}
           <svg
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.5"
-            className="w-4 h-4 text-[#555] ml-auto shrink-0"
-          >
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        ) : (
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            className="w-4 h-4 text-[#555] ml-auto shrink-0"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-4 w-4 shrink-0 text-[#8a774d] transition-colors group-hover:text-[#cfae6f]"
           >
             <path d="M6 9l6 6 6-6" />
           </svg>
-        )}
-      </button>
-
-      {/* Expandable area */}
-      <div
-        className={`transition-all duration-300 ease-out ${
-          isOpen ? "mt-3" : "mt-0"
-        }`}
-        style={{
-          display: "grid",
-          gridTemplateRows: isOpen ? "1fr" : "0fr",
-          opacity: isOpen ? 1 : 0,
-          transition: "grid-template-rows 0.45s cubic-bezier(0.22, 0.68, 0, 1.0), opacity 0.3s ease-out, margin 0.3s ease-out",
-        }}
-      >
-        {/* sm:-mx-6 sm:px-6 extends the overflow boundary so nav buttons aren't clipped */}
-        <div className={`overflow-hidden ${isViewing ? "sm:-mx-6 sm:px-6" : ""}`}>
-        {/* Thumbnail card row — fades out when viewing */}
-        <div
-          style={{
-            height: isViewing ? 0 : "auto",
-            opacity: isViewing ? 0 : 1,
-            overflow: "hidden",
-            transition: "height 0.35s ease-out, opacity 0.25s ease-out",
-          }}
-        >
-          <div className="flex gap-3 px-4 sm:px-0 overflow-x-auto pb-2 scrollbar-hide touch-pan-x">
-            {posts.map((post, i) => {
-              // Year math off the tz-independent effective day, not
-              // `new Date(post.date)` (which can shift near midnight/DST).
-              const yearsAgo = new Date().getFullYear() - Number(post.localDate.slice(0, 4));
-              const timeLabel =
-                yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
-              return (
-                <button
-                  key={post.slug}
-                  onClick={() => openMemory(i)}
-                  className="shrink-0 group/card active:scale-95 transition-transform text-left"
-                >
-                  <div className="w-36 rounded-lg overflow-hidden bg-[#252424] border border-[#333] group-hover/card:border-[#555] transition-colors">
-                    {post.thumbnailUrl ? (
-                      <img
-                        src={post.thumbnailUrl}
-                        alt=""
-                        className="w-36 h-24 object-cover"
-                      />
-                    ) : (
-                      <div className="w-36 h-24 bg-[#333]" />
-                    )}
-                    <div className="px-2.5 py-2">
-                      <p className="text-[#d3d3d3] text-xs leading-tight truncate group-hover/card:text-white transition-colors">
-                        {post.title || timeLabel}
-                      </p>
-                      <p className="text-[#555] text-[11px] mt-0.5">{timeLabel}</p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
         </div>
-
-        {/* Expanded memory view — swipeable between posts */}
-        {isViewing && (
-          <div className="relative w-full min-w-0">
-            {/* Swipe container — clips content horizontally */}
-            <div
-              ref={containerRef}
-              className="overflow-hidden w-full"
-              onTouchStart={onTouchStart}
-              onTouchMove={onTouchMove}
-              onTouchEnd={onTouchEnd}
-              onWheel={onWheel}
-            >
-              {/* Incoming memory (swipe transition) */}
-              {incomingIdx !== null && (swipeOffsetX !== 0 || isTransitioning) && (
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    transform: `translateX(${swipeOffsetX < 0 ? swipeOffsetX + (containerRef.current?.clientWidth || window.innerWidth) : swipeOffsetX - (containerRef.current?.clientWidth || window.innerWidth)}px)`,
-                    transition: isSwiping || skipTransition.current
-                      ? "none"
-                      : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
-                  }}
-                >
-                  <MemoryCard post={posts[incomingIdx]} onImageClick={() => {}} />
-                </div>
-              )}
-
-              {/* Current memory */}
-              <div
-                ref={postContentRef}
-                className="w-full min-w-0"
-                style={{
-                  transform: swipeOffsetX !== 0 ? `translateX(${swipeOffsetX}px)` : undefined,
-                  transition: isSwiping || skipTransition.current
-                    ? "none"
-                    : "transform 0.3s cubic-bezier(0.22, 0.68, 0, 1.0)",
-                }}
-              >
-                <MemoryCard
-                  post={posts[activeIndex]}
-                  onImageClick={(idx) => setLightbox({ media: posts[activeIndex].media, index: idx })}
-                />
-              </div>
-            </div>
-
-            {/* Desktop nav arrows — straddle the post edge (half on photo, half off) */}
-            {posts.length > 1 && (
-              <>
-                {activeIndex > 0 && (
-                  <button
-                    onClick={goPrevMemory}
-                    className="hidden sm:flex absolute -left-5 top-1/3 z-10 w-10 h-10 rounded-full bg-[#252424]/90 border border-[#333] shadow-lg shadow-black/40 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors backdrop-blur-sm"
-                    aria-label="Previous memory"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
-                      <path d="M15 18l-6-6 6-6" />
-                    </svg>
-                  </button>
-                )}
-                {activeIndex < posts.length - 1 && (
-                  <button
-                    onClick={goNextMemory}
-                    className="hidden sm:flex absolute -right-5 top-1/3 z-10 w-10 h-10 rounded-full bg-[#252424]/90 border border-[#333] shadow-lg shadow-black/40 items-center justify-center text-[#888] hover:text-white hover:border-[#555] transition-colors backdrop-blur-sm"
-                    aria-label="Next memory"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-5 h-5">
-                      <path d="M9 18l6-6-6-6" />
-                    </svg>
-                  </button>
-                )}
-              </>
-            )}
-
-            {/* Dot indicators */}
-            {posts.length > 1 && (
-              <div className="flex justify-center gap-1.5 mt-4 pb-1">
-                {posts.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      setSwipeOffsetX(0);
-                      setActiveIndex(i);
-                    }}
-                    className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                      i === activeIndex ? "bg-white" : "bg-white/20"
-                    }`}
-                    aria-label={`Memory ${i + 1}`}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        </div>
-      </div>
-
-      {/* Image lightbox */}
-      {lightbox && (
-        <Lightbox
-          media={lightbox.media}
-          initialIndex={lightbox.index}
-          onClose={() => setLightbox(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-/** A single memory card showing the post's photos, caption, and date */
-function MemoryCard({
-  post,
-  onImageClick,
-}: {
-  post: OnThisDayPost;
-  onImageClick: (index: number) => void;
-}) {
-  const router = useRouter();
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const holdStart = useRef({ x: 0, y: 0 });
-
-  function onCaptionPointerDown(e: React.PointerEvent) {
-    holdStart.current = { x: e.clientX, y: e.clientY };
-    holdTimer.current = setTimeout(() => {
-      holdTimer.current = null;
-      if (navigator.vibrate) navigator.vibrate(20);
-      router.push(`/posts/${post.slug}`);
-    }, 500);
-  }
-
-  function onCaptionPointerUp() {
-    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
-  }
-
-  function onCaptionPointerMove(e: React.PointerEvent) {
-    if (!holdTimer.current) return;
-    const dx = e.clientX - holdStart.current.x;
-    const dy = e.clientY - holdStart.current.y;
-    if (dx * dx + dy * dy > 100) onCaptionPointerUp();
-  }
-
-  const yearsAgo = new Date().getFullYear() - Number(post.localDate.slice(0, 4));
-  const timeLabel = yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
-  const dateFormatted = formatDisplayDate(post.date, post.localDate, { long: true });
-
-  return (
-    <div className="px-1 sm:px-0 w-full min-w-0">
-      <div className="rounded-lg overflow-hidden bg-[#252424] border border-[#333]">
-        {/* Photos */}
-        {post.media.length > 0 && (
-          <div className="rounded-t-lg overflow-hidden">
-            <PhotoGrid
-              media={post.media}
-              layout={post.photosetLayout}
-              onImageClick={onImageClick}
-            />
-          </div>
-        )}
-
-        {/* Caption — hold 500ms to open full post page */}
-        <div
-          className="px-4 py-3 text-center select-none"
-          onPointerDown={onCaptionPointerDown}
-          onPointerUp={onCaptionPointerUp}
-          onPointerMove={onCaptionPointerMove}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <p className="text-[#888] text-xs mb-1">{timeLabel} &middot; {dateFormatted}</p>
-          {post.title && (
-            <p className="text-[#e0e0e0] text-sm font-medium leading-snug mb-1">
-              {post.title}
-            </p>
-          )}
-          {post.body && (
-            <div
-              className="text-[#a0a0a0] text-sm leading-relaxed post-body line-clamp-4"
-              dangerouslySetInnerHTML={{ __html: post.body }}
-            />
-          )}
-        </div>
-      </div>
+      </Link>
     </div>
   );
 }

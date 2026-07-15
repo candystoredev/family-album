@@ -7,7 +7,12 @@ import type { NextConfig } from "next";
 //   inline styles; tightening script-src to a nonce is a planned follow-up.
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  // Dev only: webpack's dev runtime (HMR, eval-source-map) executes modules
+  // via eval(), which CSP blocks without 'unsafe-eval' — hydration dies
+  // silently and `next dev` serves a static page. Never sent in production.
+  process.env.NODE_ENV === "development"
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+    : "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.r2.dev",
   "media-src 'self' blob: https://*.r2.dev",

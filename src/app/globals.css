@@ -147,12 +147,3 @@ body {
 input, select, textarea {
   font-size: 16px;
 }
-
-/* Hide scrollbar for horizontal scroll containers */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
