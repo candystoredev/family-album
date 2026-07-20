@@ -110,7 +110,13 @@ export default async function MemorySharePage({
             No memories from past years on this day.
           </p>
         ) : (
-          <TodayMemory memories={memories} referenceYear={share.year} />
+          <TodayMemory
+            // Strip internal post ids from the public payload — this page is
+            // token-gated but sessionless, and the id is only needed for the
+            // admin action sheet, which never renders here.
+            memories={memories.map(({ id: _id, ...m }) => m)}
+            referenceYear={share.year}
+          />
         )}
 
         <footer className="mt-10 text-center">

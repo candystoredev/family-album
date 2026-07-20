@@ -17,7 +17,10 @@ interface MediaItem {
 }
 
 interface Memory {
-  id: string;
+  /** Post id, for the action sheet (edit link + share mint). Optional because
+   *  the public /m/[token] day-share page strips it from its payload — no
+   *  internal ids on public surfaces. Without it, no action sheet renders. */
+  id?: string;
   slug: string;
   title: string | null;
   body: string | null;
@@ -114,7 +117,7 @@ export default function TodayMemory({
                 select-none so a hold doesn't select the caption text. The PUBLIC
                 /m/[token] page passes no recipients/siteUrl, so friends get the
                 plain caption with no Edit/Share. */}
-            {recipients && siteUrl ? (
+            {recipients && siteUrl && memory.id ? (
               <PostActions
                 postId={memory.id}
                 slug={memory.slug}

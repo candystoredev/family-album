@@ -86,8 +86,16 @@ export default function PostActions({
     if (dx * dx + dy * dy > 100) cancelLongPress(); // >10px = scroll, not hold
   }
 
-  function handleCaptionClick() {
-    if (longPressActivated.current) { longPressActivated.current = false; return; }
+  // Capture-phase so this runs BEFORE any child link's own click handler:
+  // after a long-press opened the sheet, the release must not also follow a
+  // link inside the caption ("View full post", tag/people links). Next.js
+  // Link checks defaultPrevented, and stopPropagation covers the rest.
+  function suppressClickAfterLongPress(e: React.MouseEvent) {
+    if (longPressActivated.current) {
+      longPressActivated.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
   }
 
   function fetchShareUrl(): Promise<string | null> {
@@ -156,7 +164,7 @@ export default function PostActions({
     <>
       <div
         className={className}
-        onClick={handleCaptionClick}
+        onClickCapture={suppressClickAfterLongPress}
         onPointerDown={startLongPress}
         onPointerUp={cancelLongPress}
         onPointerMove={checkMove}
