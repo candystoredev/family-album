@@ -12,6 +12,8 @@ export interface OnThisDayMedia {
 }
 
 export interface OnThisDayPost {
+  /** Needed for the post action sheet (edit link + share mint). */
+  id: string;
   slug: string;
   title: string | null;
   body: string | null;
@@ -104,6 +106,7 @@ export async function getMemoriesForDate(
       height: m.height,
     }));
     return {
+      id: post.id,
       slug: post.slug,
       title: post.title,
       body: post.body,
