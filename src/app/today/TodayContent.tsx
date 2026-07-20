@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getMemoriesForDate } from "@/lib/onThisDay";
 import { getSetting } from "@/lib/settings";
+import { getSession } from "@/lib/auth";
+import { getImessageRecipients } from "@/lib/feed";
 import { zonedNow } from "@/lib/datetime";
 import TodayMemory from "@/components/TodayMemory";
 import ShareDayButton from "@/components/ShareDayButton";
@@ -41,8 +43,18 @@ export default async function TodayContent({
 
   // Up to 6 memories (still max 2/year). `year` is the reference for both
   // excluding same-year posts and the "X years ago" labels, so a shared/pinned
-  // day stays consistent whenever it's opened.
-  const memories = await getMemoriesForDate(month, day, year, 6, 2);
+  // day stays consistent whenever it's opened. Session + recipients are fetched
+  // alongside (neither depends on the date) to plumb the caption action sheet.
+  // Middleware session-gates /today, so `session` is normally present; the `?.`
+  // keeps the logged-out edge safe.
+  const [memories, session, recipientsRaw] = await Promise.all([
+    getMemoriesForDate(month, day, year, 6, 2),
+    getSession(),
+    getImessageRecipients(),
+  ]);
+  const isAdmin = session?.role === "admin";
+  const recipients = recipientsRaw.split(",").map((n) => n.trim()).filter(Boolean);
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
 
   const dayLabel = new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", {
     month: "long",
@@ -87,7 +99,13 @@ export default async function TodayContent({
         </div>
       ) : (
         <>
-          <TodayMemory memories={memories} referenceYear={year} />
+          <TodayMemory
+            memories={memories}
+            referenceYear={year}
+            isAdmin={isAdmin}
+            recipients={recipients}
+            siteUrl={siteUrl}
+          />
 
           <div className="mt-9 flex flex-col items-center gap-5">
             <ShareDayButton date={shareDate} label={dayLabel} />

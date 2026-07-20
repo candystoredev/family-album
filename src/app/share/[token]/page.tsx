@@ -144,15 +144,20 @@ export default async function SharePage({
   const { post } = result;
 
   return (
-    <main className="min-h-screen bg-[#1d1c1c] flex flex-col">
-      <article className="max-w-[900px] mx-auto w-full px-4 py-8 flex-1">
-        <PostContent
-          media={post.media}
-          layout={post.photoset_layout}
-          title={post.title}
-          body={post.body}
-          dateFormatted={formatDisplayDate(post.date, post.local_date, { long: true })}
-        />
+    <main className="min-h-svh bg-[#1d1c1c] flex flex-col">
+      <article className="max-w-[900px] mx-auto w-full px-4 py-8 flex-1 flex flex-col">
+        {/* my-auto centers short single-photo posts in the space above the
+            footer (same trick as the logged-in post page); taller posts
+            collapse this to 0 and scroll normally. */}
+        <div className="my-auto">
+          <PostContent
+            media={post.media}
+            layout={post.photoset_layout}
+            title={post.title}
+            body={post.body}
+            dateFormatted={formatDisplayDate(post.date, post.local_date, { long: true })}
+          />
+        </div>
       </article>
       <footer className="text-center py-6">
         <p className="text-[#333] text-xs tracking-wide uppercase">

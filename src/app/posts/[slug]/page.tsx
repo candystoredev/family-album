@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getImessageRecipients } from "@/lib/feed";
 import { formatDisplayDate } from "@/lib/datetime";
 import PostContent from "@/components/PostContent";
 import type { Metadata } from "next";
@@ -138,15 +139,33 @@ export default async function PostPage({
     );
   }
 
+  const isAdmin = session.role === "admin";
+  const recipients = (await getImessageRecipients())
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://thehoecks.com";
+
   return (
-    <main className="min-h-screen bg-[#1d1c1c]">
-      <article className="max-w-[900px] mx-auto px-4 py-8">
+    // min-h-svh (not min-h-screen) so iOS Safari's collapsing URL bar doesn't
+    // skew the centering below.
+    <main className="min-h-svh bg-[#1d1c1c] flex flex-col">
+      {/* my-auto on this flex-column child centers short content (a single
+          photo) in the viewport, but collapses to 0 once content is taller
+          than the screen — multi-photo sets start at the top and scroll
+          normally. No JS or per-layout branching needed. */}
+      <article className="w-full max-w-[900px] mx-auto px-4 py-8 my-auto">
         <PostContent
           media={post.media}
           layout={post.photoset_layout}
           title={post.title}
           body={post.body}
           dateFormatted={formatDisplayDate(post.date, post.local_date, { long: true })}
+          postId={post.id}
+          slug={post.slug}
+          isAdmin={isAdmin}
+          recipients={recipients}
+          siteUrl={siteUrl}
         />
       </article>
     </main>

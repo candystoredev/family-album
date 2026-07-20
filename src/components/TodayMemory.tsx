@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
+import PostActions from "./PostActions";
 import { formatDisplayDate } from "@/lib/datetime";
 
 interface MediaItem {
@@ -16,6 +17,10 @@ interface MediaItem {
 }
 
 interface Memory {
+  /** Post id, for the action sheet (edit link + share mint). Optional because
+   *  the public /m/[token] day-share page strips it from its payload — no
+   *  internal ids on public surfaces. Without it, no action sheet renders. */
+  id?: string;
   slug: string;
   title: string | null;
   body: string | null;
@@ -39,9 +44,18 @@ interface Memory {
 export default function TodayMemory({
   memories,
   referenceYear,
+  isAdmin,
+  recipients,
+  siteUrl,
 }: {
   memories: Memory[];
   referenceYear?: number;
+  // Optional so the PUBLIC /m/[token] day-share page can render memories WITHOUT
+  // the action sheet — friends shouldn't see Edit/Share. Only the session-gated
+  // /today surfaces (page + intercepted sheet) supply these.
+  isAdmin?: boolean;
+  recipients?: string[];
+  siteUrl?: string;
 }) {
   const [lightbox, setLightbox] = useState<{ media: MediaItem[]; index: number } | null>(null);
   const baseYear = referenceYear ?? new Date().getFullYear();
@@ -54,6 +68,31 @@ export default function TodayMemory({
         const yearsAgo = baseYear - Number(memory.localDate.slice(0, 4));
         const timeLabel = yearsAgo === 1 ? "1 year ago" : `${yearsAgo} years ago`;
         const dateFormatted = formatDisplayDate(memory.date, memory.localDate, { long: true });
+
+        const caption = (
+          <>
+            <p className="text-[#8a774d] text-[11px] font-bold uppercase tracking-[0.16em] mb-2">
+              {timeLabel} &middot; {dateFormatted}
+            </p>
+            {memory.title && (
+              <p className="font-serif text-[19px] font-semibold text-[#f0ebe2] leading-snug mb-1">
+                {memory.title}
+              </p>
+            )}
+            {memory.body && (
+              <div
+                className="text-[#a39e93] text-sm leading-relaxed post-body"
+                dangerouslySetInnerHTML={{ __html: memory.body }}
+              />
+            )}
+            <Link
+              href={`/posts/${memory.slug}`}
+              className="inline-block mt-3 text-xs font-semibold text-[#cfae6f] hover:text-[#d2b577] transition-colors"
+            >
+              View full post →
+            </Link>
+          </>
+        );
 
         return (
           <article
@@ -71,28 +110,29 @@ export default function TodayMemory({
               </div>
             )}
 
-            <div className="px-5 py-5 text-center">
-              <p className="text-[#8a774d] text-[11px] font-bold uppercase tracking-[0.16em] mb-2">
-                {timeLabel} &middot; {dateFormatted}
-              </p>
-              {memory.title && (
-                <p className="font-serif text-[19px] font-semibold text-[#f0ebe2] leading-snug mb-1">
-                  {memory.title}
-                </p>
-              )}
-              {memory.body && (
-                <div
-                  className="text-[#a39e93] text-sm leading-relaxed post-body"
-                  dangerouslySetInnerHTML={{ __html: memory.body }}
-                />
-              )}
-              <Link
-                href={`/posts/${memory.slug}`}
-                className="inline-block mt-3 text-xs font-semibold text-[#cfae6f] hover:text-[#d2b577] transition-colors"
+            {/* Session-gated /today surfaces get the shared action sheet (long-
+                press / right-click → Edit / Share / View post). The visible
+                "View full post →" link stays — redundant with the sheet's "View
+                post" item but matches the feed and existing muscle memory.
+                select-none so a hold doesn't select the caption text. The PUBLIC
+                /m/[token] page passes no recipients/siteUrl, so friends get the
+                plain caption with no Edit/Share. */}
+            {recipients && siteUrl && memory.id ? (
+              <PostActions
+                postId={memory.id}
+                slug={memory.slug}
+                title={memory.title}
+                isAdmin={isAdmin}
+                recipients={recipients}
+                siteUrl={siteUrl}
+                viewPostHref={`/posts/${memory.slug}`}
+                className="px-5 py-5 text-center select-none"
               >
-                View full post →
-              </Link>
-            </div>
+                {caption}
+              </PostActions>
+            ) : (
+              <div className="px-5 py-5 text-center">{caption}</div>
+            )}
           </article>
         );
       })}
