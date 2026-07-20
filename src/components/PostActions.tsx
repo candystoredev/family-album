@@ -57,13 +57,27 @@ export default function PostActions({
   const prefetchedShareUrl = useRef<string | null>(null);
   const sharePromise = useRef<Promise<string | null> | null>(null);
 
+  // One-shot per gesture: a single long-press can trigger BOTH the 500ms timer
+  // and the browser's native contextmenu event (Android touch, desktop right-
+  // button held). Without the guard each would mint a fresh share token for
+  // admins and double-vibrate. Ref, not state — the second trigger can arrive
+  // before React re-renders the handlers.
+  const sheetOpenRef = useRef(false);
+
   function openSheet() {
+    if (sheetOpenRef.current) return;
+    sheetOpenRef.current = true;
     setShowActionSheet(true);
     if (navigator.vibrate) navigator.vibrate(20);
     if (isAdmin) {
       prefetchedShareUrl.current = null;
       sharePromise.current = fetchShareUrl();
     }
+  }
+
+  function closeSheet() {
+    sheetOpenRef.current = false;
+    setShowActionSheet(false);
   }
 
   function startLongPress(e: React.PointerEvent) {
@@ -114,7 +128,7 @@ export default function PostActions({
   }
 
   function handleShare() {
-    setShowActionSheet(false);
+    closeSheet();
     if (!isAdmin) {
       // Use the live origin so the link matches the domain in use, not a
       // possibly-stale NEXT_PUBLIC_SITE_URL.
@@ -164,9 +178,11 @@ export default function PostActions({
     <>
       <div
         className={className}
+        style={{ WebkitTouchCallout: "none" }}
         onClickCapture={suppressClickAfterLongPress}
         onPointerDown={startLongPress}
         onPointerUp={cancelLongPress}
+        onPointerCancel={cancelLongPress}
         onPointerMove={checkMove}
         onContextMenu={(e) => { e.preventDefault(); cancelLongPress(); openSheet(); }}
       >
@@ -177,7 +193,7 @@ export default function PostActions({
       {showActionSheet && (
         <div
           className="fixed inset-0 z-50 bg-black/50"
-          onClick={() => setShowActionSheet(false)}
+          onClick={closeSheet}
         >
           <div
             className="absolute bottom-0 left-0 right-0 bg-[#232222] rounded-t-2xl overflow-hidden pb-8"
@@ -188,7 +204,7 @@ export default function PostActions({
               <Link
                 href={viewPostHref}
                 className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base"
-                onClick={() => setShowActionSheet(false)}
+                onClick={closeSheet}
               >
                 View post
               </Link>
@@ -197,7 +213,7 @@ export default function PostActions({
               <Link
                 href={`/admin/posts/${postId}/edit`}
                 className={`flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base${viewPostHref ? " border-t border-[#2a2929]" : ""}`}
-                onClick={() => setShowActionSheet(false)}
+                onClick={closeSheet}
               >
                 Edit post
               </Link>
@@ -209,7 +225,7 @@ export default function PostActions({
               Share
             </button>
             <button
-              onClick={() => setShowActionSheet(false)}
+              onClick={closeSheet}
               className="flex items-center w-full px-6 py-4 text-[#666] hover:bg-[#2a2929] text-base border-t border-[#2a2929]"
             >
               Cancel
