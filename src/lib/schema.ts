@@ -228,15 +228,15 @@ const migrations = [
   `ALTER TABLE post_share_links ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`,
 ];
 
-// Statements that depend on migrations having run first
-const postMigrationStatements = [
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tumblr_id ON posts(tumblr_id) WHERE tumblr_id IS NOT NULL`,
-  // FTS5 virtual table (standalone — synced at application level, not triggers).
-  // `place` = reverse-geocoded media location labels; `captions` = per-media
-  // enrichment captions. The `migrations` list drops any old-shape posts_fts
-  // just above, so this always recreates the current 7-column shape on init;
-  // ensureSearchSchema() handles the same migration on the lazy write path.
-  `CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
+// ─── posts_fts: one source of truth for shape + rebuild ─────────────────
+//
+// FTS5 virtual table (standalone — synced at application level, not triggers).
+// `place` = reverse-geocoded media location labels; `captions` = per-media
+// enrichment captions. These two constants are shared by the init statements,
+// rebuildFtsIndex(), ensureSearchSchema()'s transactional migration, and
+// scripts/backfill-geocode.ts, so the incremental writers, the full rebuild,
+// and the standalone script can never drift from each other.
+export const CREATE_POSTS_FTS_SQL = `CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
     post_id UNINDEXED,
     title,
     body,
@@ -244,7 +244,29 @@ const postMigrationStatements = [
     people,
     place,
     captions
-  )`,
+  )`;
+
+// Derives every row from the source tables — body always from posts.body
+// (never carried over from old FTS rows), places deduped per post, matching
+// ftsRowFor()'s semantics exactly.
+export const REBUILD_FTS_INSERT_SQL = `INSERT INTO posts_fts(post_id, title, body, tags, people, place, captions)
+          SELECT
+            p.id,
+            COALESCE(p.title, ''),
+            COALESCE(p.body, ''),
+            COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id), ''),
+            COALESCE((SELECT GROUP_CONCAT(pe.name, ' ') FROM post_people pp JOIN people pe ON pe.id = pp.person_id WHERE pp.post_id = p.id), ''),
+            COALESCE((SELECT GROUP_CONCAT(place, ' ') FROM (SELECT DISTINCT m.place AS place FROM media m WHERE m.post_id = p.id AND m.place IS NOT NULL AND m.place <> '')), ''),
+            COALESCE((SELECT GROUP_CONCAT(m.caption, ' ') FROM media m WHERE m.post_id = p.id AND m.caption IS NOT NULL AND m.caption <> ''), '')
+          FROM posts p`;
+
+// Statements that depend on migrations having run first
+const postMigrationStatements = [
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tumblr_id ON posts(tumblr_id) WHERE tumblr_id IS NOT NULL`,
+  // The `migrations` list drops any old-shape posts_fts just above, so this
+  // always recreates the current 7-column shape on init; ensureSearchSchema()
+  // handles the same migration on the lazy write path.
+  CREATE_POSTS_FTS_SQL,
   // Phase 10.0 — indexes on the new columns (must run after the ALTERs above)
   `CREATE INDEX IF NOT EXISTS idx_media_taken_at ON media(taken_at)`,
   `CREATE INDEX IF NOT EXISTS idx_media_local_date ON media(local_date)`,
@@ -301,22 +323,11 @@ export function ftsRowFor(input: FtsRowInput): FtsRow {
 /**
  * Rebuild the FTS5 index from scratch.
  * Call after migration, bulk inserts, or when tags/people change.
+ * One transactional batch: a concurrent public search can never observe the
+ * emptied-but-not-yet-refilled index.
  */
 export async function rebuildFtsIndex() {
-  await db.execute(`DELETE FROM posts_fts`);
-  await db.execute({
-    sql: `INSERT INTO posts_fts(post_id, title, body, tags, people, place, captions)
-          SELECT
-            p.id,
-            COALESCE(p.title, ''),
-            COALESCE(p.body, ''),
-            COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id), ''),
-            COALESCE((SELECT GROUP_CONCAT(pe.name, ' ') FROM post_people pp JOIN people pe ON pe.id = pp.person_id WHERE pp.post_id = p.id), ''),
-            COALESCE((SELECT GROUP_CONCAT(place, ' ') FROM (SELECT DISTINCT m.place AS place FROM media m WHERE m.post_id = p.id AND m.place IS NOT NULL AND m.place <> '')), ''),
-            COALESCE((SELECT GROUP_CONCAT(m.caption, ' ') FROM media m WHERE m.post_id = p.id AND m.caption IS NOT NULL AND m.caption <> ''), '')
-          FROM posts p`,
-    args: [],
-  });
+  await db.batch([`DELETE FROM posts_fts`, REBUILD_FTS_INSERT_SQL], "write");
 }
 
 // ─── Cold-start DDL fast path ───────────────────────────────────────────
@@ -535,17 +546,16 @@ export async function ensureSearchSchema() {
     // Table missing or an older shape (pre place/captions) — fall through.
   }
   if (!currentShape) {
-    await db.execute(`DROP TABLE IF EXISTS posts_fts`);
-    await db.execute(`CREATE VIRTUAL TABLE posts_fts USING fts5(
-      post_id UNINDEXED,
-      title,
-      body,
-      tags,
-      people,
-      place,
-      captions
-    )`);
-    await rebuildFtsIndex();
+    // One transactional batch (libsql wraps "write" batches in a transaction):
+    // concurrent requests either see the complete old index or the complete new
+    // one — never a dropped/empty table mid-migration. If two writers race past
+    // the probe, each runs the whole atomic batch; the loser harmlessly rebuilds
+    // an index that's already current. And if the rebuild INSERT fails, the
+    // whole batch rolls back and the old-shape table keeps serving search.
+    await db.batch(
+      [`DROP TABLE IF EXISTS posts_fts`, CREATE_POSTS_FTS_SQL, REBUILD_FTS_INSERT_SQL],
+      "write"
+    );
   }
   searchSchemaReady = true;
 }

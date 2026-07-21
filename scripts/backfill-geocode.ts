@@ -25,6 +25,9 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
 import { reverseGeocode } from "../src/lib/geo/reverse";
+// SQL constants only — safe to import here: src/lib/db.ts's client is a lazy
+// proxy, so nothing connects at import time (this script uses its own client).
+import { CREATE_POSTS_FTS_SQL, REBUILD_FTS_INSERT_SQL } from "../src/lib/schema";
 
 // ─── Args ───────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -66,10 +69,11 @@ interface GpsRow {
 }
 
 /**
- * Rebuild posts_fts from the source tables against the raw client, replicating
- * src/lib/schema.ts rebuildFtsIndex() (7-column shape). Ensures the table is the
- * current (…, place, captions) shape first — probes for the new columns and
- * migrates (drop + create) if an older shape is found.
+ * Rebuild posts_fts from the source tables against the raw client, using the
+ * SAME SQL constants as src/lib/schema.ts (no hand-copied drift). Probes for
+ * the current (…, place, captions) shape first and migrates if older. Runs as
+ * one transactional batch, so live searches never observe a dropped or
+ * half-filled index even if this script runs against prod traffic.
  */
 async function rebuildFts(): Promise<void> {
   let currentShape = false;
@@ -79,23 +83,10 @@ async function rebuildFts(): Promise<void> {
   } catch {
     // Table missing or older shape — recreate below.
   }
-  if (!currentShape) {
-    await db.execute(`DROP TABLE IF EXISTS posts_fts`);
-    await db.execute(`CREATE VIRTUAL TABLE posts_fts USING fts5(
-      post_id UNINDEXED, title, body, tags, people, place, captions
-    )`);
-  }
-  await db.execute(`DELETE FROM posts_fts`);
-  await db.execute(`INSERT INTO posts_fts(post_id, title, body, tags, people, place, captions)
-    SELECT
-      p.id,
-      COALESCE(p.title, ''),
-      COALESCE(p.body, ''),
-      COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = p.id), ''),
-      COALESCE((SELECT GROUP_CONCAT(pe.name, ' ') FROM post_people pp JOIN people pe ON pe.id = pp.person_id WHERE pp.post_id = p.id), ''),
-      COALESCE((SELECT GROUP_CONCAT(place, ' ') FROM (SELECT DISTINCT m.place AS place FROM media m WHERE m.post_id = p.id AND m.place IS NOT NULL AND m.place <> '')), ''),
-      COALESCE((SELECT GROUP_CONCAT(m.caption, ' ') FROM media m WHERE m.post_id = p.id AND m.caption IS NOT NULL AND m.caption <> ''), '')
-    FROM posts p`);
+  const statements = currentShape
+    ? [`DELETE FROM posts_fts`, REBUILD_FTS_INSERT_SQL]
+    : [`DROP TABLE IF EXISTS posts_fts`, CREATE_POSTS_FTS_SQL, REBUILD_FTS_INSERT_SQL];
+  await db.batch(statements, "write");
 }
 
 async function main() {

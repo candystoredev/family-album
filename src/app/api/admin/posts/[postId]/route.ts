@@ -638,6 +638,9 @@ export async function PUT(
     // used to hardcode body to '', losing any existing caption on every edit).
     // Place/captions are re-read from the post's current media (which may have
     // gained or lost items above), mirroring rebuildFtsIndex's GROUP_CONCAT.
+    // Those columns only exist after the rich-metadata sweep — a text-only edit
+    // skips the new-media path that normally ensures it (no-op on a current DB).
+    await ensureRichMetadataSchema();
     const [placeRes, captionRes] = await Promise.all([
       db.execute({
         sql: "SELECT DISTINCT place FROM media WHERE post_id = ? AND place IS NOT NULL AND place <> ''",

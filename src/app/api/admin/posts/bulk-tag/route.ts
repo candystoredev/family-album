@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
-import { ensureSearchSchema, ftsRowFor } from "@/lib/schema";
+import { ensureRichMetadataSchema, ensureSearchSchema, ftsRowFor } from "@/lib/schema";
 import { slugify } from "@/lib/slugify";
 
 const MAX_POSTS = 100;
@@ -37,6 +37,11 @@ export async function POST(request: NextRequest) {
     if (cleanTags.length > MAX_TAGS) {
       return NextResponse.json({ error: `Too many tags (max ${MAX_TAGS})` }, { status: 400 });
     }
+
+    // The FTS reindex below reads media.place/media.caption, which only exist
+    // after the rich-metadata sweep — ensure it before any read (no-op on a
+    // current DB).
+    await ensureRichMetadataSchema();
 
     // Find-or-create each tag by slug — same two-roundtrip idiom as
     // upload/complete: INSERT OR IGNORE, then resolve ids by slug.
