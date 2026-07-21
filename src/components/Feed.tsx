@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import PhotoGrid from "./PhotoGrid";
 import Lightbox from "./Lightbox";
 import OnThisDay from "./OnThisDay";
@@ -30,6 +31,12 @@ interface Post {
   media: MediaItem[];
   tags?: { name: string; slug: string }[];
   people?: { name: string; slug: string }[];
+}
+
+interface TagOption {
+  id: string;
+  name: string;
+  slug: string;
 }
 
 interface FeedProps {
@@ -73,10 +80,100 @@ export default function Feed({
   filterParams,
   isAdmin,
 }: FeedProps) {
+  const router = useRouter();
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [loading, setLoading] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Bulk-tag select mode (admin). Selection is keyed by post id, so it keeps
+  // working across newly loaded infinite-scroll pages.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showTagSheet, setShowTagSheet] = useState(false);
+  const [allTags, setAllTags] = useState<TagOption[]>([]);
+  const tagsFetchedRef = useRef(false);
+  const [bulkTags, setBulkTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  // Entering select mode pre-selects the post whose action sheet launched it.
+  const enterSelectMode = useCallback((postId: string) => {
+    setSelectMode(true);
+    setSelectedIds(new Set([postId]));
+  }, []);
+
+  const toggleSelect = useCallback((postId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) next.delete(postId);
+      else next.add(postId);
+      return next;
+    });
+  }, []);
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setShowTagSheet(false);
+    setBulkTags([]);
+    setNewTag("");
+    setApplyError(null);
+  }, []);
+
+  function openTagSheet() {
+    setApplyError(null);
+    setShowTagSheet(true);
+    // Fetch the tag vocabulary once, the first time the sheet opens.
+    if (!tagsFetchedRef.current) {
+      tagsFetchedRef.current = true;
+      fetch("/api/admin/tags")
+        .then((r) => r.json())
+        .then(setAllTags)
+        .catch(() => {});
+    }
+  }
+
+  function addBulkTag(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (!bulkTags.includes(trimmed)) setBulkTags([...bulkTags, trimmed]);
+    setNewTag("");
+  }
+
+  async function applyTags() {
+    if (selectedIds.size === 0 || bulkTags.length === 0 || applying) return;
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const res = await fetch("/api/admin/posts/bulk-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postIds: [...selectedIds], tags: bulkTags }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setApplyError(data?.error ?? "Failed to apply tags");
+        return;
+      }
+      exitSelectMode();
+      // Re-sync the server payload so the newly tagged posts reflect it (the
+      // initialPosts effect above overlays the fresh first page).
+      router.refresh();
+    } catch {
+      setApplyError("Failed to apply tags");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  const tagAutocomplete = allTags.filter(
+    (t) =>
+      !bulkTags.includes(t.name) &&
+      t.name.toLowerCase().includes(newTag.toLowerCase()) &&
+      newTag.length > 0
+  );
 
   // Prefetch state
   const prefetchedRef = useRef<{ posts: Post[]; nextCursor: string | null } | null>(null);
@@ -209,6 +306,10 @@ export default function Feed({
             recipients={recipients}
             siteUrl={siteUrl}
             isAdmin={isAdmin}
+            selectMode={selectMode}
+            selected={selectedIds.has(post.id)}
+            onEnterSelect={enterSelectMode}
+            onToggleSelect={toggleSelect}
             onLightbox={(index) =>
               setLightbox({ media: post.media, index })
             }
@@ -240,6 +341,104 @@ export default function Feed({
           onClose={() => setLightbox(null)}
         />
       )}
+
+      {/* Select-mode bottom bar — spacer keeps the last post clear of the bar */}
+      {selectMode && (
+        <>
+          <div className="h-24" aria-hidden />
+          <div className="fixed bottom-0 inset-x-0 z-40 bg-[#232222] rounded-t-2xl px-6 pt-4 pb-8 flex items-center justify-between">
+            <span className="text-[#a0a0a0] text-sm">{selectedIds.size} selected</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={openTagSheet}
+                disabled={selectedIds.size === 0}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-[#c2a467] text-[#1a1715] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Add tags
+              </button>
+              <button
+                onClick={exitSelectMode}
+                className="px-4 py-2 rounded-lg text-sm text-[#a0a0a0] hover:bg-[#2a2929]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Add-tags sheet */}
+      {showTagSheet && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50"
+          onClick={() => setShowTagSheet(false)}
+        >
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-[#232222] rounded-t-2xl overflow-hidden pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-[#444] rounded-full mx-auto mt-3 mb-4" />
+            <div className="px-6 space-y-3">
+              {/* Selected-tag chips */}
+              {bulkTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {bulkTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-[#2a2929] rounded text-sm text-[#a0a0a0]"
+                    >
+                      #{tag}
+                      <button
+                        onClick={() => setBulkTags(bulkTags.filter((t) => t !== tag))}
+                        className="text-[#666] hover:text-[#d86d6d] ml-0.5"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Tag input + autocomplete */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Add tag..."
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newTag.trim()) {
+                      e.preventDefault();
+                      addBulkTag(newTag);
+                    }
+                  }}
+                  className="w-full bg-[#2a2929] rounded-lg px-4 py-2.5 text-sm text-[#d3d3d3] placeholder-[#666] outline-none focus:ring-1 focus:ring-[#427ea3]"
+                />
+                {tagAutocomplete.length > 0 && (
+                  <div className="absolute z-10 left-0 right-0 bottom-full mb-1 bg-[#2a2929] rounded-lg border border-[#3a3939] max-h-40 overflow-y-auto">
+                    {tagAutocomplete.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => addBulkTag(t.name)}
+                        className="w-full text-left px-4 py-2 text-sm text-[#a0a0a0] hover:bg-[#333] hover:text-[#d3d3d3]"
+                      >
+                        #{t.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {applyError && <p className="text-[#d86d6d] text-sm">{applyError}</p>}
+              <button
+                onClick={applyTags}
+                disabled={bulkTags.length === 0 || applying}
+                className="w-full bg-[#c2a467] text-[#1a1715] rounded-lg px-4 py-3 text-base font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {applying ? "Applying…" : `Apply to ${selectedIds.size} post${selectedIds.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -251,6 +450,10 @@ function PostCard({
   recipients,
   siteUrl,
   isAdmin,
+  selectMode,
+  selected,
+  onEnterSelect,
+  onToggleSelect,
   onLightbox,
 }: {
   post: Post;
@@ -258,10 +461,14 @@ function PostCard({
   recipients: string[];
   siteUrl: string;
   isAdmin?: boolean;
+  selectMode: boolean;
+  selected: boolean;
+  onEnterSelect: (postId: string) => void;
+  onToggleSelect: (postId: string) => void;
   onLightbox: (index: number) => void;
 }) {
   return (
-    <article className={postIndex > 0 ? "mt-10" : ""}>
+    <article className={`relative${postIndex > 0 ? " mt-10" : ""}${selected ? " ring-2 ring-[#c2a467] rounded-lg" : ""}`}>
       {/* Media — bleed to screen edge on mobile */}
       {post.media.length > 0 && (
         <div className="-mx-4 sm:mx-0">
@@ -281,6 +488,7 @@ function PostCard({
         isAdmin={isAdmin}
         recipients={recipients}
         siteUrl={siteUrl}
+        onSelectPosts={() => onEnterSelect(post.id)}
         className="mt-4 px-4 sm:px-8 relative flex items-center select-none"
       >
         <div className="text-center flex-1">
@@ -311,6 +519,28 @@ function PostCard({
           </div>
         </div>
       </PostActions>
+
+      {/* Select-mode overlay — a full-card click target above everything else in
+          the article, so tapping toggles selection instead of opening the
+          lightbox or the long-press sheet. */}
+      {selectMode && (
+        <div
+          className="absolute inset-0 z-30 cursor-pointer"
+          onClick={() => onToggleSelect(post.id)}
+        >
+          <div className="absolute top-3 right-3">
+            {selected ? (
+              <div className="w-7 h-7 rounded-full bg-[#c2a467] flex items-center justify-center shadow">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#1a1715" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-7 h-7 rounded-full border-2 border-white/70 bg-black/25" />
+            )}
+          </div>
+        </div>
+      )}
     </article>
   );
 }
