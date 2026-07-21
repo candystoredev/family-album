@@ -30,6 +30,16 @@ export interface EnrichableItem {
   type: "photo" | "video";
   /** SHA-256 of the ORIGINAL bytes, for the cloud dedup cache. */
   contentHash?: string;
+  /** GPS from the original EXIF (10.1c) — feeds place-based tag suggestions. */
+  gps?: { lat: number; lng: number } | null;
+  /** Resolved capture instant (UTC ISO) — feeds temporal-neighbour suggestions. */
+  takenAt?: string | null;
+}
+
+/** Options for the enrichment hook. */
+export interface UseMediaEnrichmentOptions {
+  /** Exclude this post from temporal matching (set on the edit page). */
+  excludePostId?: string;
 }
 
 /** Merged per-item results; each field appears when its source finishes. */
@@ -37,6 +47,12 @@ export interface ItemEnrichment {
   cloud?: MediaEnrichment;
   ocr?: OcrResult;
   similarTags?: string[];
+  /** Existing-vocabulary tags from temporal/place context (suggest-tags route). */
+  contextTags?: string[];
+  /** New-tag proposals (unmatched place components) from the suggest-tags route. */
+  contextProposals?: string[];
+  /** Reverse-geocoded place label for the item's GPS, if any. */
+  place?: string | null;
 }
 
 const CONCURRENCY = 2;
@@ -55,13 +71,67 @@ async function renderAnalysisJpeg(file: File): Promise<{ file: File; base64: str
   return { file: small, base64: btoa(binary) };
 }
 
-export function useMediaEnrichment(items: EnrichableItem[]) {
+/**
+ * Soft-failing context source: POST the item's GPS/capture-time to the
+ * suggest-tags route and merge the temporal + place suggestions. Skips items
+ * with neither signal, and skips a redundant call when another item already
+ * covered the same rounded-gps + hour bucket. Never throws.
+ */
+function fetchContextSuggestions(
+  item: EnrichableItem,
+  options: UseMediaEnrichmentOptions,
+  queried: Set<string>,
+  merge: (id: string, patch: ItemEnrichment) => void
+): Promise<void> {
+  const hasGps =
+    !!item.gps && Number.isFinite(item.gps.lat) && Number.isFinite(item.gps.lng);
+  const hasTime = typeof item.takenAt === "string" && item.takenAt.length > 0;
+  if (!hasGps && !hasTime) return Promise.resolve();
+
+  const gpsKey = hasGps ? `${item.gps!.lat.toFixed(3)},${item.gps!.lng.toFixed(3)}` : "";
+  const timeKey = hasTime ? item.takenAt!.slice(0, 13) : ""; // YYYY-MM-DDTHH
+  const dedupeKey = `${gpsKey}|${timeKey}`;
+  if (queried.has(dedupeKey)) return Promise.resolve();
+  queried.add(dedupeKey);
+
+  return fetch("/api/admin/suggest-tags", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      takenAt: hasTime ? item.takenAt : undefined,
+      gps: hasGps ? { lat: item.gps!.lat, lng: item.gps!.lng } : undefined,
+      excludePostId: options.excludePostId,
+    }),
+  })
+    .then(async (res) => {
+      if (!res.ok) return;
+      const data = await res.json();
+      const patch: ItemEnrichment = {};
+      if (Array.isArray(data?.tags) && data.tags.length > 0) patch.contextTags = data.tags;
+      if (Array.isArray(data?.newTagProposals) && data.newTagProposals.length > 0)
+        patch.contextProposals = data.newTagProposals;
+      if (typeof data?.place === "string") patch.place = data.place;
+      if (Object.keys(patch).length > 0) merge(item.id, patch);
+    })
+    .catch(() => {});
+}
+
+export function useMediaEnrichment(
+  items: EnrichableItem[],
+  options: UseMediaEnrichmentOptions = {}
+) {
   const [enrichments, setEnrichments] = useState<Record<string, ItemEnrichment>>({});
   // Scheduling bookkeeping lives in refs — it shouldn't trigger renders.
   const startedRef = useRef<Set<string>>(new Set());
   const inFlightRef = useRef(0);
   const queueRef = useRef<EnrichableItem[]>([]);
   const cloudDisabledRef = useRef(false);
+  // De-dupes context requests: items sharing a rounded-gps + hour bucket would
+  // return the same suggestions, so we only query the first.
+  const contextQueriedRef = useRef<Set<string>>(new Set());
+  // Latest options without re-running the effect (excludePostId is page-stable).
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
@@ -81,6 +151,14 @@ export function useMediaEnrichment(items: EnrichableItem[]) {
         inFlightRef.current++;
         setPendingCount((n) => n + 1);
         (async () => {
+          // Context (temporal + place) needs no image rendition, so fire it up
+          // front and let it settle independently of the vision pipeline.
+          const contextP = fetchContextSuggestions(
+            item,
+            optionsRef.current,
+            contextQueriedRef.current,
+            merge
+          );
           try {
             const rendition = await renderAnalysisJpeg(item.file);
 
@@ -129,9 +207,11 @@ export function useMediaEnrichment(items: EnrichableItem[]) {
               })
               .catch(() => {});
 
-            await Promise.allSettled([cloudP, ocrP, similarP]);
+            await Promise.allSettled([cloudP, ocrP, similarP, contextP]);
           } catch {
-            // Rendition failed — nothing to analyze for this item.
+            // Rendition failed — no image analysis, but the context lookup
+            // (GPS/time only) can still land.
+            await contextP;
           } finally {
             inFlightRef.current--;
             setPendingCount((n) => n - 1);
@@ -155,21 +235,29 @@ export function collectDateEvidence(enrichments: Record<string, ItemEnrichment>)
 }
 
 /** Merged tag-suggestion chips across items: existing-vocabulary suggestions
- *  (cloud + phash-propagated) first, then cloud's new proposals; capped. */
+ *  (cloud + phash-propagated first, then temporal/place context) followed by
+ *  new proposals (cloud, then unmatched place components); deduped and capped.
+ *  Earlier sources are higher-confidence, so they lead. */
 export function collectTagSuggestions(
   enrichments: Record<string, ItemEnrichment>,
   max = 8
 ): { name: string; isNew?: boolean }[] {
   const existing = new Set<string>();
+  const contextExisting = new Set<string>();
   const proposals = new Set<string>();
   for (const e of Object.values(enrichments)) {
     for (const t of e.similarTags ?? []) existing.add(t);
     for (const t of e.cloud?.suggestedTags ?? []) existing.add(t);
+    for (const t of e.contextTags ?? []) contextExisting.add(t);
     for (const t of e.cloud?.newTagProposals ?? []) proposals.add(t);
+    for (const t of e.contextProposals ?? []) proposals.add(t);
   }
-  for (const t of existing) proposals.delete(t);
+  // Context existing sits after the higher-confidence phash/vision matches.
+  for (const t of existing) contextExisting.delete(t);
+  const allExisting = [...existing, ...contextExisting];
+  for (const t of allExisting) proposals.delete(t);
   return [
-    ...[...existing].map((name) => ({ name })),
+    ...allExisting.map((name) => ({ name })),
     ...[...proposals].map((name) => ({ name, isNew: true })),
   ].slice(0, max);
 }

@@ -12,7 +12,8 @@ import {
   type MediaExtras,
 } from "@/lib/media/extract";
 import { processUploadPhoto, MAX_UPLOAD_BYTES } from "@/lib/media/process-photo";
-import { ensureRichMetadataSchema, ftsRowFor } from "@/lib/schema";
+import { ensureRichMetadataSchema, ensureSearchSchema, ftsRowFor } from "@/lib/schema";
+import { reverseGeocode } from "@/lib/geo/reverse";
 import { slugify } from "@/lib/slugify";
 import {
   earliestCapture,
@@ -101,6 +102,22 @@ interface MediaItem {
 }
 
 const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
+
+/**
+ * Reverse-geocode a media item's GPS to a place label, soft-failing to null.
+ * A geocoder error (bad dataset, unreadable file) must never fail an upload,
+ * so every path here returns null rather than throwing.
+ */
+function placeFor(extras: MediaExtras): string | null {
+  const lat = extras.gps?.lat;
+  const lng = extras.gps?.lng;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  try {
+    return reverseGeocode(lat, lng)?.label ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Complete the upload: process images/videos, create post + media + tag/people/album records.
@@ -216,6 +233,7 @@ export async function POST(request: NextRequest) {
             orientation: null as number | null,
             originalFilename: item.capture?.filename ?? null,
             extras: EMPTY_EXTRAS, // video container GPS/codec parse deferred
+            place: null as string | null, // no server-side video GPS yet
             enrichment,
             ocr: null as OcrResult | null, // OCR is photos-only client-side
           };
@@ -295,6 +313,7 @@ export async function POST(request: NextRequest) {
           orientation: meta.orientation ?? null,
           originalFilename: item.capture?.filename ?? null,
           extras,
+          place: placeFor(extras), // reverse-geocoded label, soft-fails to null
           enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
           ocr: isOcrResult(item.ocr) ? item.ocr : null,
         };
@@ -409,8 +428,26 @@ export async function POST(request: NextRequest) {
     // New posts from this route are created with body = NULL (no caption
     // field on upload) — ftsRowFor COALESCEs that to '', matching
     // rebuildFtsIndex(). If a body field is ever added here, pass its real
-    // value instead of null.
-    const ftsRow = ftsRowFor({ title: postTitle, body: null, tagNames: cleanTags, peopleNames: cleanPeople });
+    // value instead of null. Place labels + per-media enrichment captions are
+    // pulled straight from the just-processed media so they're searchable
+    // immediately (ftsRowFor dedupes the repeated places).
+    const placeNames = mediaRecords
+      .map((m) => m.place)
+      .filter((p): p is string => !!p);
+    const captions = mediaRecords
+      .map((m) => m.enrichment?.caption ?? null)
+      .filter((c): c is string => !!c);
+    const ftsRow = ftsRowFor({
+      title: postTitle,
+      body: null,
+      tagNames: cleanTags,
+      peopleNames: cleanPeople,
+      placeNames,
+      captions,
+    });
+    // Make sure posts_fts has the current (…, place, captions) shape before the
+    // atomic write batch tries to insert those columns.
+    await ensureSearchSchema();
 
     await db.batch(
       [
@@ -434,11 +471,11 @@ export async function POST(request: NextRequest) {
           sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type,
                                    taken_at, tz_offset, local_date, date_source, date_confidence, source,
                                    content_hash, phash, dominant_color, aspect, orientation, original_filename,
-                                   gps_lat, gps_lng, gps_altitude,
+                                   gps_lat, gps_lng, gps_altitude, place,
                                    camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length,
                                    caption, enrichment_status, enrichment_version, enriched_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         ?, ?, ?, ?)`,
           args: [
             m.id,
@@ -465,6 +502,7 @@ export async function POST(request: NextRequest) {
             m.extras.gps?.lat ?? null,
             m.extras.gps?.lng ?? null,
             m.extras.gps?.altitude ?? null,
+            m.place,
             m.extras.device?.make ?? null,
             m.extras.device?.model ?? null,
             m.extras.device?.lens ?? null,
@@ -520,9 +558,17 @@ export async function POST(request: NextRequest) {
           args: [postId, albumId],
         })),
         {
-          sql: `INSERT INTO posts_fts(post_id, title, body, tags, people)
-                VALUES (?, ?, ?, ?, ?)`,
-          args: [postId, ftsRow.title, ftsRow.body, ftsRow.tags, ftsRow.people],
+          sql: `INSERT INTO posts_fts(post_id, title, body, tags, people, place, captions)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            postId,
+            ftsRow.title,
+            ftsRow.body,
+            ftsRow.tags,
+            ftsRow.people,
+            ftsRow.place,
+            ftsRow.captions,
+          ],
         },
       ],
       "write"

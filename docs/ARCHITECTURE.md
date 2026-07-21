@@ -578,3 +578,9 @@ ENRICH_MODEL               = [optional; defaults to claude-haiku-4-5]
 ### Estimated Costs
 - ~$0-2/month total
 - 50GB photos = ~$0.60/month on R2, zero egress fees
+
+### Data Attribution
+- Offline reverse-geocoding dataset (`src/lib/geo/data/places.json.gz`) is derived
+  from [GeoNames](https://www.geonames.org/) (cities5000 + admin code dumps),
+  licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+  Regenerate with `tsx scripts/build-geo-dataset.ts`.

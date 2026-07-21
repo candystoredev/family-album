@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { suggestTagsFromTitle } from "@/lib/enrich/tags";
 
 export interface TagOption {
   id: string;
@@ -129,8 +130,29 @@ export default function MetadataFields({
       newTag.length > 0
   );
 
-  // Vision suggestions still worth showing (not already picked).
-  const visibleTagSuggestions = (tagSuggestions ?? []).filter(
+  // Title-contains suggestions: existing tags whose name appears as a word in
+  // the typed title. Closed-vocabulary (plain chips), recomputed live as the
+  // user types, and merged AHEAD of the passed (vision/context) suggestions.
+  const titleSuggestions = useMemo(
+    () => suggestTagsFromTitle(title, allTags.map((t) => t.name)),
+    [title, allTags]
+  );
+  const mergedSuggestions = useMemo(() => {
+    const out: { name: string; isNew?: boolean }[] = [];
+    const seen = new Set<string>();
+    const push = (s: { name: string; isNew?: boolean }) => {
+      const key = s.name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(s);
+    };
+    for (const name of titleSuggestions) push({ name });
+    for (const s of tagSuggestions ?? []) push(s);
+    return out;
+  }, [titleSuggestions, tagSuggestions]);
+
+  // Suggestions still worth showing (not already picked).
+  const visibleTagSuggestions = mergedSuggestions.filter(
     (s) => !selectedTags.some((t) => t.toLowerCase() === s.name.toLowerCase())
   );
 

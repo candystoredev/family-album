@@ -186,6 +186,11 @@ export default function UploadPage() {
         file: f.file,
         type: f.type,
         contentHash: f.contentHash,
+        gps:
+          f.extras?.gps && f.extras.gps.lat != null && f.extras.gps.lng != null
+            ? { lat: f.extras.gps.lat, lng: f.extras.gps.lng }
+            : null,
+        takenAt: f.resolved?.takenAt ?? null,
       })),
     [flatFiles]
   );

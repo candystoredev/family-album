@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { downloadFromR2, uploadToR2, deleteFromR2, PUBLIC_URL } from "@/lib/r2";
 import { db } from "@/lib/db";
-import { ensureRichMetadataSchema, ftsRowFor } from "@/lib/schema";
+import { ensureRichMetadataSchema, ensureSearchSchema, ftsRowFor } from "@/lib/schema";
+import { reverseGeocode } from "@/lib/geo/reverse";
 import { slugify } from "@/lib/slugify";
 import { perceptualHash, dominantColor } from "@/lib/media/image-hash";
 import {
@@ -250,6 +251,21 @@ interface MediaListItem {
 
 const EMPTY_EXTRAS: MediaExtras = { gps: null, device: null, raw: null };
 
+/**
+ * Reverse-geocode a media item's GPS to a place label, soft-failing to null so
+ * a geocoder error never fails an edit. Mirrors the upload-complete route.
+ */
+function placeFor(extras: MediaExtras): string | null {
+  const lat = extras.gps?.lat;
+  const lng = extras.gps?.lng;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  try {
+    return reverseGeocode(lat, lng)?.label ?? null;
+  } catch {
+    return null;
+  }
+}
+
 interface ProcessedNewMedia {
   id: string;
   r2Key: string;
@@ -266,6 +282,7 @@ interface ProcessedNewMedia {
   orientation: number | null;
   originalFilename: string | null;
   extras: MediaExtras;
+  place: string | null;
   enrichment: MediaEnrichment | null;
   ocr: OcrResult | null;
 }
@@ -376,6 +393,7 @@ export async function PUT(
             dominantColor: domColor, aspect: null, orientation: null,
             originalFilename: item.capture?.filename ?? null,
             extras: EMPTY_EXTRAS,
+            place: null,
             enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
             ocr: null,
           });
@@ -411,6 +429,7 @@ export async function PUT(
           orientation: meta.orientation ?? null,
           originalFilename: item.capture?.filename ?? null,
           extras,
+          place: placeFor(extras),
           enrichment: isMediaEnrichment(item.enrichment) ? item.enrichment : null,
           ocr: isOcrResult(item.ocr) ? item.ocr : null,
         });
@@ -473,11 +492,11 @@ export async function PUT(
             sql: `INSERT INTO media (id, post_id, r2_key, thumbnail_r2_key, type, width, height, file_size, display_order, mime_type,
                                      taken_at, tz_offset, local_date, date_source, date_confidence, source,
                                      content_hash, phash, dominant_color, aspect, orientation, original_filename,
-                                     gps_lat, gps_lng, gps_altitude,
+                                     gps_lat, gps_lng, gps_altitude, place,
                                      camera_make, camera_model, lens, iso, aperture, shutter_speed, focal_length,
                                      caption, enrichment_status, enrichment_version, enriched_at)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'edit', ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                           ?, ?, ?, ?)`,
             args: [
               nm.id, postId, nm.r2Key, nm.thumbKey || null, nm.type,
@@ -490,6 +509,7 @@ export async function PUT(
               nm.extras.gps?.lat ?? null,
               nm.extras.gps?.lng ?? null,
               nm.extras.gps?.altitude ?? null,
+              nm.place,
               nm.extras.device?.make ?? null,
               nm.extras.device?.model ?? null,
               nm.extras.device?.lens ?? null,
@@ -613,14 +633,47 @@ export async function PUT(
       await db.execute({ sql: "INSERT OR IGNORE INTO post_albums (post_id, album_id) VALUES (?, ?)", args: [postId, albumId] });
     }
 
-    // Update FTS — re-index the post's real title/body/tags/people so this
-    // matches what a full rebuildFtsIndex() would produce (Phase 12c: this
+    // Update FTS — re-index the post's real title/body/tags/people/place/captions
+    // so this matches what a full rebuildFtsIndex() would produce (Phase 12c: this
     // used to hardcode body to '', losing any existing caption on every edit).
-    const ftsRow = ftsRowFor({ title: postTitle, body: existingBody, tagNames, peopleNames });
+    // Place/captions are re-read from the post's current media (which may have
+    // gained or lost items above), mirroring rebuildFtsIndex's GROUP_CONCAT.
+    // Those columns only exist after the rich-metadata sweep — a text-only edit
+    // skips the new-media path that normally ensures it (no-op on a current DB).
+    await ensureRichMetadataSchema();
+    const [placeRes, captionRes] = await Promise.all([
+      db.execute({
+        sql: "SELECT DISTINCT place FROM media WHERE post_id = ? AND place IS NOT NULL AND place <> ''",
+        args: [postId],
+      }),
+      db.execute({
+        sql: "SELECT caption FROM media WHERE post_id = ? AND caption IS NOT NULL AND caption <> ''",
+        args: [postId],
+      }),
+    ]);
+    const placeNames = placeRes.rows.map((r) => r.place as string);
+    const captions = captionRes.rows.map((r) => r.caption as string);
+    const ftsRow = ftsRowFor({
+      title: postTitle,
+      body: existingBody,
+      tagNames,
+      peopleNames,
+      placeNames,
+      captions,
+    });
+    await ensureSearchSchema();
     await db.execute({ sql: "DELETE FROM posts_fts WHERE post_id = ?", args: [postId] });
     await db.execute({
-      sql: "INSERT INTO posts_fts(post_id, title, body, tags, people) VALUES (?, ?, ?, ?, ?)",
-      args: [postId, ftsRow.title, ftsRow.body, ftsRow.tags, ftsRow.people],
+      sql: "INSERT INTO posts_fts(post_id, title, body, tags, people, place, captions) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      args: [
+        postId,
+        ftsRow.title,
+        ftsRow.body,
+        ftsRow.tags,
+        ftsRow.people,
+        ftsRow.place,
+        ftsRow.captions,
+      ],
     });
 
     return NextResponse.json({ success: true });

@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { compressImage } from "@/lib/media/compress";
 import { buildCaptureInput, sha256Hex, extractPhotoExtras, type MediaExtras } from "@/lib/media/extract";
-import type { CaptureDateInput } from "@/lib/media/capture-date";
+import { resolveCaptureDate, type CaptureDateInput } from "@/lib/media/capture-date";
 import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
 import {
   collectDateEvidence,
@@ -221,10 +221,20 @@ export default function EditPostPage() {
     () =>
       flatItems
         .filter((i): i is Extract<EditItem, { kind: "new" }> => i.kind === "new")
-        .map((i) => ({ id: i.id, file: i.file, type: i.type, contentHash: i.contentHash })),
+        .map((i) => ({
+          id: i.id,
+          file: i.file,
+          type: i.type,
+          contentHash: i.contentHash,
+          gps:
+            i.extras?.gps && i.extras.gps.lat != null && i.extras.gps.lng != null
+              ? { lat: i.extras.gps.lat, lng: i.extras.gps.lng }
+              : null,
+          takenAt: i.capture ? resolveCaptureDate(i.capture).takenAt : null,
+        })),
     [flatItems]
   );
-  const { enrichments } = useMediaEnrichment(enrichableItems);
+  const { enrichments } = useMediaEnrichment(enrichableItems, { excludePostId: postId });
 
   // Date read off an added photo (cloud vision + local OCR), weighed against
   // the post's current date. Once the field matches the evidence (or the

@@ -46,4 +46,39 @@ describe("ftsRowFor", () => {
     assert.equal(row.tags, "");
     assert.equal(row.people, "");
   });
+
+  it("space-joins place labels, deduping repeats (a whole vacation → one town)", () => {
+    const row = ftsRowFor({
+      title: "t",
+      body: "b",
+      tagNames: [],
+      peopleNames: [],
+      placeNames: [
+        "Truro, Cornwall, England, United Kingdom",
+        "Truro, Cornwall, England, United Kingdom",
+        "St Ives, Cornwall, England, United Kingdom",
+      ],
+    });
+    assert.equal(
+      row.place,
+      "Truro, Cornwall, England, United Kingdom St Ives, Cornwall, England, United Kingdom"
+    );
+  });
+
+  it("space-joins captions and drops blanks", () => {
+    const row = ftsRowFor({
+      title: "t",
+      body: "b",
+      tagNames: [],
+      peopleNames: [],
+      captions: ["A dog on the beach", "  ", "Sunset over the cliffs"],
+    });
+    assert.equal(row.captions, "A dog on the beach Sunset over the cliffs");
+  });
+
+  it("defaults place/captions to '' when absent, matching COALESCE(..., '')", () => {
+    const row = ftsRowFor({ title: "t", body: "b", tagNames: [], peopleNames: [] });
+    assert.equal(row.place, "");
+    assert.equal(row.captions, "");
+  });
 });
