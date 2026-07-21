@@ -295,7 +295,12 @@ verified on prod.** The correctness core of Phase 10 is complete. Remaining:
 - **10.4 Features on banked data (optional)** — map view, dedup warnings,
   auto-trip albums, place/camera/date-range search, quality-ranked teasers.
   (Absorbs backlog: Search by date range, Filter by multiple tags/people,
-  Related posts, Download original.)
+  Related posts, Download original.) **Place search shipped early (2026-07-21
+  branch)**: offline GeoNames reverse geocoding fills `media.place` at
+  upload/edit (+ `npm run backfill:geocode`), `posts_fts` indexes
+  `place`/`captions`, and `/api/admin/suggest-tags` adds temporal-neighbor,
+  place-derived, and title-contains compose suggestions (suggest-only, closed
+  vocabulary; new-name proposals only as explicit tappable `isNew` chips).
 - **10.5 Semantic enrichment (optional, pluggable)** — captions + open-vocabulary
   tags + per-photo embeddings for semantic search; local CLIP (private) or vision
   LLM (richer); libSQL vector column; feeds FTS + semantic search. *(Captions/

@@ -17,6 +17,20 @@ feed refactor), Phase 13 (debt paydown: HEIC edit fix, dead-code removal, schema
 `user_version` guard, security hygiene). **11c (bank originals at upload) deferred
 → 10.3d.** The read-only backfill Indexer (10.3a) is built.
 
+**2026-07-21: shared action sheet + bulk tagging shipped (#59, #60 merged);
+place search + smarter tag suggestions in review.** The long-press Edit/Share
+sheet now exists on every caption surface (feed, On This Day, post page — never
+public token pages), single-photo post pages center smartly, and admins can
+multi-select feed posts to bulk-apply tags (instantly searchable). The current
+branch adds **offline reverse geocoding** (GeoNames dataset committed, no cloud
+calls): photo GPS → `media.place` at upload/edit + `npm run backfill:geocode`
+for the archive; `posts_fts` gains `place` + `captions` columns so "Cornwall"
+finds geotagged posts; and three new compose-time suggestion sources —
+temporal-neighbor tags (±48h), place-derived tags (+ explicit new-tag
+proposals), and live title-contains matching (`/api/admin/suggest-tags`,
+`src/lib/geo/*`, `src/lib/enrich/temporal.ts`). Suite 155 → 173. **Post-merge,
+Tom runs `npm run backfill:geocode` to place-tag existing photos.**
+
 **2026-07-13: date-discrepancy fix + local-first enrichment shipped (#52, #53;
 #54 all merged).** Investigating a Fourth-of-July post that displayed the wrong day
 surfaced two real bugs (now fixed) and produced a working **10.1e enrichment**
@@ -139,6 +153,10 @@ covers OCR + phash for old posts, so this track is now the additive library data
 **Post-deploy TODO (Tom):** run one `POST /api/init` (admin bearer) to rebuild
 FTS so historical bodies erased by prior edits get re-indexed (12c). Then smoke
 the feed refactor (12d), GPS strip on a new upload (11d), and share revoke (11e).
+After the place-search PR merges: `npm run backfill:geocode` (local, no cloud)
+to fill `media.place` for existing GPS photos — until then only new uploads get
+place labels. Still pending from #53/#54: set `ANTHROPIC_API_KEY` in Vercel if
+cloud vision is wanted, and run `npm run backfill:local` once.
 
 Prior task, still true: **Phase 10 — Rich Media Metadata & Enrichment** (see
 `docs/rich-metadata-plan.md`). 10.0, 10.1 (a–d), and 10.2 (a–c) all shipped &
@@ -173,6 +191,41 @@ None.
   disagree for posts with corrected capture dates. → Phase 12a.
 
 ## Recent Changes
+
+### 2026-07-21 session — action sheet everywhere, bulk tagging, place search
+- **#59 — Shared post action sheet + smart post-page centering.** Extracted the
+  feed's ~250-line long-press/share machinery into `src/components/PostActions.tsx`,
+  reused on On This Day (`TodayMemory`) and the post page (`PostContent`). Public
+  token pages (`/share/[token]`, `/m/[token]`) provably render no admin
+  affordances — `/m` strips internal post ids from its payload. One-shot
+  `sheetOpenRef` guard (500ms timer + native contextmenu can both fire),
+  capture-phase click suppression so releasing a long-press over an inner link
+  doesn't navigate. Single-photo post pages center via flex + `my-auto`
+  (`min-h-svh`) — short content centers, tall multisets are untouched.
+- **#60 — Bulk tagging.** Admin long-press → "Select posts…" → tap-select across
+  infinite scroll (gold ring + check) → bottom bar → tag sheet (same chips +
+  autocomplete as the editor) → `POST /api/admin/posts/bulk-tag` (caps 100
+  posts/10 tags, find-or-create by slug, `INSERT OR IGNORE` into `post_tags`,
+  correct FTS reindex per post in one batch). Tags are searchable immediately.
+- **In review (this branch) — Part 2: place search + suggestion sources.**
+  - **Offline reverse geocoding**: `scripts/build-geo-dataset.ts` trims GeoNames
+    (CC-BY 4.0, attribution in ARCHITECTURE.md) to
+    `src/lib/geo/data/places.json.gz` (69,512 places, 1.14 MB);
+    `reverseGeocode(lat,lng)` (`src/lib/geo/reverse.ts`) does haversine
+    nearest-neighbor with a lat-band prefilter, 50 km cap. Upload + edit routes
+    write `media.place` (soft-fail); `scripts/backfill-geocode.ts` fills the
+    archive locally then rebuilds FTS. `next.config.ts`
+    `outputFileTracingIncludes` bundles the dataset into the geocoding routes.
+  - **Search**: `posts_fts` now indexes `place` + `captions` (7-column shape);
+    `ensureSearchSchema()` migrates lazily (probe → drop → recreate → rebuild
+    from source tables, body always from `posts.body`); `SCHEMA_VERSION` 1→2 so
+    deployed DBs self-heal on first write. All write sites emit the new shape.
+  - **Compose suggestions** (`/api/admin/suggest-tags`): temporal neighbors
+    (±48h vs the `ORDER_KEY_SQL` COALESCE, frequency-ranked), place components
+    matched to the tag vocabulary (unmatched town/county become explicit `isNew`
+    proposals; region/country match-only), and `suggestTagsFromTitle` (whole-word,
+    client-side, live as you type). All suggest-only, closed vocabulary; wired
+    as a 4th soft-failing source in `useMediaEnrichment` with request dedup.
 
 ### 2026-07-13 session — date-discrepancy fix + local-first enrichment (10.1e)
 Triggered by a real report: a "Happy 250th America!" post displayed **Jul 6**
