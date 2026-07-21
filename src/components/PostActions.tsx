@@ -29,6 +29,9 @@ interface PostActionsProps {
   siteUrl: string;
   /** When set, the sheet gains a "View post" item linking here. */
   viewPostHref?: string;
+  /** Admin-only: when set, the sheet gains a "Select posts…" item that closes
+   *  the sheet and calls this. Only the feed passes it. */
+  onSelectPosts?: () => void;
   /** Class for the pressable wrapper around the caption content. */
   className?: string;
   children: React.ReactNode;
@@ -42,6 +45,7 @@ export default function PostActions({
   recipients,
   siteUrl,
   viewPostHref,
+  onSelectPosts,
   className,
   children,
 }: PostActionsProps) {
@@ -217,6 +221,14 @@ export default function PostActions({
               >
                 Edit post
               </Link>
+            )}
+            {isAdmin && onSelectPosts && (
+              <button
+                onClick={() => { closeSheet(); onSelectPosts(); }}
+                className="flex items-center w-full px-6 py-4 text-[#d3d3d3] hover:bg-[#2a2929] text-base border-t border-[#2a2929]"
+              >
+                Select posts…
+              </button>
             )}
             <button
               onClick={handleShare}
