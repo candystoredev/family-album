@@ -427,6 +427,44 @@ Reason: Consistent with the standing "never overwrite the source of truth" rule.
 Alternatives Considered: Auto-apply high-confidence conflicts (violates never-overwrite; OCR isn't trustworthy enough unattended); do nothing about conflicts (misses the whole point of the audit). Report-only splits the difference.
 Impact: `scripts/backfill-local-enrich.ts` writes phash + `media_metadata_raw` (`source='ocr'`) only; the date-conflict report is read-only, resumable, and reuses `pickDateSuggestion` so it matches the compose-page UX exactly.
 
+## 2026-07-21 — Faces → People (in-browser face clustering)
+
+### 2026-07-21
+Decision: Face detection + embeddings run IN THE BROWSER (@vladmandic/face-api, TensorFlow.js WebGL backend), never server-side and never via a cloud vision API
+Reason: Same local-first logic as 10.1e enrichment, but the privacy argument is stronger — these are photos of children, and a face embedding is biometric-adjacent data. Vercel functions have no GPU and hard size limits, so a server-side model was never viable anyway. The WebGL backend specifically (not the WASM one) is required by the app's own CSP: `script-src 'self' 'unsafe-inline'` has no `'wasm-unsafe-eval'`, so instantiating the tfjs WASM backend would be blocked. WebGL uses no eval and needs no CSP exception. Weights load same-origin from `/models` (`connect-src 'self'`), so no CDN is involved either.
+Alternatives Considered: Cloud vision face APIs (send every family photo, incl. children, to a third party — rejected outright); server-side models on Vercel (no GPU, size limits); tfjs WASM backend (would require loosening CSP with `'wasm-unsafe-eval'` — not worth it for a marginal speed difference); MediaPipe (modern detector but no built-in recognition descriptor, more glue).
+Impact: `src/lib/faces/detect.ts` (lazy load, ~7 MB weights cached per session, fail-soft like `ocr.ts`), `public/models/` staged at build time. No change to `next.config.ts` CSP.
+
+### 2026-07-21
+Decision: Model weights are staged into `public/models/` at build time from node_modules, NOT committed to the repo
+Reason: The weights (~6.7 MB) already ship inside the `@vladmandic/face-api` dependency; committing a second copy would bloat git history permanently and irreversibly. They can't be CDN-loaded (CSP), so they must be served from our origin — a `prebuild`/`predev` copy step satisfies both. The script fails loudly rather than silently, because a missing weight file at runtime looks like "no faces found" instead of a broken deploy.
+Alternatives Considered: Commit the binaries (simplest, but 6.7 MB in history forever); fetch from a CDN at runtime (blocked by CSP, and adds a third-party dependency on a privacy-sensitive path).
+Impact: `scripts/copy-face-models.mjs`, `prebuild`/`predev` hooks in package.json, `/public/models/` gitignored.
+
+### 2026-07-21
+Decision: Faces follow the tag pattern — closed-vocabulary, suggest-never-auto-apply. Naming a CLUSTER (not a face) is the single human decision
+Reason: Consistent with the 2026-07-13 auto-tagging decision, and for the same reason: a wrong person on a family photo is visible, sticky, and worse than an extra prompt. Detected faces are stored unnamed (`person_id NULL`) and match against the EXISTING people list first; nothing reaches `post_people` until a human names the group. Naming once per cluster (rather than per face) is what makes it tractable across an archive. Face-derived person tags are written with `source='auto'` on the junction so they stay distinguishable from hand-curated ones and are bulk-reversible, and `INSERT OR IGNORE` never downgrades an existing `'human'` tag.
+Alternatives Considered: Auto-apply high-confidence matches (visible, sticky errors in a keepsake album); per-face naming (unusable at archive scale); open-vocabulary face labels (meaningless — the whole point is matching the curated people list).
+Impact: `src/lib/faces/cluster.ts` (`clusterFaces`, `matchToKnown`), `/api/admin/faces/name`, tap-to-add People chips in `MetadataFields`. Clustering/matching thresholds are deliberately TIGHT (0.5 / 0.52 vs face-api's usual 0.6) — biased toward an extra "who's this?" prompt over a wrong merge, since naming two clusters the same name merges them harmlessly but a wrong merge doesn't unmerge.
+
+### 2026-07-21
+Decision: The archive scanner owns ALL face persistence — the publish path (`upload/complete`, edit `PUT`) is left completely untouched
+Reason: Compose-time face detection exists only to SUGGEST people while the form is open. Persisting faces there would mean threading face rows through the heavily-tested, load-bearing publish batch for no functional gain, since the scanner already picks up new uploads (`faces_scanned_at IS NULL`) uniformly. Keeping the publish path byte-identical to master means this feature carries zero regression risk for uploading — the thing that must never break.
+Alternatives Considered: Persist compose-time faces at publish (saves the scanner re-detecting new uploads later, but touches the riskiest code path in the app for a minor optimization — revisitable once faces are proven).
+Impact: `useMediaEnrichment` gains a 4th soft-failing source (face match) that writes nothing; `/api/admin/faces/scan` is the only face writer. Compose-time detection is GATED on `referenceCount > 0`, so the ~7 MB model never loads until at least one person has been named.
+
+### 2026-07-21
+Decision: Every write in the naming route derives from the still-unnamed subset of the submitted face ids, never from the raw ids
+Reason: Surfaced by cold review. Two tabs (or one stale review page) naming the same cluster would otherwise tag posts with a person who ends up owning none of their faces — and could mint a brand-new person row with zero confirmed faces — because the `UPDATE` was guarded by `person_id IS NULL` but the affected-posts query and `post_people` inserts were not. Re-naming already-named faces is now a true no-op that creates nothing.
+Alternatives Considered: A transaction/optimistic lock (heavier than needed at single-admin scale); accept the race (produces silent, hard-to-notice mis-tags in a keepsake album).
+Impact: `/api/admin/faces/name` narrows to pending faces first and returns `namedFaces: 0` for a stale submit; the review page reloads instead of reporting success. Pinned by `tests/faces-routes.test.ts`.
+
+### 2026-07-21
+Decision: Un-naming a face removes the person's post tag ONLY when they have no remaining named face in that post, and only when the tag is `source='auto'`
+Reason: Naming is the one step that's genuinely hard to walk back — a wrong name doesn't just mis-tag a post, it folds that face's descriptor into the person's reference centroid and degrades every future match for them, with no in-app fix short of DB surgery. That risk peaks during the FIRST naming pass, when early names define the centroids everything else is matched against, so the correction path shipped with the feature rather than after it. The untag rule is the careful part: removing the tag unconditionally would delete a hand-curated `'human'` tag the user added themselves, and would also untag a post where the person genuinely still appears via other confirmed faces. Both are silent data loss in a keepsake album, so the delete is doubly guarded.
+Alternatives Considered: Undo-only, scoped to the seconds after naming (doesn't help when the mistake is noticed later — which is the likely case when reviewing dozens of clusters); never untag on un-name (leaves wrong people attached to posts with no obvious cause); a full face-management UI (more surface than the problem needs right now).
+Impact: `/api/admin/faces/unname` + `/api/admin/faces/people` (the named-faces roster); one-tap Undo after naming plus a per-person face grid on `/admin/people/faces`. Pinned by four `tests/faces-routes.test.ts` cases covering both guards.
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)

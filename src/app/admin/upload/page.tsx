@@ -24,6 +24,7 @@ import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/da
 import {
   collectDateEvidence,
   collectTagSuggestions,
+  collectPeopleSuggestions,
   useMediaEnrichment,
   type EnrichableItem,
 } from "@/lib/enrich/useMediaEnrichment";
@@ -212,6 +213,7 @@ export default function UploadPage() {
   // Union of tag suggestions across photos — vocabulary matches (cloud +
   // phash-propagated) first, then clearly-marked new proposals; capped.
   const tagSuggestions = useMemo(() => collectTagSuggestions(enrichments), [enrichments]);
+  const peopleSuggestions = useMemo(() => collectPeopleSuggestions(enrichments), [enrichments]);
 
   // Live preview — uses debounced insertAt so rapid zone-boundary oscillations
   // don't cause the layout to thrash; committed on drag end via pendingInsertRef
@@ -936,6 +938,7 @@ export default function UploadPage() {
               onTagsChange={setSelectedTags}
               selectedPeople={selectedPeople}
               onPeopleChange={setSelectedPeople}
+              peopleSuggestions={peopleSuggestions}
               selectedAlbumIds={selectedAlbumIds}
               onAlbumIdsChange={setSelectedAlbumIds}
               disabled={disabled}

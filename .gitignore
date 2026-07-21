@@ -9,6 +9,10 @@ next-env.d.ts
 # production
 /build
 
+# face-recognition model weights — staged from node_modules by
+# scripts/copy-face-models.mjs (prebuild/predev), never committed
+/public/models/
+
 # misc
 .DS_Store
 *.pem

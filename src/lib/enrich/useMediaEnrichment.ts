@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { compressImage } from "../media/compress";
 import { extractDatesFromText } from "./extract-dates";
 import { ocrText } from "./ocr";
+import { detectFaces, imageFromBlob } from "../faces/detect";
 import type { MediaEnrichment, OcrResult } from "./types";
 
 /**
@@ -53,6 +54,8 @@ export interface ItemEnrichment {
   contextProposals?: string[];
   /** Reverse-geocoded place label for the item's GPS, if any. */
   place?: string | null;
+  /** Known people whose face appears in this photo (compose-time face match). */
+  suggestedPeople?: { personId: string; name: string }[];
 }
 
 const CONCURRENCY = 2;
@@ -132,6 +135,10 @@ export function useMediaEnrichment(
   // Latest options without re-running the effect (excludePostId is page-stable).
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  // Resolves to whether compose-time face matching is worth running this
+  // session — false when no people have been named yet (nothing to match), so
+  // we never pay the ~7 MB face-model load for zero suggestions. Fetched once.
+  const facesGateRef = useRef<Promise<boolean> | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
@@ -144,6 +151,17 @@ export function useMediaEnrichment(
 
     const merge = (id: string, patch: ItemEnrichment) =>
       setEnrichments((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+
+    // One-shot gate: is there at least one named person to match faces against?
+    const facesEnabled = () => {
+      if (!facesGateRef.current) {
+        facesGateRef.current = fetch("/api/admin/faces/status")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => Number(d?.referenceCount ?? 0) > 0)
+          .catch(() => false);
+      }
+      return facesGateRef.current;
+    };
 
     const pump = () => {
       while (inFlightRef.current < CONCURRENCY && queueRef.current.length > 0) {
@@ -207,7 +225,27 @@ export function useMediaEnrichment(
               })
               .catch(() => {});
 
-            await Promise.allSettled([cloudP, ocrP, similarP, contextP]);
+            // Face → known-people match: detect faces in-browser (nothing but
+            // abstract descriptors ever leaves the device) and ask which named
+            // people appear. Gated so it never runs before anyone is named.
+            const facesP = (async () => {
+              if (!(await facesEnabled())) return;
+              const img = await imageFromBlob(rendition.file);
+              const faces = await detectFaces(img);
+              if (faces.length === 0) return;
+              const res = await fetch("/api/admin/faces/match", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ descriptors: faces.map((f) => f.descriptor) }),
+              });
+              if (!res.ok) return;
+              const data = await res.json();
+              if (Array.isArray(data?.people) && data.people.length > 0) {
+                merge(item.id, { suggestedPeople: data.people });
+              }
+            })().catch(() => {});
+
+            await Promise.allSettled([cloudP, ocrP, similarP, contextP, facesP]);
           } catch {
             // Rendition failed — no image analysis, but the context lookup
             // (GPS/time only) can still land.
@@ -260,4 +298,24 @@ export function collectTagSuggestions(
     ...allExisting.map((name) => ({ name })),
     ...[...proposals].map((name) => ({ name, isNew: true })),
   ].slice(0, max);
+}
+
+/** Distinct known-people suggestions across items (closest-match first, capped).
+ *  These are always EXISTING named people — face matching is closed-vocabulary,
+ *  just like tags — so they're offered as tap-to-add, never auto-applied. */
+export function collectPeopleSuggestions(
+  enrichments: Record<string, ItemEnrichment>,
+  max = 8
+): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const e of Object.values(enrichments)) {
+    for (const p of e.suggestedPeople ?? []) {
+      if (!seen.has(p.personId)) {
+        seen.add(p.personId);
+        names.push(p.name);
+      }
+    }
+  }
+  return names.slice(0, max);
 }

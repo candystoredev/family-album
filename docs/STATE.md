@@ -43,10 +43,19 @@ backfill (Indexer + Tool B) is still parked on source-file gathering, but a
 **local OCR + phash backfill** (`npm run backfill:local`) now covers the archive
 for tag propagation and date auditing without that blocker.
 
-## ▶ RESUME HERE (2026-07-13)
+**2026-07-21: Faces → People built (in-browser face clustering).** The next
+enrichment piece after 10.1e — on-device face detection + embeddings, an archive
+scan-and-cluster review page, name-a-group-once UX matched against the existing
+people list, and compose-time "in this photo" People suggestions. Local, free,
+private: no cloud API, CSP-safe same-origin model weights. **Open PR, not yet
+merged.** Requires one `POST /api/init` after deploy (schema v3).
 
-Local enrichment stack shipped: **#52, #53, and #54 all merged + deployed to
-prod.** Next session picks up **faces → People** (see "WHERE TO RESUME" below).
+## ▶ RESUME HERE (2026-07-21)
+
+**Faces → People is in an open PR** (branch `claude/face-clustering-people-d9a4e0`).
+Built, reviewed (dual cold review), 198/198 tests green. Two follow-ups before
+heavy use — see "Faces follow-ups" below. Prior context: the local enrichment
+stack (**#52, #53, #54**) is all merged + deployed to prod.
 The one big remaining Phase 10 piece is now split: the **cross-machine 10.3
 backfill**
 (Indexer + Tool B, richer Apple Photos/faces data) is still parked on Tom
@@ -83,12 +92,20 @@ re-runnable.**
   bug fixed at the source; compose-time suggestions (date evidence + tags) from
   in-browser OCR + phash + optional cloud vision; a local archive backfill.
 
-**WHERE TO RESUME — updated 2026-07-13.**
-1. **Faces → People (next build).** In-browser face detection + embeddings,
-   cluster-and-name-once UX, matched against the existing people list. Local,
-   free, private — the biggest remaining local-stack piece. Then **semantic
-   search (10.5)**: in-browser image embeddings + a libSQL vector column for
-   natural-language search. Both slot into the enrichment pipeline built in #53.
+**WHERE TO RESUME — updated 2026-07-21.**
+1. **Faces → People — BUILT, in an open PR.** See the 2026-07-21 Recent Changes
+   entry. **Un-name/undo is now included** (it was the one follow-up considered
+   a prerequisite for the first big naming pass — a mis-named face would
+   otherwise permanently pollute that person's reference centroid). Remaining:
+   - **Post-deploy:** one `POST /api/init` (admin bearer) to stamp
+     `user_version = 3` and create `media_faces` on prod. Until it runs, every
+     `ensure*Schema()` re-runs its full (idempotent) DDL sweep on each cold
+     start — self-healing but wasteful.
+   - Lower priority: re-scan has no UI trigger (the auto-face replacement path
+     is effectively dead code); deleting a person leaves orphan `source='human'`
+     faces with a NULL `person_id`.
+   Then **semantic search (10.5)**: in-browser image embeddings + a libSQL vector
+   column for natural-language search. Slots into the same enrichment pipeline.
 2. **Cross-machine 10.3 backfill (parked on data-gathering).** Tool A (Indexer)
    is built — run it per source on Tom's machines (`docs/backfill-prep.md` +
    `tools/backfill-indexer/README.md`), then build **10.3b Tool B
@@ -120,8 +137,10 @@ archive backfill (`scripts/backfill-local-enrich.ts`, `npm run backfill:local`)
 does the same locally over old media and prints a read-only date-conflict report.
 
 ## Active Branch
-`master` — everything through #61 merged + deployed. Normal flow: short-lived
-branches, squash-merged on Tom's explicit say-so, master auto-deploys to prod.
+`claude/face-clustering-people-d9a4e0` — Faces → People, **open PR, not merged**
+(rebased onto master after #59–#62). Everything through #62 is merged + deployed.
+Normal flow: short-lived branches, squash-merged on Tom's explicit say-so, master
+auto-deploys to prod — so merging this PR ships it.
 
 ## Current Task
 **Run the local backfills on Tom's Mac (no code to write):**
@@ -135,8 +154,10 @@ Both need `.env` with `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` (+ R2 vars for
 backfill:local). Idempotent, re-runnable, nothing leaves the machine except
 DB/R2 reads-writes. Then verify on prod: search "Cornwall".
 
-**Next build after that: faces → People**, then semantic search (10.5). Both
-local, free, private (in-browser models), on the `useMediaEnrichment` pipeline.
+**Faces → People is now BUILT** (2026-07-21, open PR — see that Recent Changes
+entry). Next after it merges: the un-name/undo follow-up, then semantic search
+(10.5). All local, free, private (in-browser models), building on the
+`useMediaEnrichment` pipeline.
 
 **Cross-machine Phase 10.3 backfill is still PARKED — waiting on Tom, not code.**
 Needs source photos gathered across computers/apps for the *richer* Apple-Photos
@@ -165,6 +186,8 @@ After the place-search PR merges: `npm run backfill:geocode` (local, no cloud)
 to fill `media.place` for existing GPS photos — until then only new uploads get
 place labels. Still pending from #53/#54: set `ANTHROPIC_API_KEY` in Vercel if
 cloud vision is wanted, and run `npm run backfill:local` once.
+**After the faces PR merges, run `POST /api/init`** — it stamps
+`user_version = 3` and creates `media_faces` on prod.
 
 Prior task, still true: **Phase 10 — Rich Media Metadata & Enrichment** (see
 `docs/rich-metadata-plan.md`). 10.0, 10.1 (a–d), and 10.2 (a–c) all shipped &
@@ -236,6 +259,62 @@ None.
     proposals; region/country match-only), and `suggestTagsFromTitle` (whole-word,
     client-side, live as you type). All suggest-only, closed vocabulary; wired
     as a 4th soft-failing source in `useMediaEnrichment` with request dedup.
+
+### 2026-07-21 session — Faces → People (in-browser face clustering)
+The next enrichment piece after 10.1e, built local-first on the same pattern.
+**Open PR on `claude/face-clustering-people-d9a4e0`, not merged.** Rebased onto
+master after #59–#62. Suite 173 → 198.
+
+- **Shared core (`src/lib/faces/`).** `detect.ts` lazy-loads
+  `@vladmandic/face-api` on the tfjs **WebGL** backend (never WASM — the app's
+  CSP has no `'wasm-unsafe-eval'`), with weights served **same-origin** from
+  `/models`. `cluster.ts` is pure, tested logic: single-link connected-component
+  clustering + `matchToKnown` against per-person reference centroids.
+  `descriptor.ts` packs the 128-d embedding into a 512-byte Float32 BLOB.
+- **Schema (additive).** `media_faces` (box, descriptor BLOB, nullable
+  `person_id`, `source`) + `media.faces_scanned_at`, via `ensureFacesSchema()`
+  following the `day_share_links` lazy-ensure pattern. **`SCHEMA_VERSION` bumped
+  2 → 3** — required, or the at-v2 prod DB (stamped by #61's FTS migration) would
+  fast-path straight past the new DDL and never create the table.
+  `initializeSchema()` creates the faces objects *before* stamping.
+- **Surface A — cluster-and-name** (`/admin/people/faces`, linked from Settings →
+  Admin). Scans the archive in-browser (thumbnails proxied same-origin so the
+  canvas isn't CORS-tainted), banks faces unnamed, server-clusters the backlog,
+  pre-fills "looks like @X", and names a whole group in one action → assigns the
+  person + tags them on the affected posts (`source='auto'`) + rebuilds FTS.
+- **Surface B — compose-time.** `useMediaEnrichment` gains a 4th soft-failing
+  source: detected faces → `/api/admin/faces/match` → "in this photo" tap-to-add
+  People chips. **Gated on `referenceCount > 0`** so the ~7 MB model never loads
+  until someone has been named. Writes nothing — see below.
+- **Publish path untouched.** `upload/complete` and the edit `PUT` are
+  byte-identical to master; the scanner owns all face persistence (it picks up
+  new uploads via `faces_scanned_at IS NULL`). Deliberate: zero regression risk
+  on the app's most load-bearing path.
+- **Model weights are NOT committed** — `scripts/copy-face-models.mjs` stages
+  them from node_modules via `prebuild`/`predev`; `/public/models/` is
+  gitignored. Avoids 6.7 MB in git history forever.
+- **Dual cold review (opus + fable, both pinned).** Confirmed all 8 invariants
+  (migration safety, publish integrity, CSP/privacy, BLOB round-trip, admin
+  gating, SQL, suggest-never-auto-apply). Fixed from findings: the naming route
+  now derives every write from the still-unnamed subset (a stale/duplicate name
+  was able to tag posts and mint a person owning zero faces); the scan loop
+  checks its POST response (could loop forever or falsely report "complete");
+  failed thumbnail fetches stay queued instead of being marked scanned-with-no-
+  faces; the review page shows **every** face in a cluster, not a 4-crop sample;
+  `personId` is sent when known (slug-collision merges); `Number.isFinite`
+  descriptor guards; per-image detection errors no longer disable the session.
+- **Correction path (un-name).** Naming is the only step that's hard to walk
+  back — a wrong name folds that face's descriptor into the person's reference
+  centroid, degrading every future match. `POST /api/admin/faces/unname` returns
+  faces to the unnamed pool, and untags the person from a post **only** when
+  they have no remaining named face there **and** the junction row is
+  `source='auto'` — a hand-curated `'human'` tag is never removed. Surfaced two
+  ways: one-tap **Undo** after naming, and a **"Named faces" roster**
+  (`/api/admin/faces/people`) listing every person's confirmed faces so a wrong
+  one can be found and removed at any time, not just immediately.
+- **New tests.** `tests/faces.test.ts` (pure clustering/matching/BLOB) +
+  `tests/faces-routes.test.ts` (16 DB-level route tests against a throwaway
+  local libSQL file — the first DB-touching test harness in the repo).
 
 ### 2026-07-13 session — date-discrepancy fix + local-first enrichment (10.1e)
 Triggered by a real report: a "Happy 250th America!" post displayed **Jul 6**
