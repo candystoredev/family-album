@@ -129,8 +129,8 @@ export default function Feed({
     if (!tagsFetchedRef.current) {
       tagsFetchedRef.current = true;
       fetch("/api/admin/tags")
-        .then((r) => r.json())
-        .then(setAllTags)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => setAllTags(Array.isArray(data) ? data : []))
         .catch(() => {});
     }
   }
@@ -525,7 +525,7 @@ function PostCard({
           lightbox or the long-press sheet. */}
       {selectMode && (
         <div
-          className="absolute inset-0 z-30 cursor-pointer"
+          className="absolute inset-y-0 -inset-x-4 sm:inset-x-0 z-30 cursor-pointer"
           onClick={() => onToggleSelect(post.id)}
         >
           <div className="absolute top-3 right-3">
