@@ -126,3 +126,93 @@ export function matchTags(
 
   return { suggestedTags: suggested, newTagProposals: newTags };
 }
+
+/**
+ * Title-contains suggestions (Part 2, Workstream B). When the typed post title
+ * mentions an existing tag's name as a whole word, suggest that tag. Pure and
+ * closed-vocabulary: only names from `tagNames` are ever returned (in their
+ * canonical spelling), so this can never propose a new tag.
+ *
+ * Matching is case-insensitive and whole-word — multi-word tag names are
+ * supported ("beach days") and word boundaries mean "art" doesn't fire on
+ * "party". Tags shorter than 3 chars are ignored (too noisy to match as words).
+ */
+export function suggestTagsFromTitle(title: string, tagNames: string[]): string[] {
+  const hay = title.trim().toLowerCase();
+  if (!hay) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const name of tagNames) {
+    const n = name.trim();
+    if (n.length < 3) continue;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    if (wholeWordContains(hay, key)) {
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/** Whole-word containment of `needleLower` in `haystackLower` (both already
+ *  lowercased). Boundaries are non-alphanumeric or string ends, so interior
+ *  spaces of a multi-word needle are literal and "art" ∉ "party". */
+function wholeWordContains(haystackLower: string, needleLower: string): boolean {
+  const escaped = needleLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`).test(haystackLower);
+}
+
+/** Reverse-geocoded place components, most- to least-specific. */
+export interface PlaceComponents {
+  name?: string | null;
+  admin2?: string | null;
+  admin1?: string | null;
+}
+
+/**
+ * Partition a photo's place components (Part 2, Workstream B) into existing-tag
+ * suggestions and new-tag proposals. Every component is matched against the
+ * vocabulary, so an already-existing tag ("England") is suggested no matter how
+ * broad. Of the UNMATCHED components only `name` (a town) and `admin2` (its
+ * county) are offered as proposals — `admin1`/country are too broad to propose.
+ * A name never appears in both arrays; both are deduped. Pure (DB-free).
+ */
+export function partitionPlaceComponents(
+  components: PlaceComponents,
+  vocab: VocabTag[]
+): { tags: string[]; newTagProposals: string[] } {
+  const tags: string[] = [];
+  const tagSlugs = new Set<string>();
+  const proposals: string[] = [];
+  const proposalKeys = new Set<string>();
+
+  const entries: Array<{ value: string | null | undefined; proposable: boolean }> = [
+    { value: components.name, proposable: true },
+    { value: components.admin2, proposable: true },
+    { value: components.admin1, proposable: false }, // match only, never propose
+  ];
+
+  for (const { value, proposable } of entries) {
+    const v = value?.trim();
+    if (!v) continue;
+    const match = matchToVocabulary(v, vocab);
+    if (match) {
+      if (!tagSlugs.has(match.slug)) {
+        tagSlugs.add(match.slug);
+        tags.push(match.name);
+      }
+      continue;
+    }
+    if (!proposable) continue;
+    const key = normalizeTagKey(v);
+    if (!key || v.length > MAX_TAG_LENGTH) continue;
+    if (proposalKeys.has(key)) continue;
+    proposalKeys.add(key);
+    // Place names are proper nouns — keep the geocoder's canonical casing
+    // rather than lowercasing (unlike model-emitted proposals).
+    proposals.push(v);
+  }
+
+  return { tags, newTagProposals: proposals };
+}

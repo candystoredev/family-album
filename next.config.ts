@@ -44,6 +44,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/admin/upload/complete": ["./src/lib/geo/data/places.json.gz"],
     "/api/admin/posts/[postId]": ["./src/lib/geo/data/places.json.gz"],
+    "/api/admin/suggest-tags": ["./src/lib/geo/data/places.json.gz"],
   },
   async headers() {
     return [

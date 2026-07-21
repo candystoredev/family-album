@@ -1,10 +1,18 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { matchTags, matchToVocabulary, normalizeTagKey } from "../src/lib/enrich/tags";
+import {
+  matchTags,
+  matchToVocabulary,
+  normalizeTagKey,
+  suggestTagsFromTitle,
+  partitionPlaceComponents,
+} from "../src/lib/enrich/tags";
 import { validateDateEvidence, pickDateSuggestion } from "../src/lib/enrich/date-evidence";
 import { extractDatesFromText } from "../src/lib/enrich/extract-dates";
 import { buildEnrichment } from "../src/lib/enrich/build";
 import { hammingDistanceHex } from "../src/lib/media/image-hash";
+import { temporalWindowBounds } from "../src/lib/enrich/temporal";
+import { collectTagSuggestions } from "../src/lib/enrich/useMediaEnrichment";
 import type { DateEvidence, RawModelEnrichment } from "../src/lib/enrich/types";
 
 /**
@@ -49,6 +57,79 @@ describe("tag matching against the vocabulary", () => {
   it("normalizeTagKey strips punctuation and naive plurals", () => {
     assert.equal(normalizeTagKey("Beach-Days!"), "beachday");
     assert.equal(normalizeTagKey("bus"), "bus"); // short words keep their s
+  });
+});
+
+describe("suggestTagsFromTitle (title-contains, Workstream B)", () => {
+  const names = ["Cornwall", "beach days", "art", "Fourth of July", "NY"];
+  it("matches whole words case-insensitively, including multi-word tags", () => {
+    assert.deepEqual(suggestTagsFromTitle("Our CORNWALL trip", names), ["Cornwall"]);
+    assert.deepEqual(suggestTagsFromTitle("lazy beach days by the sea", names), ["beach days"]);
+    assert.deepEqual(suggestTagsFromTitle("Fourth of July cookout", names), ["Fourth of July"]);
+  });
+  it("respects word boundaries, keeps 3-char tags, skips shorter ones", () => {
+    assert.deepEqual(suggestTagsFromTitle("great party tonight", names), []); // 'art' ∉ 'party'
+    assert.deepEqual(suggestTagsFromTitle("modern art show", names), ["art"]); // 3 chars, standalone
+    assert.deepEqual(suggestTagsFromTitle("trip to NY soon", names), []); // 'NY' is < 3 chars
+    assert.deepEqual(suggestTagsFromTitle("", names), []);
+  });
+});
+
+describe("partitionPlaceComponents (place-based, Workstream B)", () => {
+  const vocab = [
+    { name: "England", slug: "england" },
+    { name: "Cornwall", slug: "cornwall" },
+  ];
+  it("suggests existing tags at any admin level, proposes only unmatched town/county", () => {
+    const r = partitionPlaceComponents(
+      { name: "Newquay", admin2: "Cornwall", admin1: "England" },
+      vocab
+    );
+    assert.deepEqual(r.tags, ["Cornwall", "England"]);
+    assert.deepEqual(r.newTagProposals, ["Newquay"]);
+  });
+  it("never proposes admin1/country and dedupes a town that equals its county", () => {
+    const r = partitionPlaceComponents(
+      { name: "Truro", admin2: "Truro", admin1: "England" },
+      [{ name: "England", slug: "england" }]
+    );
+    assert.deepEqual(r.tags, ["England"]); // England matched, but wouldn't be proposed anyway
+    assert.deepEqual(r.newTagProposals, ["Truro"]); // name + admin2 collapse to one
+  });
+});
+
+describe("temporalWindowBounds (temporal, Workstream B)", () => {
+  it("brackets ±48h around a valid instant", () => {
+    const b = temporalWindowBounds("2026-07-04T12:00:00.000Z");
+    assert.equal(b?.start, "2026-07-02T12:00:00.000Z");
+    assert.equal(b?.end, "2026-07-06T12:00:00.000Z");
+  });
+  it("honours a custom window and rejects unparseable input", () => {
+    const b = temporalWindowBounds("2026-07-04T00:00:00.000Z", 24);
+    assert.equal(b?.start, "2026-07-03T00:00:00.000Z");
+    assert.equal(b?.end, "2026-07-05T00:00:00.000Z");
+    assert.equal(temporalWindowBounds("not-a-date"), null);
+  });
+});
+
+describe("collectTagSuggestions (context merge, Workstream B)", () => {
+  it("keeps phash/vision ahead of context and merges context proposals", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const enr: any = {
+      a: {
+        similarTags: ["reunion"],
+        cloud: { suggestedTags: ["cake"], newTagProposals: ["garden party"] },
+        contextTags: ["Cornwall", "reunion"], // 'reunion' dupes a higher-confidence match
+        contextProposals: ["Newquay"],
+      },
+    };
+    assert.deepEqual(collectTagSuggestions(enr), [
+      { name: "reunion" },
+      { name: "cake" },
+      { name: "Cornwall" },
+      { name: "garden party", isNew: true },
+      { name: "Newquay", isNew: true },
+    ]);
   });
 });
 
