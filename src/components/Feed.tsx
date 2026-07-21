@@ -8,6 +8,7 @@ import Lightbox from "./Lightbox";
 import OnThisDay from "./OnThisDay";
 import PostActions from "./PostActions";
 import { formatDisplayDate, isEstimatedDate } from "@/lib/datetime";
+import { broadcastSelectMode } from "@/lib/selectModeBroadcast";
 
 interface MediaItem {
   id: string;
@@ -97,6 +98,18 @@ export default function Feed({
   const [newTag, setNewTag] = useState("");
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+
+  // Tell ArchiveMenu (mounted in the root layout, a separate React tree) to
+  // hide the gold FAB while select mode is active — it otherwise overlaps
+  // the bottom bar below. Force an exit signal on unmount too, in case Feed
+  // goes away mid-select (e.g. navigation) without selectMode ever flipping
+  // back to false.
+  useEffect(() => {
+    broadcastSelectMode(selectMode);
+    return () => {
+      if (selectMode) broadcastSelectMode(false);
+    };
+  }, [selectMode]);
 
   // Entering select mode pre-selects the post whose action sheet launched it.
   const enterSelectMode = useCallback((postId: string) => {
