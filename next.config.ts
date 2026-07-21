@@ -37,6 +37,14 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // The offline reverse-geocode dataset is read at runtime with fs.readFileSync
+  // (src/lib/geo/reverse.ts). Next's file tracer can't see that dynamic path,
+  // so name it explicitly for the routes that geocode, ensuring it's bundled
+  // into their Vercel serverless functions rather than 404'ing at runtime.
+  outputFileTracingIncludes: {
+    "/api/admin/upload/complete": ["./src/lib/geo/data/places.json.gz"],
+    "/api/admin/posts/[postId]": ["./src/lib/geo/data/places.json.gz"],
+  },
   async headers() {
     return [
       {

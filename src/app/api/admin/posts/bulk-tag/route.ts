@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
-import { ftsRowFor } from "@/lib/schema";
+import { ensureSearchSchema, ftsRowFor } from "@/lib/schema";
 import { slugify } from "@/lib/slugify";
 
 const MAX_POSTS = 100;
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     // delete+insert statements in one batch. Body/people are read as-is, never
     // wiped to '' (Phase 12c bug — see the single-post PUT route).
     const placeholders = validPostIds.map(() => "?").join(",");
-    const [postsRes, tagsRes, peopleRes] = await Promise.all([
+    const [postsRes, tagsRes, peopleRes, placeRes, captionRes] = await Promise.all([
       db.execute({
         sql: `SELECT id, title, body FROM posts WHERE id IN (${placeholders})`,
         args: validPostIds,
@@ -93,6 +93,14 @@ export async function POST(request: NextRequest) {
       }),
       db.execute({
         sql: `SELECT pp.post_id, pe.name FROM post_people pp JOIN people pe ON pe.id = pp.person_id WHERE pp.post_id IN (${placeholders})`,
+        args: validPostIds,
+      }),
+      db.execute({
+        sql: `SELECT DISTINCT post_id, place FROM media WHERE post_id IN (${placeholders}) AND place IS NOT NULL AND place <> ''`,
+        args: validPostIds,
+      }),
+      db.execute({
+        sql: `SELECT post_id, caption FROM media WHERE post_id IN (${placeholders}) AND caption IS NOT NULL AND caption <> ''`,
         args: validPostIds,
       }),
     ]);
@@ -107,6 +115,16 @@ export async function POST(request: NextRequest) {
       const pid = row.post_id as string;
       (peopleByPost.get(pid) ?? peopleByPost.set(pid, []).get(pid)!).push(row.name as string);
     }
+    const placesByPost = new Map<string, string[]>();
+    for (const row of placeRes.rows) {
+      const pid = row.post_id as string;
+      (placesByPost.get(pid) ?? placesByPost.set(pid, []).get(pid)!).push(row.place as string);
+    }
+    const captionsByPost = new Map<string, string[]>();
+    for (const row of captionRes.rows) {
+      const pid = row.post_id as string;
+      (captionsByPost.get(pid) ?? captionsByPost.set(pid, []).get(pid)!).push(row.caption as string);
+    }
 
     const ftsStmts = postsRes.rows.flatMap((p) => {
       const postId = p.id as string;
@@ -115,15 +133,26 @@ export async function POST(request: NextRequest) {
         body: p.body as string | null,
         tagNames: tagsByPost.get(postId) ?? [],
         peopleNames: peopleByPost.get(postId) ?? [],
+        placeNames: placesByPost.get(postId) ?? [],
+        captions: captionsByPost.get(postId) ?? [],
       });
       return [
         { sql: "DELETE FROM posts_fts WHERE post_id = ?", args: [postId] },
         {
-          sql: "INSERT INTO posts_fts(post_id, title, body, tags, people) VALUES (?, ?, ?, ?, ?)",
-          args: [postId, ftsRow.title, ftsRow.body, ftsRow.tags, ftsRow.people],
+          sql: "INSERT INTO posts_fts(post_id, title, body, tags, people, place, captions) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          args: [
+            postId,
+            ftsRow.title,
+            ftsRow.body,
+            ftsRow.tags,
+            ftsRow.people,
+            ftsRow.place,
+            ftsRow.captions,
+          ],
         },
       ];
     });
+    await ensureSearchSchema();
     await db.batch(ftsStmts, "write");
 
     return NextResponse.json({ updated: validPostIds.length });

@@ -12,7 +12,9 @@
     "migrate:dry": "tsx scripts/migrate.ts --dry-run",
     "restore-drill": "tsx scripts/restore-drill.ts",
     "seed": "tsx scripts/seed.ts",
-    "backfill:local": "tsx scripts/backfill-local-enrich.ts"
+    "backfill:local": "tsx scripts/backfill-local-enrich.ts",
+    "backfill:geocode": "tsx scripts/backfill-geocode.ts",
+    "build:geo": "tsx scripts/build-geo-dataset.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
