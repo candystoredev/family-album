@@ -459,6 +459,12 @@ Reason: Surfaced by cold review. Two tabs (or one stale review page) naming the 
 Alternatives Considered: A transaction/optimistic lock (heavier than needed at single-admin scale); accept the race (produces silent, hard-to-notice mis-tags in a keepsake album).
 Impact: `/api/admin/faces/name` narrows to pending faces first and returns `namedFaces: 0` for a stale submit; the review page reloads instead of reporting success. Pinned by `tests/faces-routes.test.ts`.
 
+### 2026-07-21
+Decision: Un-naming a face removes the person's post tag ONLY when they have no remaining named face in that post, and only when the tag is `source='auto'`
+Reason: Naming is the one step that's genuinely hard to walk back — a wrong name doesn't just mis-tag a post, it folds that face's descriptor into the person's reference centroid and degrades every future match for them, with no in-app fix short of DB surgery. That risk peaks during the FIRST naming pass, when early names define the centroids everything else is matched against, so the correction path shipped with the feature rather than after it. The untag rule is the careful part: removing the tag unconditionally would delete a hand-curated `'human'` tag the user added themselves, and would also untag a post where the person genuinely still appears via other confirmed faces. Both are silent data loss in a keepsake album, so the delete is doubly guarded.
+Alternatives Considered: Undo-only, scoped to the seconds after naming (doesn't help when the mistake is noticed later — which is the likely case when reviewing dozens of clusters); never untag on un-name (leaves wrong people attached to posts with no obvious cause); a full face-management UI (more surface than the problem needs right now).
+Impact: `/api/admin/faces/unname` + `/api/admin/faces/people` (the named-faces roster); one-tap Undo after naming plus a per-person face grid on `/admin/people/faces`. Pinned by four `tests/faces-routes.test.ts` cases covering both guards.
+
 ## Open Questions
 
 - Tumblr blog handle: exact identifier needed for API — **pending from Tom** (currently hardcoded as `www.thehoecks.com` in migration script)

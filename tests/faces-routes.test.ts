@@ -33,6 +33,8 @@ import * as nameRoute from "../src/app/api/admin/faces/name/route";
 import * as matchRoute from "../src/app/api/admin/faces/match/route";
 import * as statusRoute from "../src/app/api/admin/faces/status/route";
 import * as clustersRoute from "../src/app/api/admin/faces/clusters/route";
+import * as unnameRoute from "../src/app/api/admin/faces/unname/route";
+import * as facePeopleRoute from "../src/app/api/admin/faces/people/route";
 
 const D = 128;
 /** Deterministic descriptor; tiny per-seed noise keeps same-base faces together. */
@@ -251,6 +253,125 @@ describe("name route", () => {
     );
     assert.equal(res.status, 400);
     assert.equal(await count(`SELECT COUNT(*) AS n FROM people`), 0);
+  });
+});
+
+describe("unname route", () => {
+  /** Seed one post, scan two same-person faces, name them. */
+  async function seedNamed() {
+    const a = await seedPost(2);
+    await scan([
+      { mediaId: a.mediaIds[0], faces: [face(0.1, 1)] },
+      { mediaId: a.mediaIds[1], faces: [face(0.1, 3)] },
+    ]);
+    const cl = await (await clustersRoute.GET()).json();
+    const faceIds = cl.clusters[0].faces.map((f: { id: string }) => f.id);
+    await nameRoute.POST(post("http://t/api/admin/faces/name", { faceIds, personName: "Ada Test" }));
+    return { a, faceIds };
+  }
+
+  it("returns faces to the unnamed pool and drops them from the person's references", async () => {
+    const { faceIds } = await seedNamed();
+    assert.equal((await (await statusRoute.GET()).json()).referenceCount, 1);
+
+    const res = await (
+      await unnameRoute.POST(post("http://t/api/admin/faces/unname", { faceIds }))
+    ).json();
+    assert.equal(res.unnamed, 2);
+
+    const st = await (await statusRoute.GET()).json();
+    assert.equal(st.namedFaceCount, 0);
+    assert.equal(st.unnamedFaceCount, 2, "faces return to clustering");
+    assert.equal(st.referenceCount, 0, "person no longer has a reference centroid");
+
+    // And they stop matching — the whole point of the correction path.
+    const match = await (
+      await matchRoute.POST(post("http://t/api/admin/faces/match", { descriptors: [vec(0.1, 99)] }))
+    ).json();
+    assert.equal(match.people.length, 0);
+  });
+
+  it("removes the auto post tag when the person has no faces left in that post", async () => {
+    const { a, faceIds } = await seedNamed();
+    assert.equal(await count(`SELECT COUNT(*) AS n FROM post_people WHERE post_id = ?`, [a.postId]), 1);
+
+    await unnameRoute.POST(post("http://t/api/admin/faces/unname", { faceIds }));
+    assert.equal(
+      await count(`SELECT COUNT(*) AS n FROM post_people WHERE post_id = ?`, [a.postId]),
+      0,
+      "auto tag removed once no named face remains"
+    );
+  });
+
+  it("keeps the post tag while the person still has another named face there", async () => {
+    const { a, faceIds } = await seedNamed();
+    // Un-name only ONE of the two faces in the same post.
+    const res = await (
+      await unnameRoute.POST(post("http://t/api/admin/faces/unname", { faceIds: [faceIds[0]] }))
+    ).json();
+    assert.equal(res.unnamed, 1);
+    assert.equal(res.untaggedPosts, 0);
+    assert.equal(
+      await count(`SELECT COUNT(*) AS n FROM post_people WHERE post_id = ?`, [a.postId]),
+      1,
+      "still tagged — one confirmed face remains"
+    );
+  });
+
+  it("never removes a hand-curated ('human') post tag", async () => {
+    const { a, faceIds } = await seedNamed();
+    // Simulate the person also having been tagged by hand on this post.
+    await db.execute({
+      sql: `UPDATE post_people SET source = 'human' WHERE post_id = ?`,
+      args: [a.postId],
+    });
+
+    await unnameRoute.POST(post("http://t/api/admin/faces/unname", { faceIds }));
+    const rows = await db.execute({
+      sql: `SELECT source FROM post_people WHERE post_id = ?`,
+      args: [a.postId],
+    });
+    assert.equal(rows.rows.length, 1, "human-curated tag survives un-naming");
+    assert.equal(rows.rows[0].source, "human");
+  });
+
+  it("is a no-op for faces that aren't named", async () => {
+    const a = await seedPost(1);
+    await scan([{ mediaId: a.mediaIds[0], faces: [face(0.1, 1)] }]);
+    const unnamed = await db.execute(`SELECT id FROM media_faces WHERE person_id IS NULL`);
+    const res = await (
+      await unnameRoute.POST(
+        post("http://t/api/admin/faces/unname", {
+          faceIds: unnamed.rows.map((r) => r.id as string),
+        })
+      )
+    ).json();
+    assert.equal(res.unnamed, 0);
+    assert.equal(res.untaggedPosts, 0);
+  });
+});
+
+describe("faces/people roster", () => {
+  it("lists named people with their faces, and drops them once un-named", async () => {
+    const a = await seedPost(2);
+    await scan([
+      { mediaId: a.mediaIds[0], faces: [face(0.1, 1)] },
+      { mediaId: a.mediaIds[1], faces: [face(0.1, 3)] },
+    ]);
+    const cl = await (await clustersRoute.GET()).json();
+    const faceIds = cl.clusters[0].faces.map((f: { id: string }) => f.id);
+    await nameRoute.POST(post("http://t/api/admin/faces/name", { faceIds, personName: "Ada Test" }));
+
+    const roster = await (await facePeopleRoute.GET()).json();
+    assert.equal(roster.people.length, 1);
+    assert.equal(roster.people[0].name, "Ada Test");
+    assert.equal(roster.people[0].faces.length, 2);
+    assert.ok(roster.people[0].faces[0].imageUrl.startsWith("/api/admin/faces/image/"));
+    assert.equal(roster.people[0].faces[0].descriptor, undefined, "descriptors stay server-side");
+
+    await unnameRoute.POST(post("http://t/api/admin/faces/unname", { faceIds }));
+    const after = await (await facePeopleRoute.GET()).json();
+    assert.equal(after.people.length, 0);
   });
 });
 

@@ -30,6 +30,11 @@ interface ClusterView {
   suggestion: { personId: string; name: string; distance: number } | null;
   faces: FaceView[];
 }
+interface NamedPerson {
+  personId: string;
+  name: string;
+  faces: FaceView[];
+}
 interface Status {
   referenceCount: number;
   namedFaceCount: number;
@@ -76,6 +81,12 @@ export default function FacesReviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // Named-faces roster, so a wrong name can be corrected at any time — not
+  // only via the undo in the seconds after naming.
+  const [named, setNamed] = useState<NamedPerson[]>([]);
+  const [expandedPerson, setExpandedPerson] = useState<string | null>(null);
+  // The most recent naming, for one-tap undo.
+  const [lastNamed, setLastNamed] = useState<{ faceIds: string[]; name: string } | null>(null);
 
   const refreshStatus = useCallback(async () => {
     const r = await fetch("/api/admin/faces/status");
@@ -85,6 +96,11 @@ export default function FacesReviewPage() {
   const refreshPeople = useCallback(async () => {
     const r = await fetch("/api/admin/people");
     if (r.ok) setPeople(await r.json());
+  }, []);
+
+  const loadNamed = useCallback(async () => {
+    const r = await fetch("/api/admin/faces/people");
+    if (r.ok) setNamed((await r.json()).people ?? []);
   }, []);
 
   const loadClusters = useCallback(async () => {
@@ -103,7 +119,8 @@ export default function FacesReviewPage() {
     refreshStatus();
     refreshPeople();
     loadClusters();
-  }, [refreshStatus, refreshPeople, loadClusters]);
+    loadNamed();
+  }, [refreshStatus, refreshPeople, loadClusters, loadNamed]);
 
   async function runScan() {
     if (scanning) return;
@@ -207,11 +224,38 @@ export default function FacesReviewPage() {
       if (d.namedFaces === 0) {
         // Someone else already named these — reload rather than pretend it worked.
         setError("Those faces were already named elsewhere. Refreshed the groups.");
-        await Promise.all([refreshStatus(), refreshPeople(), loadClusters()]);
+        await Promise.all([refreshStatus(), refreshPeople(), loadClusters(), loadNamed()]);
         return;
       }
       setClusters((cs) => (cs ? cs.filter((c) => keyFor(c) !== key) : cs));
-      await Promise.all([refreshStatus(), refreshPeople()]);
+      setLastNamed({ faceIds: cluster.faces.map((f) => f.id), name: d.name ?? typed });
+      await Promise.all([refreshStatus(), refreshPeople(), loadNamed()]);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  /**
+   * Put faces back in the unnamed pool. This is the correction path that keeps
+   * a wrong name from being permanent: the faces stop contributing to that
+   * person's reference centroid and return to clustering.
+   */
+  async function unnameFaces(faceIds: string[], busyToken: string) {
+    if (busyKey) return;
+    setBusyKey(busyToken);
+    setError(null);
+    try {
+      const r = await fetch("/api/admin/faces/unname", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ faceIds }),
+      });
+      if (!r.ok) {
+        setError("Couldn't un-name those faces.");
+        return;
+      }
+      setLastNamed(null);
+      await Promise.all([refreshStatus(), loadNamed(), loadClusters()]);
     } finally {
       setBusyKey(null);
     }
@@ -280,6 +324,33 @@ export default function FacesReviewPage() {
         </div>
         {error && <p className="text-sm text-[#d86d6d] mt-3">{error}</p>}
       </div>
+
+      {/* Undo the last naming — the common "oops, wrong name" case, caught
+          immediately. Later corrections go through the roster below. */}
+      {lastNamed && (
+        <div className="flex items-center justify-between gap-3 bg-[#232221] border border-[#c2a467]/30 rounded-xl px-4 py-3 mb-6">
+          <span className="text-sm text-[#a39e93]">
+            Named {lastNamed.faceIds.length} face{lastNamed.faceIds.length === 1 ? "" : "s"} as{" "}
+            <span className="text-[#c2a467]">@{lastNamed.name}</span>
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => unnameFaces(lastNamed.faceIds, "undo")}
+              disabled={busyKey === "undo"}
+              className="px-3 py-1.5 rounded-lg bg-[#2a2929] text-[#d3d3d3] text-sm hover:bg-[#333] disabled:opacity-40"
+            >
+              {busyKey === "undo" ? "Undoing…" : "Undo"}
+            </button>
+            <button
+              onClick={() => setLastNamed(null)}
+              className="text-[#666] hover:text-[#a0a0a0] text-sm px-1"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Clusters */}
       {clusters === null ? (
@@ -356,6 +427,69 @@ export default function FacesReviewPage() {
             })}
           </div>
         </>
+      )}
+
+      {/* Named faces — the correction surface. Each of these is a reference
+          that future matching is measured against, so a wrong one is worth
+          finding and removing. */}
+      {named.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-sm font-semibold text-[#e8e4dc] mb-1">Named faces</h2>
+          <p className="text-xs text-[#777] mb-3">
+            These teach the album what each person looks like. Remove any that are wrong —
+            the face goes back to the unnamed groups above.
+          </p>
+          <div className="space-y-2">
+            {named.map((person) => {
+              const open = expandedPerson === person.personId;
+              return (
+                <div key={person.personId} className="bg-[#232221] rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setExpandedPerson(open ? null : person.personId)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#282726] transition-colors"
+                  >
+                    <div
+                      className="rounded-full border border-[#3a3939] bg-[#111] shrink-0"
+                      style={faceTileStyle(person.faces[0].imageUrl, person.faces[0].box, 34)}
+                    />
+                    <span className="flex-1 text-sm text-[#d3d3d3]">@{person.name}</span>
+                    <span className="text-xs text-[#777]">
+                      {person.faces.length} face{person.faces.length === 1 ? "" : "s"}
+                    </span>
+                    <span className="text-[#666] text-xs">{open ? "▲" : "▼"}</span>
+                  </button>
+                  {open && (
+                    <div className="px-4 pb-4">
+                      <div className="flex flex-wrap gap-1.5 mb-3 max-h-[172px] overflow-y-auto">
+                        {person.faces.map((f) => (
+                          <button
+                            key={f.id}
+                            onClick={() => unnameFaces([f.id], f.id)}
+                            disabled={busyKey === f.id}
+                            title={`Not @${person.name} — remove this face`}
+                            className="relative rounded border border-[#3a3939] bg-[#111] shrink-0 group disabled:opacity-40"
+                            style={faceTileStyle(f.imageUrl, f.box, 52)}
+                          >
+                            <span className="absolute inset-0 flex items-center justify-center rounded bg-black/60 text-[#d86d6d] text-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                              ×
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => unnameFaces(person.faces.map((f) => f.id), person.personId)}
+                        disabled={busyKey === person.personId}
+                        className="text-xs text-[#777] hover:text-[#d86d6d] disabled:opacity-40"
+                      >
+                        {busyKey === person.personId ? "Removing…" : `Un-name all ${person.faces.length}`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       <datalist id="known-people">

@@ -94,14 +94,9 @@ re-runnable.**
 
 **WHERE TO RESUME — updated 2026-07-21.**
 1. **Faces → People — BUILT, in an open PR.** See the 2026-07-21 Recent Changes
-   entry. **Faces follow-ups before the first big naming pass:**
-   - **Un-name / undo (do this first).** A mis-named face permanently pollutes
-     that person's reference centroid and there's no in-app fix (only DB
-     surgery). This matters most during the *first* naming session, when early
-     names define the centroids everything else is matched against. Minimum
-     viable: an "Undo" on the just-named cluster + a route that resets
-     `person_id`. The `post_people` mis-tag is already reversible via normal
-     post editing; the centroid is not.
+   entry. **Un-name/undo is now included** (it was the one follow-up considered
+   a prerequisite for the first big naming pass — a mis-named face would
+   otherwise permanently pollute that person's reference centroid). Remaining:
    - **Post-deploy:** one `POST /api/init` (admin bearer) to stamp
      `user_version = 3` and create `media_faces` on prod. Until it runs, every
      `ensure*Schema()` re-runs its full (idempotent) DDL sweep on each cold
@@ -308,8 +303,17 @@ master after #59–#62. Suite 173 → 198.
   faces; the review page shows **every** face in a cluster, not a 4-crop sample;
   `personId` is sent when known (slug-collision merges); `Number.isFinite`
   descriptor guards; per-image detection errors no longer disable the session.
+- **Correction path (un-name).** Naming is the only step that's hard to walk
+  back — a wrong name folds that face's descriptor into the person's reference
+  centroid, degrading every future match. `POST /api/admin/faces/unname` returns
+  faces to the unnamed pool, and untags the person from a post **only** when
+  they have no remaining named face there **and** the junction row is
+  `source='auto'` — a hand-curated `'human'` tag is never removed. Surfaced two
+  ways: one-tap **Undo** after naming, and a **"Named faces" roster**
+  (`/api/admin/faces/people`) listing every person's confirmed faces so a wrong
+  one can be found and removed at any time, not just immediately.
 - **New tests.** `tests/faces.test.ts` (pure clustering/matching/BLOB) +
-  `tests/faces-routes.test.ts` (10 DB-level route tests against a throwaway
+  `tests/faces-routes.test.ts` (16 DB-level route tests against a throwaway
   local libSQL file — the first DB-touching test harness in the repo).
 
 ### 2026-07-13 session — date-discrepancy fix + local-first enrichment (10.1e)
