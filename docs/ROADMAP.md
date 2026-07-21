@@ -295,8 +295,8 @@ verified on prod.** The correctness core of Phase 10 is complete. Remaining:
 - **10.4 Features on banked data (optional)** — map view, dedup warnings,
   auto-trip albums, place/camera/date-range search, quality-ranked teasers.
   (Absorbs backlog: Search by date range, Filter by multiple tags/people,
-  Related posts, Download original.) **Place search shipped early (2026-07-21
-  branch)**: offline GeoNames reverse geocoding fills `media.place` at
+  Related posts, Download original.) **Place search shipped early (#61,
+  2026-07-21)**: offline GeoNames reverse geocoding fills `media.place` at
   upload/edit (+ `npm run backfill:geocode`), `posts_fts` indexes
   `place`/`captions`, and `/api/admin/suggest-tags` adds temporal-neighbor,
   place-derived, and title-contains compose suggestions (suggest-only, closed

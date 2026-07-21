@@ -17,19 +17,21 @@ feed refactor), Phase 13 (debt paydown: HEIC edit fix, dead-code removal, schema
 `user_version` guard, security hygiene). **11c (bank originals at upload) deferred
 → 10.3d.** The read-only backfill Indexer (10.3a) is built.
 
-**2026-07-21: shared action sheet + bulk tagging shipped (#59, #60 merged);
-place search + smarter tag suggestions in review.** The long-press Edit/Share
-sheet now exists on every caption surface (feed, On This Day, post page — never
-public token pages), single-photo post pages center smartly, and admins can
-multi-select feed posts to bulk-apply tags (instantly searchable). The current
-branch adds **offline reverse geocoding** (GeoNames dataset committed, no cloud
-calls): photo GPS → `media.place` at upload/edit + `npm run backfill:geocode`
-for the archive; `posts_fts` gains `place` + `captions` columns so "Cornwall"
-finds geotagged posts; and three new compose-time suggestion sources —
-temporal-neighbor tags (±48h), place-derived tags (+ explicit new-tag
-proposals), and live title-contains matching (`/api/admin/suggest-tags`,
-`src/lib/geo/*`, `src/lib/enrich/temporal.ts`). Suite 155 → 173. **Post-merge,
-Tom runs `npm run backfill:geocode` to place-tag existing photos.**
+**2026-07-21: shared action sheet, bulk tagging, and place search ALL shipped
+(#59, #60, #61 merged + deployed).** The long-press Edit/Share sheet now exists
+on every caption surface (feed, On This Day, post page — never public token
+pages), single-photo post pages center smartly, and admins can multi-select
+feed posts to bulk-apply tags (instantly searchable). **#61 added offline
+reverse geocoding** (GeoNames dataset committed, no cloud calls): photo GPS →
+`media.place` at upload/edit + `npm run backfill:geocode` for the archive;
+`posts_fts` gains `place` + `captions` columns so "Cornwall" finds geotagged
+posts; and three new compose-time suggestion sources — temporal-neighbor tags
+(±48h), place-derived tags (+ explicit new-tag proposals), and live
+title-contains matching (`/api/admin/suggest-tags`, `src/lib/geo/*`,
+`src/lib/enrich/temporal.ts`). Suite 155 → 173. **Next action is LOCAL, on
+Tom's Mac: `npm run backfill:geocode` (dry-run first) to place-tag existing
+photos — until it runs, only new uploads get place labels. `npm run
+backfill:local` (from #54) is also still unrun.**
 
 **2026-07-13: date-discrepancy fix + local-first enrichment shipped (#52, #53;
 #54 all merged).** Investigating a Fourth-of-July post that displayed the wrong day
@@ -118,17 +120,23 @@ archive backfill (`scripts/backfill-local-enrich.ts`, `npm run backfill:local`)
 does the same locally over old media and prints a read-only date-conflict report.
 
 ## Active Branch
-`master` — #52/#53/#54 all merged + deployed. Normal flow: short-lived branches,
-fast-forward merged, each push auto-deploys to production.
+`master` — everything through #61 merged + deployed. Normal flow: short-lived
+branches, squash-merged on Tom's explicit say-so, master auto-deploys to prod.
 
 ## Current Task
-**10.1e local-first enrichment shipped 2026-07-13 (#52, #53, #54 all merged).**
-Started from a real user report — a Fourth-of-July post displaying the wrong day —
-which uncovered two bugs and became the enrichment sub-stage the older docs
-deferred. See the 2026-07-13 Recent Changes entry for the full breakdown.
+**Run the local backfills on Tom's Mac (no code to write):**
+1. `npm run backfill:geocode -- --dry-run` → review → `npm run backfill:geocode`
+   — fills `media.place` from stored GPS via the offline dataset, then rebuilds
+   FTS transactionally (this rebuild also re-indexes historical bodies, closing
+   the old 12c `/api/init` TODO).
+2. `npm run backfill:local` (from #54, never run) — local OCR + phash over the
+   archive; prints a read-only date-conflict report.
+Both need `.env` with `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` (+ R2 vars for
+backfill:local). Idempotent, re-runnable, nothing leaves the machine except
+DB/R2 reads-writes. Then verify on prod: search "Cornwall".
 
-**Next build: faces → People**, then semantic search (10.5). Both local, free,
-private (in-browser models), building on the `useMediaEnrichment` pipeline.
+**Next build after that: faces → People**, then semantic search (10.5). Both
+local, free, private (in-browser models), on the `useMediaEnrichment` pipeline.
 
 **Cross-machine Phase 10.3 backfill is still PARKED — waiting on Tom, not code.**
 Needs source photos gathered across computers/apps for the *richer* Apple-Photos
@@ -207,7 +215,9 @@ None.
   autocomplete as the editor) → `POST /api/admin/posts/bulk-tag` (caps 100
   posts/10 tags, find-or-create by slug, `INSERT OR IGNORE` into `post_tags`,
   correct FTS reindex per post in one batch). Tags are searchable immediately.
-- **In review (this branch) — Part 2: place search + suggestion sources.**
+- **#61 — Part 2: place search + suggestion sources** (merged same day;
+  cold-reviewed by a pinned Fable agent, ship-after-fixes verdict, all fixes
+  applied — the FTS migration/rebuild paths are single transactional batches).
   - **Offline reverse geocoding**: `scripts/build-geo-dataset.ts` trims GeoNames
     (CC-BY 4.0, attribution in ARCHITECTURE.md) to
     `src/lib/geo/data/places.json.gz` (69,512 places, 1.14 MB);
