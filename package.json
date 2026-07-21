@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-face-models.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-face-models.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -24,6 +26,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@libsql/client": "^0.17.0",
+    "@vladmandic/face-api": "^1.7.15",
     "bcryptjs": "^3.0.3",
     "exifr": "^7.1.3",
     "heic2any": "^0.0.4",

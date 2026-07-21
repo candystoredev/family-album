@@ -19,6 +19,7 @@ import { captureSourceLabel, formatDisplayDate, isEstimatedDate } from "@/lib/da
 import {
   collectDateEvidence,
   collectTagSuggestions,
+  collectPeopleSuggestions,
   useMediaEnrichment,
   type EnrichableItem,
 } from "@/lib/enrich/useMediaEnrichment";
@@ -249,6 +250,7 @@ export default function EditPostPage() {
   );
 
   const tagSuggestions = useMemo(() => collectTagSuggestions(enrichments), [enrichments]);
+  const peopleSuggestions = useMemo(() => collectPeopleSuggestions(enrichments), [enrichments]);
 
   // ─── Load post data ───────────────────────────────────────────────────────
 
@@ -732,6 +734,7 @@ export default function EditPostPage() {
               onTagsChange={setSelectedTags}
               selectedPeople={selectedPeople}
               onPeopleChange={setSelectedPeople}
+              peopleSuggestions={peopleSuggestions}
               selectedAlbumIds={selectedAlbumIds}
               onAlbumIdsChange={setSelectedAlbumIds}
               disabled={isBusy}

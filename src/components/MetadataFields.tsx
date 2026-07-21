@@ -67,6 +67,9 @@ interface MetadataFieldsProps {
   tagSuggestions?: { name: string; isNew?: boolean }[];
   selectedPeople: string[];
   onPeopleChange: (v: string[]) => void;
+  /** Face-matched known people — tap to add. Closed-vocabulary (existing people
+   *  only), never auto-applied. */
+  peopleSuggestions?: string[];
   selectedAlbumIds: string[];
   onAlbumIdsChange: (v: string[]) => void;
   disabled?: boolean;
@@ -85,6 +88,7 @@ export default function MetadataFields({
   tagSuggestions,
   selectedPeople,
   onPeopleChange,
+  peopleSuggestions,
   selectedAlbumIds,
   onAlbumIdsChange,
   disabled = false,
@@ -169,6 +173,11 @@ export default function MetadataFields({
     ![...knownPeopleNames, ...selectedPeople].some(
       (n) => n.toLowerCase() === peopleFilter
     );
+
+  // Face-matched people still worth suggesting (not already picked).
+  const visiblePeopleSuggestions = (peopleSuggestions ?? []).filter(
+    (name) => !selectedPeople.some((p) => p.toLowerCase() === name.toLowerCase())
+  );
 
   return (
     <>
@@ -317,6 +326,22 @@ export default function MetadataFields({
             <span className="text-xs text-[#555] py-1">No people yet — type a name to add one.</span>
           )}
         </div>
+        {/* Face-matched people — tap to add; untapped suggestions are never saved */}
+        {!disabled && visiblePeopleSuggestions.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-[#7d7468]">In this photo</span>
+            {visiblePeopleSuggestions.map((name) => (
+              <button
+                key={name}
+                onClick={() => addPerson(name)}
+                className="px-2.5 py-1 rounded-full text-sm border border-[#3a3939] text-[#a39e93] hover:border-[#c2a467]/60 hover:text-[#c2a467] transition-colors"
+                title="Face matched to a known person — tap to add"
+              >
+                + @{name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Albums */}

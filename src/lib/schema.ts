@@ -351,8 +351,11 @@ export async function rebuildFtsIndex() {
 // Bump this whenever an ensure*Schema() gains new DDL that an already-current
 // DB must pick up on the lazy write path. v2 added the posts_fts `place` +
 // `captions` columns (ensureSearchSchema), so a prod DB stamped at v1 must
-// re-run the ensure sweep and migrate the FTS table.
-const SCHEMA_VERSION = 2;
+// re-run the ensure sweep and migrate the FTS table. v3 adds the Faces → People
+// schema (media_faces + media.faces_scanned_at, managed by ensureFacesSchema) —
+// a prod DB stamped at v2 would otherwise fast-path straight past that new DDL
+// and never create the table.
+const SCHEMA_VERSION = 3;
 
 let cachedUserVersion: number | null = null;
 
@@ -560,6 +563,60 @@ export async function ensureSearchSchema() {
   searchSchemaReady = true;
 }
 
+let facesSchemaReady = false;
+
+/**
+ * Lazily ensure the Faces → People schema exists (in-browser face clustering,
+ * local + private). One row per detected face in `media_faces`, holding the
+ * face box (normalized 0..1), its 128-d descriptor (BLOB of Float32), and a
+ * nullable `person_id` set only when a human names it (suggest-never-auto-apply,
+ * matching the tag pattern). `media.faces_scanned_at` marks which media have
+ * been through detection so the archive scanner can page through the backlog
+ * (and skip zero-face photos, which store no `media_faces` rows). Additive and
+ * idempotent — called by the faces API routes so the feature works on an
+ * already-deployed database without re-running /api/init.
+ */
+export async function ensureFacesSchema() {
+  if (facesSchemaReady) return;
+  if (await isSchemaCurrent()) {
+    facesSchemaReady = true;
+    return;
+  }
+  await db.execute(`CREATE TABLE IF NOT EXISTS media_faces (
+    id TEXT PRIMARY KEY,
+    media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+    post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    person_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+    bbox_x REAL NOT NULL,
+    bbox_y REAL NOT NULL,
+    bbox_w REAL NOT NULL,
+    bbox_h REAL NOT NULL,
+    descriptor BLOB NOT NULL,
+    detector_score REAL,
+    source TEXT NOT NULL DEFAULT 'auto',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
+  // `faces_scanned_at` is an additive column on `media`; ALTER throws if it
+  // already exists, so guard it.
+  try {
+    await db.execute(`ALTER TABLE media ADD COLUMN faces_scanned_at TEXT`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
+
+  for (const sql of [
+    `CREATE INDEX IF NOT EXISTS idx_media_faces_media_id ON media_faces(media_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_media_faces_person_id ON media_faces(person_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_media_faces_post_id ON media_faces(post_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_media_faces_scanned ON media(faces_scanned_at)`,
+  ]) {
+    await db.execute(sql);
+  }
+
+  facesSchemaReady = true;
+}
+
 export async function initializeSchema() {
   for (const sql of statements) {
     await db.execute(sql);
@@ -586,6 +643,10 @@ export async function initializeSchema() {
   // full apply genuinely cover the current 7-column shape even if that CREATE
   // ever no-ops on an existing table, so the SCHEMA_VERSION fast-path stays safe.
   await ensureSearchSchema();
+
+  // media_faces / media.faces_scanned_at live only in ensureFacesSchema() (like
+  // day_share_links above), so run it here too before stamping the version.
+  await ensureFacesSchema();
 
   await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   cachedUserVersion = SCHEMA_VERSION;

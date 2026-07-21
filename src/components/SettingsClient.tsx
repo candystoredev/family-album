@@ -504,6 +504,18 @@ function AdminSettings({
     <>
     <section>
       <h2 className={sectionLabel}>Admin</h2>
+      <Link
+        href="/admin/people/faces"
+        className="flex items-center justify-between rounded-[18px] bg-[#1c1a18] border border-[#2b2722] p-5 mb-4 hover:border-[#c2a467]/50 transition-colors"
+      >
+        <div>
+          <div className="text-base font-semibold text-[#e5e0d6]">Faces → People</div>
+          <div className="text-[13px] text-[#7d7468] mt-0.5">
+            Find faces in your photos and name them — all on-device
+          </div>
+        </div>
+        <span className="text-[#8a774d] text-xl">→</span>
+      </Link>
       <div className="rounded-[18px] bg-[#1c1a18] border border-[#2b2722] p-5">
         {/* Daily memories master toggle */}
         <div className="flex items-center gap-[14px] pb-[18px] border-b border-[#2b2722]">
