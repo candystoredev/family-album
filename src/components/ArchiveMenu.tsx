@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTimelineStyle } from "@/lib/useTimelineStyle";
+import { useSelectModeActive } from "@/lib/selectModeBroadcast";
 
 const MONTH_NAMES = [
   "", "January", "February", "March", "April", "May", "June",
@@ -66,6 +67,7 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
   const [sidebarFits, setSidebarFits] = useState(false);
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const [timelineStyle] = useTimelineStyle();
+  const selectModeActive = useSelectModeActive();
   const lastScrollY = useRef(0);
   const accumulatedDelta = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -203,6 +205,13 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
     if (!isDesktop) handleClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // Feed's bulk-select bottom bar overlaps the FAB — close any open panel the
+  // moment select mode starts (the FAB itself is hidden below, in the render).
+  useEffect(() => {
+    if (selectModeActive) handleClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectModeActive]);
 
   // Close on Escape key (mobile overlay)
   useEffect(() => {
@@ -705,7 +714,9 @@ export default function ArchiveMenu({ isAdmin, isLoggedIn, buildVersion }: Archi
       <button
         onClick={open ? handleClose : handleOpen}
         className={`fixed bottom-6 right-6 z-50 w-[60px] h-[60px] rounded-full bg-[#c2a467] flex items-center justify-center transition-all duration-300 active:scale-95 [@media(hover:hover)]:lg:hidden ${
-          open
+          selectModeActive
+            ? "opacity-0 translate-y-4 pointer-events-none"
+            : open
             ? "opacity-100 translate-y-0"
             : fabVisible
             ? "opacity-100 translate-y-0"
