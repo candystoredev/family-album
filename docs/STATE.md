@@ -28,10 +28,8 @@ reverse geocoding** (GeoNames dataset committed, no cloud calls): photo GPS →
 posts; and three new compose-time suggestion sources — temporal-neighbor tags
 (±48h), place-derived tags (+ explicit new-tag proposals), and live
 title-contains matching (`/api/admin/suggest-tags`, `src/lib/geo/*`,
-`src/lib/enrich/temporal.ts`). Suite 155 → 173. **Next action is LOCAL, on
-Tom's Mac: `npm run backfill:geocode` (dry-run first) to place-tag existing
-photos — until it runs, only new uploads get place labels. `npm run
-backfill:local` (from #54) is also still unrun.**
+`src/lib/enrich/temporal.ts`). Suite 155 → 173. **Both local backfills have since been
+RUN on Tom's Mac (2026-07-21) — see Current Task below.**
 
 **2026-07-13: date-discrepancy fix + local-first enrichment shipped (#52, #53;
 #54 all merged).** Investigating a Fourth-of-July post that displayed the wrong day
@@ -120,20 +118,37 @@ archive backfill (`scripts/backfill-local-enrich.ts`, `npm run backfill:local`)
 does the same locally over old media and prints a read-only date-conflict report.
 
 ## Active Branch
-`master` — everything through #61 merged + deployed. Normal flow: short-lived
+`master` — everything through #64 merged + deployed. Normal flow: short-lived
 branches, squash-merged on Tom's explicit say-so, master auto-deploys to prod.
 
 ## Current Task
-**Run the local backfills on Tom's Mac (no code to write):**
-1. `npm run backfill:geocode -- --dry-run` → review → `npm run backfill:geocode`
-   — fills `media.place` from stored GPS via the offline dataset, then rebuilds
-   FTS transactionally (this rebuild also re-indexes historical bodies, closing
-   the old 12c `/api/init` TODO).
-2. `npm run backfill:local` (from #54, never run) — local OCR + phash over the
-   archive; prints a read-only date-conflict report.
-Both need `.env` with `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` (+ R2 vars for
-backfill:local). Idempotent, re-runnable, nothing leaves the machine except
-DB/R2 reads-writes. Then verify on prod: search "Cornwall".
+**Local backfills on Tom's Mac — BOTH DONE 2026-07-21. Next build: faces → People.**
+1. ~~`npm run backfill:geocode`~~ **RUN on prod 2026-07-21.** 203 media rows got
+   `place` from stored GPS via the offline dataset, 0 unresolved; the script's
+   transactional FTS rebuild followed (2950 rows), which also re-indexed
+   historical bodies and **closed the old 12c `POST /api/init` TODO**. Verified:
+   labels are the nearest town to each real coordinate (0.9–16 km) and 12 posts
+   now match "Cornwall" by place alone. Re-run it after 10.3 lands GPS on more
+   photos — but see the **stale-place gotcha** under 10.3b in ROADMAP.md first.
+2. ~~`npm run backfill:local`~~ (from #54) **RUN on prod 2026-07-21**: 7153 media
+   processed, **6898 phashes written — `media.phash` coverage is now 100%
+   (7153/7153)** — and 7114 OCR payloads stored. The 39 rows without OCR are 32
+   videos + 7 photos. **The date-conflict report came back clean: no conflicts
+   between photo text and shown dates**, so there was nothing for Tom to action.
+   Took ~4h at ~30 media/min. One-and-done: it skips media that already have a
+   phash and OCR evidence, and 10.3 doesn't alter thumbnails, so it won't need
+   repeating after the Apple-Photos backfill. **The 100% phash coverage is what
+   10.3b's matcher needs** — Tool A's phashes are byte-identical by design, so
+   every archive photo is now matchable against the family's library.
+   (Harmless noise in the log: tesseract prints "Image too small to scale!!" on
+   thin image strips; it doesn't affect results.)
+
+Credentials note: `.env.local` in every checkout is **dummy dev values** (URL
+`libsql://localhost`) — the backfills fail with an EPROTO/SSL error until a real
+`.env` exists. Working pattern: `turso auth login`, then mint a self-expiring
+token (`turso db tokens create thehoecks --expiration 3d`) rather than copying
+the permanent prod secrets onto the laptop. R2 needs an equivalent read-only,
+short-TTL token. Nothing leaves the machine except DB/R2 reads-writes.
 
 **Next build after that: faces → People**, then semantic search (10.5). Both
 local, free, private (in-browser models), on the `useMediaEnrichment` pipeline.
@@ -158,13 +173,13 @@ covers OCR + phash for old posts, so this track is now the additive library data
 - **V2 backlog:** category management, bulk multi-select ops, video thumb-frame
   picker, favorites-heart-in-action-sheet, slide-out redesign, analytics, staging.
 
-**Post-deploy TODO (Tom):** run one `POST /api/init` (admin bearer) to rebuild
-FTS so historical bodies erased by prior edits get re-indexed (12c). Then smoke
-the feed refactor (12d), GPS strip on a new upload (11d), and share revoke (11e).
-After the place-search PR merges: `npm run backfill:geocode` (local, no cloud)
-to fill `media.place` for existing GPS photos — until then only new uploads get
-place labels. Still pending from #53/#54: set `ANTHROPIC_API_KEY` in Vercel if
-cloud vision is wanted, and run `npm run backfill:local` once.
+**Post-deploy TODO (Tom):** ~~run one `POST /api/init` to rebuild FTS (12c)~~ and
+~~`npm run backfill:geocode`~~ — **both DONE 2026-07-21**: the geocode backfill's
+own transactional FTS rebuild re-indexed the historical bodies, so the `/api/init`
+run is no longer needed. ~~`npm run backfill:local`~~ **also DONE 2026-07-21**
+(100% phash coverage; conflict report clean). Still open: smoke the feed refactor
+(12d), GPS strip on a new upload (11d), and share revoke (11e). Still pending from
+#53: set `ANTHROPIC_API_KEY` in Vercel if cloud vision is wanted.
 
 Prior task, still true: **Phase 10 — Rich Media Metadata & Enrichment** (see
 `docs/rich-metadata-plan.md`). 10.0, 10.1 (a–d), and 10.2 (a–c) all shipped &
